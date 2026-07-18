@@ -1,0 +1,92 @@
+schema_version: 1
+
+project:
+  id: hg002_grch37_sv_benchmark
+  run_id: hg002_clr_baseline
+
+sample:
+  id: HG002
+  sex: male
+  technology: pacbio_clr
+  bam: /home/zhj/Experiment/SVDF-main/data/HG002.Sequel.10kb.pbmm2.hs37d5.whatshap.haplotag.RTG.10x.trio.bam
+
+reference:
+  id: hs37d5
+  fasta: resources/references/hs37d5.fa
+  fai: resources/references/hs37d5.fa.fai
+  dict: resources/references/hs37d5.dict
+
+pangenome:
+  id: hs37d5_1kg_phase3_sv_v1
+  backbone: hs37d5
+  population_panel: 1000g_phase3_grch37_sv
+  truth_leakage_policy: exclude_hg002_truth
+  build_graph_assets: true
+  allele_namespace: PGSV
+
+truth:
+  primary: giab_hg002_grch37_v5_0q
+  secondary:
+    - giab_hg002_grch37_v0_6_legacy
+
+catalogs:
+  truthsets: config/truthsets.yaml
+  stratifications: config/stratifications.yaml
+  score_weights: config/score_weights.yaml
+  metric_dictionary: config/metric_dictionary.yaml
+
+execution:
+  tracks:
+    - caller_only_shared_alignment
+    - end_to_end_from_reads
+  official_score_mode: end_to_end_from_reads
+  use_conda: true
+  use_apptainer: false
+  keep_going: true
+  benchmark_repeats: 1
+  random_seed: 20260716
+
+development:
+  synthetic_mode: false
+  canonical_fastq: null
+  population_vcf: null
+  truth_vcf: null
+  benchmark_bed: null
+  evaluator_fixture_dir: null
+  allow_missing_bam: false
+
+caller_only:
+  alignment_kind: bam
+  alignment_group_id: hs37d5_pbmm2_clr_bam_v1
+  shared_bam: /home/zhj/Experiment/SVDF-main/data/HG002.Sequel.10kb.pbmm2.hs37d5.whatshap.haplotag.RTG.10x.trio.bam
+  shared_graph_alignments: {}
+
+score:
+  profile: pgbench_v1
+  final_score_name: PGBenchScore
+  produce_ranking: false
+
+obsidian:
+  enabled: true
+  vault_root: null
+  vault_root_env: PGBENCH_OBSIDIAN_VAULT
+  project_relpath: Research/hg002-grch37-pangenome-sv-benchmark
+  canonical_note: Writing/HG002-GRCh37泛基因组SV-Benchmark设计规范.md
+  binding_file: .claude/project-memory/hg002-grch37-pangenome-sv-benchmark.md
+
+# Phase 1 intentionally starts with no executable tool modules. Move a tool ID
+# from planned_tools to enabled only after its module and manifest are present.
+tools:
+  enabled: []
+  planned_tools:
+    - sniffles2
+    - cutesv
+    - pbsv
+    - svim
+    - sniffles2_force
+    - kanpig
+    - svjedi_graph
+    - vg
+    - pangenie
+
+external_plugins: []

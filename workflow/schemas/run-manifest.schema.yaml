@@ -1,0 +1,271 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://pgbench.local/schemas/run-manifest.schema.yaml
+title: PGBench tool run manifest
+type: object
+additionalProperties: false
+required:
+  - manifest_schema_version
+  - run_id
+  - sample_id
+  - tool
+  - command
+  - parameters
+  - environment
+  - inputs
+  - reference
+  - pangenome
+  - candidate_panel
+  - official_score_mode
+  - alignment_kind
+  - alignment_group_id
+  - billable_stages
+  - resources
+  - started_at
+  - finished_at
+  - exit_code
+  - status
+  - outputs
+properties:
+  manifest_schema_version:
+    const: 1
+  run_id:
+    $ref: "#/$defs/identifier"
+  sample_id:
+    $ref: "#/$defs/identifier"
+  tool:
+    type: object
+    additionalProperties: false
+    required: [id, version, source]
+    properties:
+      id:
+        $ref: "#/$defs/identifier"
+      version:
+        type: string
+        minLength: 1
+      source:
+        enum: [builtin, external]
+      manifest_sha256:
+        $ref: "#/$defs/sha256"
+  command:
+    type: array
+    minItems: 1
+    items:
+      type: string
+  parameters:
+    type: object
+    additionalProperties: true
+  environment:
+    type: object
+    additionalProperties: false
+    required:
+      - conda_environment_export
+      - conda_lock_sha256
+      - container_uri
+      - container_digest
+    properties:
+      conda_environment_export:
+        $ref: "#/$defs/pathOrNull"
+      conda_lock_sha256:
+        $ref: "#/$defs/sha256OrNull"
+      container_uri:
+        $ref: "#/$defs/stringOrNull"
+      container_digest:
+        $ref: "#/$defs/stringOrNull"
+    anyOf:
+      - properties:
+          conda_environment_export:
+            type: string
+          conda_lock_sha256:
+            $ref: "#/$defs/sha256"
+        required: [conda_environment_export, conda_lock_sha256]
+      - properties:
+          container_uri:
+            type: string
+          container_digest:
+            type: string
+        required: [container_uri, container_digest]
+  inputs:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/fileAsset"
+  reference:
+    type: object
+    additionalProperties: false
+    required: [id, fasta_sha256]
+    properties:
+      id:
+        const: hs37d5
+      fasta_sha256:
+        $ref: "#/$defs/sha256"
+  pangenome:
+    type: object
+    additionalProperties: false
+    required:
+      - manifest_id
+      - manifest_sha256
+      - panel_sha256
+      - graph_assets
+      - allele_namespace
+    properties:
+      manifest_id:
+        $ref: "#/$defs/identifier"
+      manifest_sha256:
+        $ref: "#/$defs/sha256"
+      panel_sha256:
+        $ref: "#/$defs/sha256"
+      graph_assets:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: "#/$defs/namedAsset"
+      allele_namespace:
+        const: PGSV
+  candidate_panel:
+    type: object
+    additionalProperties: false
+    required: [id, sha256]
+    properties:
+      id:
+        $ref: "#/$defs/identifier"
+      sha256:
+        $ref: "#/$defs/sha256"
+  official_score_mode:
+    enum:
+      - caller_only_shared_alignment
+      - end_to_end_from_reads
+  alignment_kind:
+    oneOf:
+      - enum: [bam, cram, gaf, gam, other]
+      - type: "null"
+  alignment_group_id:
+    oneOf:
+      - $ref: "#/$defs/identifier"
+      - type: "null"
+  billable_stages:
+    type: array
+    minItems: 1
+    uniqueItems: true
+    items:
+      enum:
+        - prepare_assets
+        - index
+        - map
+        - discover
+        - assemble
+        - integrate
+        - call
+        - genotype
+        - postprocess
+  resources:
+    type: object
+    additionalProperties: false
+    required: [threads, memory_mb, disk_mb, requested_runtime_minutes]
+    properties:
+      threads:
+        type: integer
+        minimum: 1
+      memory_mb:
+        type: integer
+        minimum: 1
+      disk_mb:
+        type: integer
+        minimum: 1
+      requested_runtime_minutes:
+        type: integer
+        minimum: 1
+  started_at:
+    type: string
+    format: date-time
+  finished_at:
+    type: string
+    format: date-time
+  exit_code:
+    type: integer
+  status:
+    enum:
+      - completed
+      - runtime_failed
+      - invalid_output
+      - incompatible_output
+      - provenance_failed
+      - mode_contract_violation
+      - not_applicable
+  outputs:
+    type: array
+    items:
+      $ref: "#/$defs/fileAsset"
+
+allOf:
+  - if:
+      properties:
+        official_score_mode:
+          const: caller_only_shared_alignment
+      required: [official_score_mode]
+    then:
+      properties:
+        alignment_kind:
+          type: string
+        alignment_group_id:
+          type: string
+  - if:
+      properties:
+        status:
+          const: completed
+      required: [status]
+    then:
+      properties:
+        exit_code:
+          const: 0
+        outputs:
+          minItems: 1
+
+$defs:
+  identifier:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+  sha256:
+    type: string
+    pattern: "^[a-f0-9]{64}$"
+  sha256OrNull:
+    oneOf:
+      - $ref: "#/$defs/sha256"
+      - type: "null"
+  pathOrNull:
+    oneOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  stringOrNull:
+    oneOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  fileAsset:
+    type: object
+    additionalProperties: false
+    required: [path, size_bytes, sha256, read_only]
+    properties:
+      path:
+        type: string
+        minLength: 1
+      size_bytes:
+        type: integer
+        minimum: 0
+      sha256:
+        $ref: "#/$defs/sha256"
+      read_only:
+        type: boolean
+  namedAsset:
+    type: object
+    additionalProperties: false
+    required: [id, format, sha256]
+    properties:
+      id:
+        $ref: "#/$defs/identifier"
+      format:
+        enum: [vg, xg_gbwt, svjedi, gaf, gam, other]
+      sha256:
+        $ref: "#/$defs/sha256"

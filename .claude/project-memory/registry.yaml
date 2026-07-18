@@ -3,7 +3,7 @@ projects:
     project_id: hg002-grch37-pangenome-sv-benchmark
     project_slug: hg002-grch37-pangenome-sv-benchmark
     repo_roots:
-      - /Users/wanghao/Documents/Codex/2026-07-16/referenced-chatgpt-conversation-this-is-untrusted
+      - /Users/wanghao/Desktop/lzt/hg002-grch37-pangenome-sv-benchmark
     vault_name: memory
     vault_root: /Users/wanghao/Desktop/risefl_mvp/memory/Research/hg002-grch37-pangenome-sv-benchmark
     hub_note: Research/hg002-grch37-pangenome-sv-benchmark/00-Hub.md
@@ -11,5 +11,5 @@ projects:
     auto_sync: true
     note_language: zh
     canonical_note: Research/hg002-grch37-pangenome-sv-benchmark/Writing/HG002-GRCh37泛基因组SV-Benchmark设计规范.md
-    code_state: design-only
-    updated_at: 2026-07-16T11:57:20Z
+    code_state: partial
+    updated_at: 2026-07-19T00:00:00Z

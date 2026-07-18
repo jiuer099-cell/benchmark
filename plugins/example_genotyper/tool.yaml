@@ -1,0 +1,86 @@
+interface_version: 1
+id: example_genotyper
+name: Deterministic PGBench example genotyper
+version: 0.1.0
+source: external
+paradigm: genotyping_only
+
+tasks:
+  - genotyping
+  - postprocess
+
+inputs:
+  reads: long_fastq
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: false
+    accepted_formats:
+      - vg
+      - xg_gbwt
+  shared_alignment:
+    required: false
+    accepted_formats:
+      - bam
+  read_sequences_auxiliary: false
+
+capabilities:
+  technology:
+    - pacbio_clr
+  svtypes:
+    - DEL
+    - INS
+    - DUP
+    - INV
+    - CNV
+  phasing: false
+  novel_discovery: false
+  allele_linkage_output: none
+  allele_namespace:
+    - PGSV
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: untrusted
+  sandbox_backend: none
+
+supported_modes:
+  caller_only_shared_alignment:
+    required_inputs:
+      - shared_alignment
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    optional_inputs: []
+    forbidden_inputs:
+      - canonical_fastq
+      - haplotype_fastq
+      - original_input_bam
+    billable_stages:
+      - genotype
+      - postprocess
+  end_to_end_from_reads:
+    required_inputs:
+      - canonical_fastq
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    optional_inputs: []
+    forbidden_inputs:
+      - original_input_bam
+      - shared_alignment
+      - haplotype_fastq
+    billable_stages:
+      - genotype
+      - postprocess
+
+outputs:
+  vcf: raw/calls.vcf.gz
+  candidate_output_contract: all_sites
+  absence_semantics: no_call

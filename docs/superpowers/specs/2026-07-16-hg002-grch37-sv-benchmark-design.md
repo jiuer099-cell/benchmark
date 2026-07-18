@@ -2,7 +2,7 @@
 
 日期：2026-07-16
 
-状态：修订后待确认
+状态：已确认，进入实现阶段
 
 工作流：Snakemake 9
 
@@ -10,6 +10,38 @@
 
 默认输入 BAM：
 `/home/zhj/Experiment/SVDF-main/data/HG002.Sequel.10kb.pbmm2.hs37d5.whatshap.haplotag.RTG.10x.trio.bam`
+
+## 0. 当前实现快照
+
+截至 2026-07-19，仓库已完成 Phase 1 synthetic MVP，并通过本地可执行验证：
+
+- `workflow/rule-registry.yaml` 登记 53 个规范 rule/template；
+- synthetic DAG 实际执行 14 个带命令的 rule 和 1 个聚合 target；
+- benchmark 在当前 Snakemake job 内实际启动
+  `plugins/example_genotyper/run.py`，不接收预计算 VCF；
+- 8 个 pre-score job 以及评分/封存链路的 manifest/log/benchmark 完整率为 100%，hash lineage 无缺失、无环；
+- 已实现 pangenome panel、稳定 `PGSV_*` allele ID、盲化 challenge panel、VCF 标准化、
+  allele linkage、标准 metrics 合约、固定 100-point 评分、原子 score seal、无排名长表/报告和 Obsidian canonical-note sync/check；
+- 外部插件完整代码包进入 DAG 指纹且可声明自定义嵌套 raw VCF；失败重跑会恢复可信输出并按内容 hash/size 归档；
+- provenance 会拒绝混合 run/config/profile/truth/context，ratio 会复核分子/分母语义，报告与汇总由 hash 绑定最终封存 manifest；
+- 当前 synthetic evaluator 使用固定 fixture，只用于接口与计分回归测试。示例得分为
+  `78.06 / 100`、状态 `provisional`；177 个本地测试通过。其中环境锁尚未冻结，因此 traceability 为 `4 / 5`。
+  该数字不是 HG002 生物学结论，也不能代替正式 Truvari/Aardvark/vcfdist 运行；
+- 真实 HG002 BAM preflight、冻结 truth/panel 下载、三个真实 evaluator、内置工具模块、
+  Conda lock/container digest 与 Linux/HPC 全基因组验收仍属于后续阶段。
+
+当前实现事实源包括：
+
+```text
+Snakefile
+workflow/rules/*.smk
+workflow/modules/generic_external/Snakefile
+workflow/scripts/*.py
+workflow/rule-registry.yaml
+config/score_weights.yaml
+plugins/example_genotyper/
+tests/fixtures/synthetic/
+```
 
 ## 1. 目标
 
@@ -745,6 +777,7 @@ Python `script:`、shell、wrapper 和外部插件都必须经过同一 runner�
 | `build_blinded_challenge_panel` | panel、hidden ledger、seed | blinded VCF | 工具可见候选集 |
 | `audit_challenge_panel` | blinded VCF、hidden ledger | leakage/QC JSON | 检查负位点与盲化 |
 | `tool__{tool}__preflight` | tool manifest、available assets | compatibility JSON | 工具适用性 |
+| `tool__{tool}__execute` | validated manifest、mode-authorized assets | raw VCF、attempt、resolved inputs | 通用外部 runner 的具体执行 rule |
 | `tool__{tool}__prepare_assets` | pangenome manifest | tool asset recipe | 工具特有资产准备 |
 | `tool__{tool}__index` | reference/graph/panel | tool index | end-to-end 计费 stage |
 | `tool__{tool}__map` | canonical reads、tool index | tool alignment | end-to-end mapping |
@@ -757,6 +790,7 @@ Python `script:`、shell、wrapper 和外部插件都必须经过同一 runner�
 | `tool__{tool}__validate_raw` | raw VCF | validation JSON | 输出契约门禁 |
 | `canonicalize_vcf` | raw VCF、reference | canonical VCF | 公共可逆标准化 |
 | `link_pangenome_alleles` | canonical VCF、allele ledger | linked VCF/TSV | 稳定 allele linkage |
+| `build_rule_lineage` | pre-score manifests | lineage JSON/TSV | 评分前哈希 lineage |
 | `make_truvari_view` | linked VCF | Truvari view | evaluator 专用视图 |
 | `make_aardvark_view` | linked VCF | Aardvark view | evaluator 专用视图 |
 | `make_vcfdist_view` | linked VCF | vcfdist view | evaluator 专用视图 |
@@ -773,8 +807,9 @@ Python `script:`、shell、wrapper 和外部插件都必须经过同一 runner�
 | `compute_pgbench_score` | weighted metrics、resource、audit | score/point breakdown | 唯一数值总分 |
 | `finalize_score_provenance` | score、score manifest、ancestor lineage | final lineage/audit | 封装正式 score package |
 | `render_report` | finalized score package | HTML/TSV/JSON | 展示，不反向影响得分 |
+| `render_report_index` | tool HTML cards | no-ranking index | 多工具导航，不生成排名 |
 | `check_obsidian_sync` | repo/KB hashes | sync check JSON | 只读、独立于 BAM |
-| `sync_obsidian_design` | repo design、binding | canonical note | 原子同步，不进入得分 |
+| `sync_obsidian_design` | repo design、binding、旧 note hash | sync record（含新 note hash） | 原子更新 canonical note，不进入得分 |
 
 工具只实例化其 manifest 声明的 stage，但生成后的
 `results/provenance/resolved-rule-registry.{json,tsv}` 必须列出每个 concrete rule/job、active/inactive
@@ -2009,7 +2044,8 @@ repo_state_sha256 =
 第一版代码应提供：
 
 ```text
-scripts/sync_obsidian_design.py
+workflow/scripts/sync_obsidian_design.py
+workflow/scripts/check_obsidian_sync.py
 snakemake sync_obsidian_design
 snakemake check_obsidian_sync
 ```

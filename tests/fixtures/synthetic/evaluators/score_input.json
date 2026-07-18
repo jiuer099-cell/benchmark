@@ -1,0 +1,59 @@
+{
+  "tuple": {
+    "run_id": "synthetic_smoke",
+    "sample": "HG002",
+    "tool": "example_genotyper",
+    "official_score_mode": "end_to_end_from_reads",
+    "primary_truth_profile": "giab_hg002_grch37_v5_0q"
+  },
+  "score_profile": "pgbench_v1",
+  "evaluation_mode": "synthetic_smoke",
+  "eligibility_status": "eligible",
+  "infrastructure_valid": true,
+  "evaluators": {
+    "truvari": {
+      "overall_event_f1": 0.82,
+      "svtype_macro_f1": 0.78,
+      "length_macro_f1": 0.76,
+      "exact_gt_concordance": 0.80,
+      "fidelity": 0.88,
+      "difficult_context_f1": 0.70
+    },
+    "aardvark": {
+      "exact_haplotype_f1": 0.79,
+      "partial_credit_f1": 0.86,
+      "exact_gt_concordance": 0.78,
+      "complex_cluster_f1": 0.68,
+      "allele_sequence_fidelity": 0.84
+    },
+    "vcfdist": {
+      "representation_f1": 0.75,
+      "gt_concordance": 0.77,
+      "phase_accuracy": 0.0,
+      "complex_consistency": 0.72,
+      "eligible_coverage": 0.74
+    }
+  },
+  "pangenome": {
+    "in_panel_gt_macro_f1": 0.79,
+    "allele_link_precision": 0.90,
+    "allele_link_coverage": 0.85,
+    "population_af_macro_f1": 0.74,
+    "graph_complexity_macro_f1": 0.69,
+    "difficult_context_macro_f1": 0.70,
+    "out_of_panel_truth_f1": 0.55
+  },
+  "resources": {
+    "wall_time_hours": 0.02,
+    "peak_rss_gib": 0.1,
+    "disk_peak_gib": 0.01,
+    "cpu_hours": 0.01
+  },
+  "traceability": {
+    "manifest_completeness": 1.0,
+    "hash_lineage_complete": true,
+    "environment_complete": true,
+    "run_context_complete": true,
+    "core_provenance_valid": true
+  }
+}

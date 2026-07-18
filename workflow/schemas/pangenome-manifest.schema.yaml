@@ -1,0 +1,91 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://pgbench.local/schemas/pangenome-manifest.schema.yaml
+title: PGBench pangenome semantic asset manifest
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - pangenome_id
+  - backbone_reference
+  - population_sources
+  - allele_id_namespace
+  - truth_samples_excluded
+  - panel_vcf
+  - allele_ledger
+  - graph_build_recipe_sha256
+  - generated_at
+properties:
+  schema_version:
+    const: 1
+  pangenome_id:
+    $ref: "#/$defs/identifier"
+  backbone_reference:
+    $ref: "#/$defs/assetWithId"
+  population_sources:
+    type: array
+    minItems: 1
+    uniqueItems: true
+    items:
+      $ref: "#/$defs/assetWithId"
+  allele_id_namespace:
+    const: PGSV
+  truth_samples_excluded:
+    type: array
+    minItems: 1
+    uniqueItems: true
+    contains:
+      const: HG002
+    items:
+      $ref: "#/$defs/identifier"
+  panel_vcf:
+    type: object
+    additionalProperties: false
+    required: [path, sha256, record_count]
+    properties:
+      path:
+        $ref: "#/$defs/nonEmptyPath"
+      sha256:
+        $ref: "#/$defs/sha256"
+      record_count:
+        type: integer
+        minimum: 1
+  allele_ledger:
+    type: object
+    additionalProperties: false
+    required: [path, sha256]
+    properties:
+      path:
+        $ref: "#/$defs/nonEmptyPath"
+      sha256:
+        $ref: "#/$defs/sha256"
+  graph_build_recipe_sha256:
+    oneOf:
+      - $ref: "#/$defs/sha256"
+      - type: "null"
+  generated_at:
+    type: string
+    format: date-time
+
+$defs:
+  identifier:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+  nonEmptyPath:
+    type: string
+    minLength: 1
+  sha256:
+    type: string
+    pattern: "^[a-f0-9]{64}$"
+  assetWithId:
+    type: object
+    additionalProperties: false
+    required: [id, path, sha256]
+    properties:
+      id:
+        $ref: "#/$defs/identifier"
+      path:
+        $ref: "#/$defs/nonEmptyPath"
+      sha256:
+        $ref: "#/$defs/sha256"
