@@ -11,7 +11,7 @@ from snapshot_run_context import capture_run_context  # noqa: E402
 
 def test_run_context_records_dirty_state_and_profile_hash() -> None:
     root = Path(__file__).resolve().parents[2]
-    profile = root / "config" / "score_weights.yaml"
+    profile = root / "config" / "consensus_scoring.yaml"
     context = capture_run_context(
         repo_root=root,
         score_profile=profile,

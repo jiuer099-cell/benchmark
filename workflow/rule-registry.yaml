@@ -49,7 +49,7 @@ rules:
     resource_class: local_medium
 
   - id: prepare_reference
-    description: Prepare the hs37d5 FASTA, index, and sequence dictionary.
+    description: Prepare the GRCh38 FASTA, index, and sequence dictionary.
     phase: reference
     kind: core
     inputs: [reference_source]
@@ -97,7 +97,7 @@ rules:
     resource_class: local_medium
 
   - id: prepare_stratifications
-    description: Normalize GRCh37 stratification BED files.
+    description: Normalize GRCh38 stratification BED files.
     phase: truth
     kind: core
     inputs: [stratification_sources, reference_fai]
@@ -161,7 +161,7 @@ rules:
     resource_class: download
 
   - id: normalize_population_panel
-    description: Normalize the population panel against hs37d5.
+    description: Normalize the population panel against GRCh38.
     phase: pangenome
     kind: core
     inputs: [population_source_vcf, reference_fasta]

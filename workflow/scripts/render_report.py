@@ -245,7 +245,7 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256",
         "evaluation_mode",
         "score_status",
-        "PGBenchScore",
+        "ConsensusScore",
     ]
     row = {
         **tuple_key,
@@ -253,8 +253,8 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256": score["score_profile_sha256"],
         "evaluation_mode": score["evaluation_mode"],
         "score_status": score["score_status"],
-        "PGBenchScore": (
-            "" if score["pgbench_score"] is None else score["pgbench_score"]
+        "ConsensusScore": (
+            "" if score.get("consensus_score", score.get("pgbench_score")) is None else score.get("consensus_score", score.get("pgbench_score"))
         ),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -274,9 +274,9 @@ def _write_breakdown_tsv(path: Path, score: Mapping[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["component", "points"])
+        writer.writerow(["category", "count"])
         for component, points in sorted(breakdown.items()):
-            writer.writerow([component, f"{float(points):.12g}"])
+            writer.writerow([component, int(points)])
     temporary.replace(path)
 
 
@@ -284,8 +284,8 @@ def _html(score: Mapping[str, Any]) -> str:
     tuple_key = score["tuple_key"]
     score_value = (
         "not available"
-        if score["pgbench_score"] is None
-        else f"{float(score['pgbench_score']):.2f}"
+        if score.get("consensus_score", score.get("pgbench_score")) is None
+        else f"{float(score.get('consensus_score', score.get('pgbench_score'))):.2f}"
     )
     point_rows = "\n".join(
         f"<tr><td>{escape(component)}</td><td>{float(points):.4f}</td></tr>"
@@ -295,7 +295,7 @@ def _html(score: Mapping[str, Any]) -> str:
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>PGBench score card: {escape(str(tuple_key["tool"]))}</title>
+  <title>PGBench consensus card: {escape(str(tuple_key["tool"]))}</title>
   <style>
     body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 72rem; }}
     table {{ border-collapse: collapse; width: 100%; }}
@@ -305,7 +305,7 @@ def _html(score: Mapping[str, Any]) -> str:
   </style>
 </head>
 <body>
-  <h1>PGBench tool score card</h1>
+  <h1>PGBench three-evaluator consensus card</h1>
   <p class="notice">This report contains one score for one tool tuple. It does
   not rank tools or calculate a run-level aggregate score.</p>
   <dl>
@@ -317,10 +317,11 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
-  <p class="score">PGBenchScore: {score_value} / 100</p>
-  <h2>Point breakdown</h2>
+  <p class="score">ConsensusScore: {score_value} / 100</p>
+  <p>All three correct: {score.get("consensus_counts", {}).get("all_three_correct", "")}; exactly two: {score.get("consensus_counts", {}).get("exactly_two_correct", "")}; exactly one: {score.get("consensus_counts", {}).get("exactly_one_correct", "")}; none: {score.get("consensus_counts", {}).get("none_correct", "")}.</p>
+  <h2>Consensus counts</h2>
   <table>
-    <thead><tr><th>Component</th><th>Points</th></tr></thead>
+    <thead><tr><th>Category</th><th>Count</th></tr></thead>
     <tbody>{point_rows}</tbody>
   </table>
 </body>

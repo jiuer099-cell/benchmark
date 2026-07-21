@@ -381,7 +381,10 @@ def aggregate(
                 "score_profile_sha256": score.get("score_profile_sha256"),
                 "evaluation_mode": score.get("evaluation_mode"),
                 "score_status": score.get("score_status"),
-                "PGBenchScore": score.get("pgbench_score"),
+                "ConsensusScore": score.get("consensus_score", score.get("pgbench_score")),
+                "total_evaluated": score.get("total_evaluated"),
+                "unanimous_correct_rate": score.get("unanimous_correct_rate"),
+                "majority_correct_rate": score.get("majority_correct_rate"),
             }
         )
         breakdown = score.get("point_breakdown")
@@ -396,7 +399,7 @@ def aggregate(
             ):
                 raise SummaryError(f"invalid point breakdown in {score_path}")
             point_rows.append(
-                {**tuple_key, "component": component, "points": float(points)}
+                {**tuple_key, "category": component, "count": int(points)}
             )
 
         records = metrics.get("records")
@@ -416,13 +419,16 @@ def aggregate(
             "score_profile_sha256",
             "evaluation_mode",
             "score_status",
-            "PGBenchScore",
+            "ConsensusScore",
+            "total_evaluated",
+            "unanimous_correct_rate",
+            "majority_correct_rate",
         ),
         score_rows,
     )
     _write_tsv(
         output_point_tsv,
-        (*TUPLE_FIELDS, "component", "points"),
+        (*TUPLE_FIELDS, "category", "count"),
         point_rows,
     )
     metric_fields = (

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for calculating one tuple-bound PGBenchScore JSON artifact."""
+"""CLI for calculating one tuple-bound unweighted consensus score."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def _atomic_json_dump(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _audit_unit_interval(value: Any, field: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ScoreInputError(f"provenance audit {field} must be numeric")
     numeric = float(value)
     if not math.isfinite(numeric) or numeric < 0 or numeric > 1:
@@ -139,7 +139,7 @@ def _validate_run_context(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Calculate one tuple-bound fixed-profile PGBenchScore."
+        description="Calculate one tuple-bound three-evaluator consensus score."
     )
     parser.add_argument(
         "--metrics",

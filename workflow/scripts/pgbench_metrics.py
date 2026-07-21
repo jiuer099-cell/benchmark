@@ -59,7 +59,7 @@ def _json_path(parts: Sequence[Any]) -> str:
 def _ensure_finite_numbers(value: Any, *, path: str = "metrics") -> None:
     if isinstance(value, bool) or value is None or isinstance(value, str):
         return
-    if isinstance(value, int | float):
+    if isinstance(value, (int, float)):
         if not math.isfinite(float(value)):
             raise MetricContractError(f"{path} must be finite")
         return
@@ -85,7 +85,7 @@ def _reject_ranking_fields(value: Any, *, path: str = "metrics") -> None:
                 ):
                     raise MetricContractError(f"forbidden ranking field: {path}.{key}")
             _reject_ranking_fields(item, path=f"{path}.{key}")
-    elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         for index, item in enumerate(value):
             _reject_ranking_fields(item, path=f"{path}[{index}]")
 
@@ -208,7 +208,7 @@ def _ratio_epsilon(dictionary: Mapping[str, Any]) -> float:
     epsilon = value_rules.get("floating_clamp_epsilon")
     if (
         isinstance(epsilon, bool)
-        or not isinstance(epsilon, int | float)
+        or not isinstance(epsilon, (int, float))
         or not math.isfinite(float(epsilon))
         or float(epsilon) <= 0
     ):
@@ -254,11 +254,11 @@ def _validate_record_semantics(
         denominator = record.get("denominator")
         if (
             isinstance(value, bool)
-            or not isinstance(value, int | float)
+            or not isinstance(value, (int, float))
             or isinstance(numerator, bool)
-            or not isinstance(numerator, int | float)
+            or not isinstance(numerator, (int, float))
             or isinstance(denominator, bool)
-            or not isinstance(denominator, int | float)
+            or not isinstance(denominator, (int, float))
         ):
             raise MetricContractError(
                 f"records[{index}] {metric_id} ratio fields must be numeric"
@@ -389,6 +389,31 @@ def build_score_payload_from_metrics(
             )
 
     aggregates = _aggregate_records(records)
+    if score_profile_id == "pgbench_consensus_v2":
+        consensus_metrics = {
+            "all_three_correct": "consensus.all_three_correct.count",
+            "exactly_two_correct": "consensus.exactly_two_correct.count",
+            "exactly_one_correct": "consensus.exactly_one_correct.count",
+            "none_correct": "consensus.none_correct.count",
+        }
+        missing = sorted(set(consensus_metrics.values()) - set(aggregates))
+        if missing:
+            raise MetricContractError(
+                "metrics document is missing consensus counts: " + ", ".join(missing)
+            )
+        consensus: dict[str, int] = {}
+        for category, metric_id in consensus_metrics.items():
+            value = _scoreable_value(aggregates[metric_id], metric_id)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise MetricContractError(f"{metric_id} must be a non-negative integer")
+            consensus[category] = value
+        return {
+            "tuple": normalized_expected,
+            "score_profile": score_profile_id,
+            "eligibility_status": "eligible",
+            "infrastructure_valid": True,
+            "consensus": consensus,
+        }
     (
         evaluator_metric_map,
         pangenome_metric_map,

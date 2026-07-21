@@ -9,6 +9,30 @@ value_rules:
   require_numerator_denominator_and_eligible_count: true
 
 metrics:
+  consensus.all_three_correct.count:
+    value_type: count
+    source: fusion
+    required_for_valid_score: true
+    point_component: null
+    universe: Query results accepted independently by all three evaluators.
+  consensus.exactly_two_correct.count:
+    value_type: count
+    source: fusion
+    required_for_valid_score: true
+    point_component: null
+    universe: Query results accepted independently by exactly two evaluators.
+  consensus.exactly_one_correct.count:
+    value_type: count
+    source: fusion
+    required_for_valid_score: true
+    point_component: null
+    universe: Query results accepted independently by exactly one evaluator.
+  consensus.none_correct.count:
+    value_type: count
+    source: fusion
+    required_for_valid_score: true
+    point_component: null
+    universe: Query results rejected by all three evaluators.
   truvari.event.overall.f1:
     value_type: ratio
     source: truvari

@@ -8,7 +8,7 @@ rule sync_obsidian_design:
         config=CONFIG_PATH,
         design=(
             "docs/superpowers/specs/"
-            "2026-07-16-hg002-grch37-sv-benchmark-design.md"
+            "2026-07-21-hg002-grch38-sv-benchmark-design.md"
         ),
         binding=config["obsidian"]["binding_file"],
         rule_registry="workflow/rule-registry.yaml",
@@ -92,7 +92,7 @@ rule check_obsidian_sync:
         config=CONFIG_PATH,
         design=(
             "docs/superpowers/specs/"
-            "2026-07-16-hg002-grch37-sv-benchmark-design.md"
+            "2026-07-21-hg002-grch38-sv-benchmark-design.md"
         ),
         binding=config["obsidian"]["binding_file"],
         rule_registry="workflow/rule-registry.yaml",

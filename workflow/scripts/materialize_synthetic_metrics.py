@@ -31,6 +31,10 @@ class SyntheticMetricError(ValueError):
 
 
 COMPONENT_PATHS = {
+    "consensus.all_three_correct.count": ("consensus", "all_three_correct"),
+    "consensus.exactly_two_correct.count": ("consensus", "exactly_two_correct"),
+    "consensus.exactly_one_correct.count": ("consensus", "exactly_one_correct"),
+    "consensus.none_correct.count": ("consensus", "none_correct"),
     "truvari.event.overall.f1": ("evaluators", "truvari", "overall_event_f1"),
     "truvari.event.svtype.macro_f1": (
         "evaluators",
@@ -150,7 +154,7 @@ def _load_yaml_object(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def _lookup(payload: Mapping[str, Any], path: Sequence[str]) -> float:
+def _lookup(payload: Mapping[str, Any], path: Sequence[str]) -> float | int:
     value: Any = payload
     for part in path:
         if not isinstance(value, Mapping) or part not in value:
@@ -158,13 +162,13 @@ def _lookup(payload: Mapping[str, Any], path: Sequence[str]) -> float:
         value = value[part]
     if (
         isinstance(value, bool)
-        or not isinstance(value, int | float)
+        or not isinstance(value, (int, float))
         or not math.isfinite(float(value))
     ):
         raise SyntheticMetricError(
             "smoke fixture metric must be finite: " + ".".join(path)
         )
-    return float(value)
+    return value
 
 
 def _manifest_id(path: Path) -> str:

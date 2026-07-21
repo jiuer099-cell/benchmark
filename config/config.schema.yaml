@@ -53,7 +53,7 @@ properties:
     required: [id, fasta]
     properties:
       id:
-        const: hs37d5
+        const: grch38
       fasta:
         $ref: "#/$defs/nonEmptyPath"
       fai:
@@ -76,7 +76,7 @@ properties:
       id:
         $ref: "#/$defs/identifier"
       backbone:
-        const: hs37d5
+        const: grch38
       population_panel:
         $ref: "#/$defs/identifier"
       truth_leakage_policy:
@@ -93,7 +93,7 @@ properties:
     required: [primary, secondary]
     properties:
       primary:
-        const: giab_hg002_grch37_v5_0q
+        const: giab_hg002_grch38_v5_0q
       secondary:
         type: array
         uniqueItems: true
@@ -211,9 +211,9 @@ properties:
     required: [profile, final_score_name, produce_ranking]
     properties:
       profile:
-        const: pgbench_v1
+        const: pgbench_consensus_v2
       final_score_name:
-        const: PGBenchScore
+        const: ConsensusScore
       produce_ranking:
         const: false
   obsidian:

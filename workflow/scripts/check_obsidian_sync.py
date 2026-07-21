@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--design",
         type=Path,
         default=Path(
-            "docs/superpowers/specs/2026-07-16-hg002-grch37-sv-benchmark-design.md"
+            "docs/superpowers/specs/2026-07-21-hg002-grch38-sv-benchmark-design.md"
         ),
     )
     parser.add_argument(
@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--binding",
         type=Path,
-        default=Path(".claude/project-memory/hg002-grch37-pangenome-sv-benchmark.md"),
+        default=Path(".claude/project-memory/hg002-grch38-pangenome-sv-benchmark.md"),
     )
     parser.add_argument("--vault-root", type=Path)
     parser.add_argument("--canonical-note", type=Path)

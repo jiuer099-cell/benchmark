@@ -1,9 +1,9 @@
 schema_version: 1
-profile_id: giab_grch37_v3_6
-reference_id: hs37d5
+profile_id: giab_grch38_v3_6
+reference_id: grch38
 release: v3.6
 source_reference: https://pmc.ncbi.nlm.nih.gov/articles/PMC11489684/
-local_root: resources/stratifications/giab_grch37_v3_6
+local_root: resources/stratifications/giab_grch38_v3_6
 
 # Asset paths are resolved and checksummed by prepare_stratifications. Logical
 # IDs remain stable even when GIAB changes archive layout.
@@ -41,7 +41,7 @@ strata:
     category: sequence_context
     required_for_score: true
   coding_exonic:
-    asset_id: grch37_coding_exonic
+    asset_id: grch38_coding_exonic
     category: functional
     required_for_score: true
   medically_relevant:
@@ -49,23 +49,23 @@ strata:
     category: functional
     required_for_score: true
   autosomes:
-    asset_id: hs37d5_autosomes
+    asset_id: grch38_autosomes
     category: chromosome
     required_for_score: false
   chromosome_x:
-    asset_id: hs37d5_x
+    asset_id: grch38_x
     category: chromosome
     required_for_score: false
   chromosome_y:
-    asset_id: hs37d5_y
+    asset_id: grch38_y
     category: chromosome
     required_for_score: false
   par:
-    asset_id: grch37_par
+    asset_id: grch38_par
     category: chromosome
     required_for_score: false
   non_par:
-    asset_id: grch37_non_par
+    asset_id: grch38_non_par
     category: chromosome
     required_for_score: false
 

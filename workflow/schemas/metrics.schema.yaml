@@ -37,7 +37,7 @@ properties:
       primary_truth_profile:
         $ref: "#/$defs/identifier"
       score_profile:
-        const: pgbench_v1
+        const: pgbench_consensus_v2
   records:
     type: array
     minItems: 1
@@ -52,6 +52,10 @@ $defs:
     pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
   metricId:
     enum:
+      - consensus.all_three_correct.count
+      - consensus.exactly_two_correct.count
+      - consensus.exactly_one_correct.count
+      - consensus.none_correct.count
       - truvari.event.overall.f1
       - truvari.event.svtype.macro_f1
       - truvari.event.length.macro_f1

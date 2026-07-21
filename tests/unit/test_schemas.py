@@ -135,9 +135,9 @@ def _valid_run_manifest() -> dict:
                 "read_only": True,
             }
         ],
-        "reference": {"id": "hs37d5", "fasta_sha256": digest},
+        "reference": {"id": "grch38", "fasta_sha256": digest},
         "pangenome": {
-            "manifest_id": "hs37d5_1kg_phase3_sv_v1",
+            "manifest_id": "grch38_hprc_1kg_sv_v1",
             "manifest_sha256": digest,
             "panel_sha256": digest,
             "graph_assets": [],
@@ -178,15 +178,15 @@ def _valid_pangenome_manifest() -> dict:
     digest = "b" * 64
     return {
         "schema_version": 1,
-        "pangenome_id": "hs37d5_1kg_phase3_sv_v1",
+        "pangenome_id": "grch38_hprc_1kg_sv_v1",
         "backbone_reference": {
-            "id": "hs37d5",
-            "path": "resources/references/hs37d5.fa",
+            "id": "grch38",
+            "path": "resources/references/GRCh38_no_alt_analysis_set.fasta",
             "sha256": digest,
         },
         "population_sources": [
             {
-                "id": "1000g_phase3_grch37_sv",
+                "id": "hprc_1kg_grch38_sv",
                 "path": "resources/pangenome/source.vcf.gz",
                 "sha256": digest,
             }
@@ -216,16 +216,16 @@ def _valid_metric_document() -> dict:
             "sample_id": "HG002",
             "tool_id": "my_genotyper",
             "official_score_mode": "end_to_end_from_reads",
-            "primary_truth_profile": "giab_hg002_grch37_v5_0q",
-            "score_profile": "pgbench_v1",
+            "primary_truth_profile": "giab_hg002_grch38_v5_0q",
+            "score_profile": "pgbench_consensus_v2",
         },
         "records": [
             {
-                "metric_id": "truvari.event.overall.f1",
-                "value_type": "ratio",
-                "value": 0.75,
+                "metric_id": "consensus.all_three_correct.count",
+                "value_type": "count",
+                "value": 75,
                 "status": "defined",
-                "evaluator": "truvari",
+                "evaluator": "fusion",
                 "numerator": 75,
                 "denominator": 100,
                 "eligible_count": 100,
@@ -315,17 +315,16 @@ def test_sample_table_has_the_canonical_hg002_bam() -> None:
     assert rows[0]["sample_id"] == "HG002"
     assert rows[0]["technology"] == "pacbio_clr"
     assert rows[0]["bam"].endswith(
-        "HG002.Sequel.10kb.pbmm2.hs37d5.whatshap.haplotag.RTG.10x.trio.bam"
+        "HG002.GRCh38.bam"
     )
 
 
 def test_truth_and_stratification_profiles_are_frozen() -> None:
     truthsets = _load_yaml(CONFIG / "truthsets.yaml")
-    primary = truthsets["truthsets"]["giab_hg002_grch37_v5_0q"]
-    legacy = truthsets["truthsets"]["giab_hg002_grch37_v0_6_legacy"]
+    primary = truthsets["truthsets"]["giab_hg002_grch38_v5_0q"]
     assert primary["role"] == "primary"
     assert primary["truth_status"] == "draft"
-    assert legacy["merge_with_primary_score"] is False
+    assert truthsets["reference_id"] == "grch38"
     assert all(
         asset["sha256"] is None
         for profile in truthsets["truthsets"].values()
@@ -440,13 +439,13 @@ def test_metrics_document_validates() -> None:
     _assert_valid(SCHEMAS / "metrics.schema.yaml", _valid_metric_document())
 
 
-def test_metrics_reject_unknown_ids_and_out_of_range_ratios() -> None:
+def test_metrics_reject_unknown_ids_and_negative_counts() -> None:
     document = _valid_metric_document()
     document["records"][0]["metric_id"] = "temporary.parser.metric"
     _assert_invalid(SCHEMAS / "metrics.schema.yaml", document)
 
     document = _valid_metric_document()
-    document["records"][0]["value"] = 1.01
+    document["records"][0]["value"] = -1
     _assert_invalid(SCHEMAS / "metrics.schema.yaml", document)
 
 
@@ -463,36 +462,12 @@ def test_undefined_metric_requires_null_value_and_reason() -> None:
     _assert_invalid(SCHEMAS / "metrics.schema.yaml", document)
 
 
-def test_score_profile_has_exact_100_points_and_fixed_evaluator_weights() -> None:
-    profile = _load_yaml(CONFIG / "score_weights.yaml")
-    layers = profile["layers"]
-    assert sum(layer["max_points"] for layer in layers.values()) == 100.0
-
-    evaluators = layers["evaluator_accuracy"]["evaluators"]
-    assert {name: item["fusion_weight"] for name, item in evaluators.items()} == {
-        "truvari": 0.40,
-        "aardvark": 0.35,
-        "vcfdist": 0.25,
-    }
-    for evaluator in evaluators.values():
-        assert (
-            sum(
-                component["max_points"]
-                for component in evaluator["components"].values()
-            )
-            == evaluator["max_points"]
-        )
-
-    for layer_name in (
-        "pangenome_robustness",
-        "resource_efficiency",
-        "traceability",
-    ):
-        layer = layers[layer_name]
-        assert (
-            sum(component["max_points"] for component in layer["components"].values())
-            == layer["max_points"]
-        )
+def test_consensus_profile_has_three_equal_votes_and_no_weights() -> None:
+    profile = _load_yaml(CONFIG / "consensus_scoring.yaml")
+    assert profile["profile"]["id"] == "pgbench_consensus_v2"
+    assert profile["consensus"]["evaluators"] == ["truvari", "aardvark", "vcfdist"]
+    assert "layers" not in profile
+    assert "evaluator_weights" not in profile["consensus"]
 
 
 def test_score_metrics_match_dictionary_and_schema_enum() -> None:
@@ -502,34 +477,13 @@ def test_score_metrics_match_dictionary_and_schema_enum() -> None:
     schema_ids = set(metric_schema["$defs"]["metricId"]["enum"])
     assert dictionary_ids == schema_ids
 
-    profile = _load_yaml(CONFIG / "score_weights.yaml")
-    score_metric_ids: set[str] = set()
-    evaluator_layer = profile["layers"]["evaluator_accuracy"]
-    for evaluator in evaluator_layer["evaluators"].values():
-        score_metric_ids.update(
-            component["metric"] for component in evaluator["components"].values()
-        )
-    for layer_name in (
-        "pangenome_robustness",
-        "resource_efficiency",
-        "traceability",
-    ):
-        score_metric_ids.update(
-            component["metric"]
-            for component in profile["layers"][layer_name]["components"].values()
-        )
-    assert score_metric_ids <= dictionary_ids
-
-
-def test_required_f1_metrics_are_explicit_and_registered() -> None:
-    profile = _load_yaml(CONFIG / "score_weights.yaml")
-    required_f1 = set(profile["required_f1_metrics"])
-    dictionary = _load_yaml(CONFIG / "metric_dictionary.yaml")
-    assert required_f1 <= set(dictionary["metrics"])
     assert {
-        "truvari.event.overall.f1",
-        "aardvark.haplotype.exact_f1",
-        "vcfdist.representation.f1",
-        "pangenome.in_panel.gt.fused_macro_f1",
-        "pangenome.novel.fused_f1",
-    } <= required_f1
+        "consensus.all_three_correct.count",
+        "consensus.exactly_two_correct.count",
+        "consensus.exactly_one_correct.count",
+        "consensus.none_correct.count",
+    } <= dictionary_ids
+
+
+def test_no_weight_profile_remains() -> None:
+    assert not (CONFIG / "score_weights.yaml").exists()

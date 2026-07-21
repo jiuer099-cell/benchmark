@@ -122,12 +122,12 @@ def test_report_is_no_ranking_and_preserves_provisional_status(
         point_breakdown_tsv=breakdown,
     )
     html_text = html.read_text(encoding="utf-8")
-    assert "PGBenchScore:" in html_text
+    assert "ConsensusScore:" in html_text
     assert "not rank tools" in html_text
     assert "provisional" in html_text
     header = score_tsv.read_text(encoding="utf-8").splitlines()[0]
     assert "rank" not in header.lower()
-    assert "PGBenchScore" in header
+    assert "ConsensusScore" in header
     assert breakdown.read_text().count("\n") == 3
 
 

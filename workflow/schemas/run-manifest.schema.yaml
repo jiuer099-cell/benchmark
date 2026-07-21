@@ -95,7 +95,7 @@ properties:
     required: [id, fasta_sha256]
     properties:
       id:
-        const: hs37d5
+        const: grch38
       fasta_sha256:
         $ref: "#/$defs/sha256"
   pangenome:

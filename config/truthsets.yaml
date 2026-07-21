@@ -1,60 +1,30 @@
 schema_version: 1
-reference_id: hs37d5
+reference_id: grch38
 sample_id: HG002
 
 truthsets:
-  giab_hg002_grch37_v5_0q:
+  giab_hg002_grch38_v5_0q:
     role: primary
     truth_status: draft
     release: v5.0q
-    reference_id: hs37d5
+    reference_id: grch38
     sample_id: HG002
-    source_page: https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/
+    source_page: https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/GRCh38/
     files:
       vcf:
-        name: HG002_GRCh37_v5.0q_stvar.vcf.gz
-        local_path: resources/truth/giab_hg002_grch37_v5_0q/HG002_GRCh37_v5.0q_stvar.vcf.gz
+        name: HG002_GRCh38_v5.0q_stvar.vcf.gz
+        local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
         sha256: null
       vcf_index:
-        name: HG002_GRCh37_v5.0q_stvar.vcf.gz.tbi
-        local_path: resources/truth/giab_hg002_grch37_v5_0q/HG002_GRCh37_v5.0q_stvar.vcf.gz.tbi
+        name: HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi
+        local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi
         sha256: null
       benchmark_bed:
-        name: HG002_GRCh37_v5.0q_stvar.benchmark.bed
-        local_path: resources/truth/giab_hg002_grch37_v5_0q/HG002_GRCh37_v5.0q_stvar.benchmark.bed
-        sha256: null
-    filters:
-      pass_only: false
-      inside_benchmark_bed: true
-      minimum_sv_size: 50
-    required_sha256_before_execution: true
-
-  giab_hg002_grch37_v0_6_legacy:
-    role: secondary_legacy
-    truth_status: released
-    release: v0.6
-    reference_id: hs37d5
-    sample_id: HG002
-    source_page: https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/
-    files:
-      vcf:
-        name: HG002_SVs_Tier1_v0.6.vcf.gz
-        local_path: resources/truth/giab_hg002_grch37_v0_6_legacy/HG002_SVs_Tier1_v0.6.vcf.gz
-        sha256: null
-      vcf_index:
-        name: HG002_SVs_Tier1_v0.6.vcf.gz.tbi
-        local_path: resources/truth/giab_hg002_grch37_v0_6_legacy/HG002_SVs_Tier1_v0.6.vcf.gz.tbi
-        sha256: null
-      benchmark_bed:
-        name: HG002_SVs_Tier1_v0.6.bed
-        local_path: resources/truth/giab_hg002_grch37_v0_6_legacy/HG002_SVs_Tier1_v0.6.bed
+        name: HG002_GRCh38_v5.0q_stvar.benchmark.bed
+        local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
         sha256: null
     filters:
       pass_only: true
       inside_benchmark_bed: true
-      allowed_svtypes:
-        - DEL
-        - INS
       minimum_sv_size: 50
-    merge_with_primary_score: false
     required_sha256_before_execution: true
