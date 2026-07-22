@@ -1,0 +1,13 @@
+executor: slurm
+jobs: 50
+latency-wait: 60
+keep-going: true
+rerun-incomplete: true
+printshellcmds: true
+show-failed-logs: true
+benchmark-extended: true
+software-deployment-method:
+  - conda
+default-resources:
+  - mem_mb=4096
+  - runtime=60

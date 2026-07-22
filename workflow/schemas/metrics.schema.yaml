@@ -1,0 +1,270 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://pgbench.local/schemas/metrics.schema.yaml
+title: PGBench standardized metric records
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - dictionary_id
+  - tuple
+  - records
+properties:
+  schema_version:
+    const: 1
+  dictionary_id:
+    const: pgbench_metrics_v1
+  tuple:
+    type: object
+    additionalProperties: false
+    required:
+      - run_id
+      - sample_id
+      - tool_id
+      - official_score_mode
+      - primary_truth_profile
+      - score_profile
+    properties:
+      run_id:
+        $ref: "#/$defs/identifier"
+      sample_id:
+        $ref: "#/$defs/identifier"
+      tool_id:
+        $ref: "#/$defs/identifier"
+      official_score_mode:
+        enum:
+          - caller_only_shared_alignment
+          - end_to_end_from_reads
+      primary_truth_profile:
+        $ref: "#/$defs/identifier"
+      score_profile:
+        const: pgbench_consensus_v2
+  records:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/metricRecord"
+
+$defs:
+  identifier:
+    type: string
+    minLength: 1
+    maxLength: 160
+    pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+  metricId:
+    enum:
+      - consensus.all_three_correct.count
+      - consensus.exactly_two_correct.count
+      - consensus.exactly_one_correct.count
+      - consensus.none_correct.count
+      - truvari.event.overall.f1
+      - truvari.event.svtype.macro_f1
+      - truvari.event.length.macro_f1
+      - truvari.gt.exact_concordance
+      - truvari.match.sequence_similarity
+      - truvari.match.size_similarity
+      - truvari.match.start_accuracy
+      - truvari.match.end_accuracy
+      - truvari.match.mean_similarity
+      - truvari.context.difficult.macro_f1
+      - aardvark.haplotype.exact_f1
+      - aardvark.haplotype.partial_f1
+      - aardvark.gt.exact_concordance
+      - aardvark.complex.exact_f1
+      - aardvark.haplotype.sequence_similarity
+      - vcfdist.representation.f1
+      - vcfdist.gt.exact_concordance
+      - vcfdist.phase.phased_gt_concordance
+      - vcfdist.phase.switch_error_rate
+      - vcfdist.phase.flip_error_rate
+      - vcfdist.phase.accuracy
+      - vcfdist.complex.consistency
+      - vcfdist.eligible.coverage
+      - truvari.pangenome.in_panel.gt.macro_f1
+      - aardvark.pangenome.in_panel.gt.macro_f1
+      - vcfdist.pangenome.in_panel.gt.macro_f1
+      - pangenome.in_panel.gt.fused_macro_f1
+      - pangenome.link.precision
+      - pangenome.link.coverage
+      - pangenome.af.fused_macro_f1
+      - pangenome.graph.fused_macro_f1
+      - pangenome.context.fused_macro_f1
+      - pangenome.novel.fused_f1
+      - resource.wall_time.hours
+      - resource.peak_rss.gib
+      - resource.disk_peak.gib
+      - resource.cpu.hours
+      - traceability.manifest_completeness
+      - traceability.hash_lineage.complete
+      - traceability.environment.complete
+      - traceability.run_context.complete
+  nullableNonnegativeNumber:
+    oneOf:
+      - type: number
+        minimum: 0
+      - type: "null"
+  confidenceInterval:
+    type: object
+    additionalProperties: false
+    required: [lower, upper, level, method, bootstrap_unit]
+    properties:
+      lower:
+        type: number
+      upper:
+        type: number
+      level:
+        const: 0.95
+      method:
+        const: stratified_variant_cluster_bootstrap
+      bootstrap_unit:
+        const: truth_variant_cluster
+  metricRecord:
+    type: object
+    additionalProperties: false
+    required:
+      - metric_id
+      - value_type
+      - value
+      - status
+      - evaluator
+      - numerator
+      - denominator
+      - eligible_count
+      - universe_id
+      - undefined_reason
+      - parser_id
+      - parser_source_field
+      - provenance_manifest_id
+      - strata
+    properties:
+      metric_id:
+        $ref: "#/$defs/metricId"
+      value_type:
+        enum: [ratio, count, duration, size, boolean, points]
+      value:
+        oneOf:
+          - type: number
+          - type: boolean
+          - type: "null"
+      status:
+        enum:
+          - defined
+          - undefined
+          - completed_with_tool_ineligible_zero
+          - not_applicable
+      evaluator:
+        oneOf:
+          - enum:
+              - truvari
+              - aardvark
+              - vcfdist
+              - fusion
+              - pangenome_linker
+              - resource_collector
+              - provenance_audit
+          - type: "null"
+      numerator:
+        $ref: "#/$defs/nullableNonnegativeNumber"
+      denominator:
+        $ref: "#/$defs/nullableNonnegativeNumber"
+      eligible_count:
+        oneOf:
+          - type: integer
+            minimum: 0
+          - type: "null"
+      universe_id:
+        type: string
+        minLength: 1
+      undefined_reason:
+        oneOf:
+          - type: string
+            minLength: 1
+          - type: "null"
+      parser_id:
+        type: string
+        minLength: 1
+      parser_source_field:
+        type: string
+        minLength: 1
+      provenance_manifest_id:
+        type: string
+        minLength: 1
+      strata:
+        type: object
+        additionalProperties:
+          type: string
+      confidence_interval:
+        oneOf:
+          - $ref: "#/$defs/confidenceInterval"
+          - type: "null"
+    allOf:
+      - if:
+          properties:
+            value_type:
+              const: ratio
+            status:
+              enum: [defined, completed_with_tool_ineligible_zero]
+          required: [value_type, status]
+        then:
+          properties:
+            value:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+      - if:
+          properties:
+            value_type:
+              enum: [count, duration, size, points]
+            status:
+              enum: [defined, completed_with_tool_ineligible_zero]
+          required: [value_type, status]
+        then:
+          properties:
+            value:
+              type: number
+              minimum: 0.0
+      - if:
+          properties:
+            value_type:
+              const: boolean
+            status:
+              const: defined
+          required: [value_type, status]
+        then:
+          properties:
+            value:
+              type: boolean
+      - if:
+          properties:
+            status:
+              enum: [undefined, not_applicable]
+          required: [status]
+        then:
+          properties:
+            value:
+              type: "null"
+            undefined_reason:
+              type: string
+              minLength: 1
+            confidence_interval:
+              type: "null"
+      - if:
+          properties:
+            status:
+              const: completed_with_tool_ineligible_zero
+          required: [status]
+        then:
+          properties:
+            value:
+              const: 0
+            undefined_reason:
+              type: string
+              minLength: 1
+      - if:
+          properties:
+            status:
+              const: defined
+          required: [status]
+        then:
+          properties:
+            undefined_reason:
+              type: "null"

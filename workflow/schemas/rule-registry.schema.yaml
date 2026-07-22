@@ -1,0 +1,108 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://pgbench.local/schemas/rule-registry.schema.yaml
+title: PGBench normative rule registry
+type: object
+additionalProperties: false
+required: [schema_version, rules]
+properties:
+  schema_version:
+    const: 1
+  rules:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/rule"
+
+$defs:
+  nonEmptyString:
+    type: string
+    minLength: 1
+  ruleId:
+    type: string
+    minLength: 1
+    maxLength: 160
+    pattern: "^[a-z][a-z0-9_{}]*$"
+  artifact:
+    type: string
+    minLength: 1
+  rule:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - description
+      - phase
+      - kind
+      - inputs
+      - outputs
+      - upstream
+      - audit_scope
+      - manifest_required
+      - log_required
+      - benchmark_required
+      - implementation_status
+    properties:
+      id:
+        $ref: "#/$defs/ruleId"
+      description:
+        $ref: "#/$defs/nonEmptyString"
+      phase:
+        enum:
+          - validation
+          - reference
+          - truth
+          - pangenome
+          - preprocessing
+          - challenge_panel
+          - tool_execution
+          - normalization
+          - evaluation
+          - fusion
+          - resources
+          - provenance
+          - scoring
+          - reporting
+          - obsidian_sync
+      kind:
+        enum: [core, tool_template, plugin, post_score]
+      inputs:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: "#/$defs/artifact"
+      outputs:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: "#/$defs/artifact"
+      upstream:
+        type: array
+        uniqueItems: true
+        items:
+          $ref: "#/$defs/ruleId"
+      audit_scope:
+        enum: [pre_score, formal_validity_gate, post_score]
+      manifest_required:
+        const: true
+      log_required:
+        const: true
+      benchmark_required:
+        const: true
+      implementation_status:
+        enum: [planned, partial, implemented, verified]
+      source_path:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyString"
+          - type: "null"
+      environment:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyString"
+          - type: "null"
+      resource_class:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyString"
+          - type: "null"
+      active_when:
+        type: object
+        additionalProperties: true

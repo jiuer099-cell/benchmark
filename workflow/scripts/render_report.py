@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+"""Render a minimal no-ranking PGBench score report."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import sys
+from collections.abc import Mapping
+from html import escape
+from pathlib import Path
+from typing import Any
+
+
+class ReportError(ValueError):
+    """Raised when a score artifact cannot be rendered safely."""
+
+
+PACKAGE_SCHEMA_VERSION = "pgbench.final_score_package.v1"
+FINALIZER_RULE_NAME = "finalize_score_provenance"
+
+
+def _is_ranking_field(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower()
+    return (
+        normalized in {"rank", "ranking", "leaderboard", "leaderboard_position"}
+        or normalized.startswith("rank_")
+        or normalized.startswith("leaderboard_")
+    )
+
+
+def _reject_forbidden_fields(value: Any, path: str = "score") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            if _is_ranking_field(key):
+                raise ReportError(f"forbidden ranking field at {path}.{key}")
+            _reject_forbidden_fields(nested, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            _reject_forbidden_fields(nested, f"{path}[{index}]")
+
+
+def _load_score(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            score = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReportError(f"cannot load score JSON {path}: {exc}") from exc
+    if not isinstance(score, dict):
+        raise ReportError("score JSON must be an object")
+    _reject_forbidden_fields(score)
+    tuple_key = score.get("tuple_key")
+    expected_tuple_fields = {
+        "run_id",
+        "sample",
+        "tool",
+        "official_score_mode",
+        "primary_truth_profile",
+    }
+    if not isinstance(tuple_key, dict) or set(tuple_key) != expected_tuple_fields:
+        raise ReportError("score JSON is missing tuple_key")
+    return score
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_finalizer_manifest(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReportError(f"cannot load finalizer manifest {path}: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise ReportError("finalizer manifest must be an object")
+    if manifest.get("rule_name") != FINALIZER_RULE_NAME:
+        raise ReportError("manifest is not a finalize_score_provenance manifest")
+    if manifest.get("status") != "success":
+        raise ReportError("finalizer manifest is not successful")
+    return manifest
+
+
+def _manifest_artifact_hash(
+    manifest: Mapping[str, Any],
+    artifact_path: Path,
+    *,
+    direction: str,
+    label: str,
+) -> str:
+    paths_field = f"{direction}_paths"
+    hashes_field = f"{direction}_sha256"
+    declared_paths = manifest.get(paths_field)
+    declared_hashes = manifest.get(hashes_field)
+    if not isinstance(declared_paths, list) or not all(
+        isinstance(path, str) and path for path in declared_paths
+    ):
+        raise ReportError(f"finalizer manifest has invalid {paths_field}")
+    if (
+        len(declared_paths) != len(set(declared_paths))
+        or not isinstance(declared_hashes, Mapping)
+        or set(declared_hashes) != set(declared_paths)
+    ):
+        raise ReportError(
+            f"finalizer manifest {hashes_field} keys must exactly match {paths_field}"
+        )
+
+    expected = artifact_path.resolve(strict=False)
+    matching_paths = [
+        path for path in declared_paths if Path(path).resolve(strict=False) == expected
+    ]
+    if len(matching_paths) != 1:
+        raise ReportError(
+            f"finalizer manifest must bind exactly one {label} {direction} path"
+        )
+    digest = declared_hashes.get(matching_paths[0])
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise ReportError(f"finalizer manifest has invalid {label} {direction} hash")
+    if _sha256_file(artifact_path) != digest:
+        raise ReportError(
+            f"{label} hash does not match the successful finalizer manifest"
+        )
+    return digest
+
+
+def _validate_finalizer_tuple(
+    manifest: Mapping[str, Any], score: Mapping[str, Any]
+) -> None:
+    tuple_key = score["tuple_key"]
+    if manifest.get("run_id") != tuple_key["run_id"]:
+        raise ReportError("finalizer manifest run_id does not match score tuple")
+    wildcards = manifest.get("wildcards")
+    if not isinstance(wildcards, Mapping) or wildcards.get("tool") != tuple_key["tool"]:
+        raise ReportError("finalizer manifest tool does not match score tuple")
+    expected_job_key = ".".join(
+        (
+            tuple_key["sample"],
+            tuple_key["tool"],
+            tuple_key["official_score_mode"],
+        )
+    )
+    if manifest.get("job_key") != expected_job_key:
+        raise ReportError("finalizer manifest job_key does not match score tuple")
+
+
+def _load_sealed_score(
+    score_path: Path,
+    score_package_path: Path,
+    finalizer_manifest_path: Path,
+) -> dict[str, Any]:
+    score = _load_score(score_path)
+    try:
+        with score_package_path.open("r", encoding="utf-8") as handle:
+            package = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReportError(
+            f"cannot load score package {score_package_path}: {exc}"
+        ) from exc
+    if not isinstance(package, dict):
+        raise ReportError("score package must be an object")
+    _reject_forbidden_fields(package, "score_package")
+    if package.get("package_schema_version") != PACKAGE_SCHEMA_VERSION:
+        raise ReportError("unsupported score package schema")
+    if package.get("sealed") is not True:
+        raise ReportError("score package is not sealed")
+    if package.get("score") != score:
+        raise ReportError("score package payload does not match score JSON")
+    if package.get("seal_status") != score.get("score_status"):
+        raise ReportError("score package status does not match score JSON")
+    if package.get("evaluation_mode") != score.get("evaluation_mode"):
+        raise ReportError("score package evaluation mode does not match score JSON")
+    gates = package.get("gates")
+    if not isinstance(gates, Mapping) or not all(
+        gates.get(name) is True
+        for name in (
+            "core_provenance_valid",
+            "hash_lineage_complete",
+            "manifest_completeness",
+        )
+    ):
+        raise ReportError("score package core provenance gates are not sealed")
+    artifact = package.get("score_artifact")
+    if not isinstance(artifact, Mapping):
+        raise ReportError("score package is missing score_artifact")
+    artifact_path = artifact.get("path")
+    artifact_hash = artifact.get("sha256")
+    if not isinstance(artifact_path, str) or not isinstance(artifact_hash, str):
+        raise ReportError("score package has an invalid score_artifact")
+    if Path(artifact_path).resolve(strict=False) != score_path.resolve(strict=False):
+        raise ReportError("score package points to a different score artifact")
+    if _sha256_file(score_path) != artifact_hash:
+        raise ReportError("score JSON hash does not match the sealed package")
+
+    finalizer_manifest = _load_finalizer_manifest(finalizer_manifest_path)
+    _validate_finalizer_tuple(finalizer_manifest, score)
+    manifest_package_hash = _manifest_artifact_hash(
+        finalizer_manifest,
+        score_package_path,
+        direction="output",
+        label="score package",
+    )
+    manifest_score_hash = _manifest_artifact_hash(
+        finalizer_manifest,
+        score_path,
+        direction="input",
+        label="score JSON",
+    )
+    if manifest_score_hash != artifact_hash:
+        raise ReportError(
+            "score package and finalizer manifest bind different score hashes"
+        )
+    if manifest_package_hash != _sha256_file(score_package_path):
+        raise ReportError("score package hash is not bound by finalizer manifest")
+    return score
+
+
+def _atomic_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
+    tuple_key = score["tuple_key"]
+    fields = [
+        "run_id",
+        "sample",
+        "tool",
+        "official_score_mode",
+        "primary_truth_profile",
+        "score_profile",
+        "score_profile_sha256",
+        "evaluation_mode",
+        "score_status",
+        "ConsensusScore",
+    ]
+    row = {
+        **tuple_key,
+        "score_profile": score["score_profile"],
+        "score_profile_sha256": score["score_profile_sha256"],
+        "evaluation_mode": score["evaluation_mode"],
+        "score_status": score["score_status"],
+        "ConsensusScore": (
+            "" if score.get("consensus_score", score.get("pgbench_score")) is None else score.get("consensus_score", score.get("pgbench_score"))
+        ),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+        writer.writeheader()
+        writer.writerow(row)
+    temporary.replace(path)
+
+
+def _write_breakdown_tsv(path: Path, score: Mapping[str, Any]) -> None:
+    breakdown = score.get("point_breakdown")
+    if not isinstance(breakdown, dict):
+        raise ReportError("score JSON is missing point_breakdown")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
+        writer.writerow(["category", "count"])
+        for component, points in sorted(breakdown.items()):
+            writer.writerow([component, int(points)])
+    temporary.replace(path)
+
+
+def _html(score: Mapping[str, Any]) -> str:
+    tuple_key = score["tuple_key"]
+    score_value = (
+        "not available"
+        if score.get("consensus_score", score.get("pgbench_score")) is None
+        else f"{float(score.get('consensus_score', score.get('pgbench_score'))):.2f}"
+    )
+    point_rows = "\n".join(
+        f"<tr><td>{escape(component)}</td><td>{float(points):.4f}</td></tr>"
+        for component, points in sorted(score["point_breakdown"].items())
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PGBench consensus card: {escape(str(tuple_key["tool"]))}</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 72rem; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th, td {{ border: 1px solid #ccd; padding: 0.45rem; text-align: left; }}
+    .score {{ font-size: 2rem; font-weight: 700; }}
+    .notice {{ background: #f3f5ff; padding: 0.8rem; border-left: 4px solid #536dfe; }}
+  </style>
+</head>
+<body>
+  <h1>PGBench three-evaluator consensus card</h1>
+  <p class="notice">This report contains one score for one tool tuple. It does
+  not rank tools or calculate a run-level aggregate score.</p>
+  <dl>
+    <dt>Run</dt><dd>{escape(str(tuple_key["run_id"]))}</dd>
+    <dt>Sample</dt><dd>{escape(str(tuple_key["sample"]))}</dd>
+    <dt>Tool</dt><dd>{escape(str(tuple_key["tool"]))}</dd>
+    <dt>Official mode</dt><dd>{escape(str(tuple_key["official_score_mode"]))}</dd>
+    <dt>Truth profile</dt><dd>{escape(str(tuple_key["primary_truth_profile"]))}</dd>
+    <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
+    <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
+  </dl>
+  <p class="score">ConsensusScore: {score_value} / 100</p>
+  <p>All three correct: {score.get("consensus_counts", {}).get("all_three_correct", "")}; exactly two: {score.get("consensus_counts", {}).get("exactly_two_correct", "")}; exactly one: {score.get("consensus_counts", {}).get("exactly_one_correct", "")}; none: {score.get("consensus_counts", {}).get("none_correct", "")}.</p>
+  <h2>Consensus counts</h2>
+  <table>
+    <thead><tr><th>Category</th><th>Count</th></tr></thead>
+    <tbody>{point_rows}</tbody>
+  </table>
+</body>
+</html>
+"""
+
+
+def render_report(
+    score_json: Path,
+    *,
+    score_package: Path,
+    finalizer_manifest: Path,
+    html_output: Path,
+    score_tsv: Path,
+    point_breakdown_tsv: Path,
+) -> None:
+    score = _load_sealed_score(score_json, score_package, finalizer_manifest)
+    _write_score_tsv(score_tsv, score)
+    _write_breakdown_tsv(point_breakdown_tsv, score)
+    _atomic_text(html_output, _html(score))
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render a PGBench score card.")
+    parser.add_argument("--score-json", required=True, type=Path)
+    parser.add_argument("--score-package", required=True, type=Path)
+    parser.add_argument("--finalizer-manifest", required=True, type=Path)
+    parser.add_argument("--html", required=True, type=Path)
+    parser.add_argument("--score-tsv", required=True, type=Path)
+    parser.add_argument("--point-breakdown-tsv", required=True, type=Path)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        render_report(
+            args.score_json,
+            score_package=args.score_package,
+            finalizer_manifest=args.finalizer_manifest,
+            html_output=args.html,
+            score_tsv=args.score_tsv,
+            point_breakdown_tsv=args.point_breakdown_tsv,
+        )
+    except ReportError as exc:
+        print(f"render_report: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

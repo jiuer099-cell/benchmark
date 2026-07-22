@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import csv
+import json
+import sys
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parents[2] / "workflow" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from build_challenge_panel import build_challenge_panel  # noqa: E402
+from build_pangenome_manifest import assign_stable_alleles  # noqa: E402
+
+
+def test_challenge_panel_is_blinded_and_has_negative_sites(tmp_path: Path) -> None:
+    population = tmp_path / "population.vcf"
+    population.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t20\tpositive\tA\t<DEL>\t.\tPASS\t"
+        "SVTYPE=DEL;END=30;SVLEN=-10;AF=0.02\n"
+        "1\t80\tnegative\tA\tATTT\t.\tPASS\t"
+        "SVTYPE=INS;END=80;SVLEN=3;AF=0.10\n",
+        encoding="utf-8",
+    )
+    panel = tmp_path / "panel.vcf"
+    allele_ledger = tmp_path / "alleles.tsv"
+    assign_stable_alleles(population, panel, allele_ledger, namespace="PGSV")
+
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "1\t20\ttruth1\tA\t<DEL>\t.\tPASS\t"
+        "SVTYPE=DEL;END=30;SVLEN=-10\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    challenge = tmp_path / "challenge.vcf"
+    hidden = tmp_path / "hidden.tsv"
+    audit = tmp_path / "audit.json"
+
+    summary = build_challenge_panel(
+        panel_vcf=panel,
+        truth_vcf=truth,
+        output_vcf=challenge,
+        hidden_ledger=hidden,
+        audit_json=audit,
+        seed="fixed-seed",
+    )
+    assert summary["truth_positive_count"] == 1
+    assert summary["truth_negative_count"] == 1
+    challenge_text = challenge.read_text(encoding="utf-8")
+    assert "positive" not in challenge_text.lower()
+    assert "negative" not in challenge_text.lower()
+    assert "\tGT\t./.\n" in challenge_text
+    assert "0/1" not in challenge_text
+    assert "0/0" not in challenge_text
+
+    with hidden.open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert {row["truth_gt"] for row in rows} == {"0/0", "0/1"}
+    assert all(row["candidate_id"].startswith("CAND_") for row in rows)
+    assert json.loads(audit.read_text())["truth_labels_exposed_to_tool"] == 0
+
+
+def test_candidate_ids_are_seed_deterministic(tmp_path: Path) -> None:
+    population = tmp_path / "population.vcf"
+    population.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t20\ta\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=30;SVLEN=-10\n"
+        "1\t80\tb\tA\t<INS>\t.\tPASS\tSVTYPE=INS;END=80;SVLEN=3\n",
+        encoding="utf-8",
+    )
+    panel = tmp_path / "panel.vcf"
+    assign_stable_alleles(population, panel, tmp_path / "alleles.tsv", namespace="PGSV")
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "1\t20\tt\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=30;SVLEN=-10\tGT\t1/1\n",
+        encoding="utf-8",
+    )
+
+    outputs: list[str] = []
+    for prefix in ("first", "second"):
+        output = tmp_path / f"{prefix}.vcf"
+        build_challenge_panel(
+            panel_vcf=panel,
+            truth_vcf=truth,
+            output_vcf=output,
+            hidden_ledger=tmp_path / f"{prefix}.tsv",
+            audit_json=tmp_path / f"{prefix}.json",
+            seed="same",
+        )
+        outputs.append(output.read_text())
+    assert outputs[0] == outputs[1]
