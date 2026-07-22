@@ -1,0 +1,2 @@
+sample_id	sex	technology	bam
+HG002	male	pacbio_clr	resources/alignments/HG002.GRCh38.bam

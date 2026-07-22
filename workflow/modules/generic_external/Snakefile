@@ -1,0 +1,238 @@
+"""Reusable Snakemake module for one generic external-tool invocation.
+
+The importing workflow supplies a ``generic_external`` config mapping. The
+benchmark-owned rule wrapper records the execution manifest; user code itself
+is launched only by ``pgbench_exec.py``.
+"""
+
+from pathlib import Path
+import sys
+
+import yaml
+
+
+SETTINGS = config["generic_external"]
+ASSETS = dict(SETTINGS["inputs"])
+OUTPUT_DIR = Path(SETTINGS["output_dir"])
+OUTPUT_VCF = str(OUTPUT_DIR / SETTINGS["output_vcf_relative"])
+EXECUTOR = SETTINGS["executor"]
+SCHEMA = SETTINGS["schema"]
+RULE_EXECUTOR = SETTINGS["rule_executor"]
+RULE_SOURCE = "workflow/modules/generic_external/Snakefile"
+CORE_ENVIRONMENT = "workflow/envs/core.yaml"
+PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
+PYTHON_EXECUTABLE = sys.executable
+
+
+def resolve_plugin_execution_path(value):
+    """Resolve one manifest-relative plugin code path for DAG tracking."""
+
+    if value is None:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = Path(SETTINGS["tool_manifest"]).parent / candidate
+    return str(candidate)
+
+
+with open(SETTINGS["tool_manifest"], encoding="utf-8") as handle:
+    TOOL_MANIFEST = yaml.safe_load(handle)
+if not isinstance(TOOL_MANIFEST, dict):
+    raise ValueError("generic external tool manifest must be a YAML mapping")
+PLUGIN_EXECUTION = TOOL_MANIFEST.get("execution")
+if not isinstance(PLUGIN_EXECUTION, dict):
+    raise ValueError("generic external tool manifest must declare execution")
+PLUGIN_RUNNER = resolve_plugin_execution_path(PLUGIN_EXECUTION.get("runner"))
+if PLUGIN_RUNNER is None:
+    raise ValueError("generic external tool manifest must declare a runner")
+PLUGIN_ENVIRONMENT = resolve_plugin_execution_path(
+    PLUGIN_EXECUTION.get("environment")
+)
+PLUGIN_RULE_REGISTRY = resolve_plugin_execution_path(
+    PLUGIN_EXECUTION.get("rule_registry")
+)
+PLUGIN_EXPLICIT_INPUTS = [
+    path
+    for path in (PLUGIN_RUNNER, PLUGIN_ENVIRONMENT, PLUGIN_RULE_REGISTRY)
+    if path is not None
+]
+PLUGIN_ROOT = Path(SETTINGS["tool_manifest"]).parent
+PLUGIN_PACKAGE_INPUTS = sorted(
+    str(path)
+    for path in PLUGIN_ROOT.rglob("*")
+    if (path.is_file() or path.is_symlink())
+    and "__pycache__" not in path.parts
+    and path.suffix.casefold() not in {".pyc", ".pyo"}
+)
+
+
+def unique_paths(paths):
+    """Return deterministic first-occurrence path de-duplication."""
+
+    seen = set()
+    result = []
+    for path in paths:
+        normalized = str(path)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+PLUGIN_CODE_INPUTS = unique_paths(
+    [*PLUGIN_EXPLICIT_INPUTS, *PLUGIN_PACKAGE_INPUTS]
+)
+PLUGIN_PACKAGE_EXTRA_INPUTS = [
+    path
+    for path in PLUGIN_PACKAGE_INPUTS
+    if path
+    not in {
+        SETTINGS["tool_manifest"],
+        *PLUGIN_EXPLICIT_INPUTS,
+    }
+]
+INPUT_ARGUMENTS = [
+    item
+    for name, path in sorted(ASSETS.items())
+    for item in ("--input", f"{name}={path}")
+]
+ALIGNMENT_ARGUMENTS = (
+    ["--alignment-kind", SETTINGS["alignment_kind"]]
+    if SETTINGS.get("alignment_kind")
+    else []
+)
+PROVENANCE_INPUTS = [
+    SETTINGS["tool_manifest"],
+    SCHEMA,
+    RULE_SOURCE,
+    RULE_EXECUTOR,
+    EXECUTOR,
+    CORE_ENVIRONMENT,
+    PROVENANCE_LIBRARY,
+    *PLUGIN_CODE_INPUTS,
+    SETTINGS["config_snapshot"],
+    SETTINGS["score_profile"],
+    SETTINGS["run_context"],
+    *ASSETS.values(),
+]
+PROVENANCE_INPUT_ARGUMENTS = [
+    item
+    for path in PROVENANCE_INPUTS
+    for item in ("--input", str(path))
+]
+UPSTREAM_ARGUMENTS = [
+    item
+    for path in SETTINGS["upstream_manifests"]
+    for item in ("--upstream-manifest", str(path))
+]
+
+
+rule generic_external_tool:
+    input:
+        tool_manifest=SETTINGS["tool_manifest"],
+        schema=SCHEMA,
+        config_snapshot=SETTINGS["config_snapshot"],
+        score_profile=SETTINGS["score_profile"],
+        run_context=SETTINGS["run_context"],
+        assets=list(ASSETS.values()),
+        upstream_manifests=SETTINGS["upstream_manifests"],
+        rule_source=RULE_SOURCE,
+        rule_executor=RULE_EXECUTOR,
+        executor=EXECUTOR,
+        environment=CORE_ENVIRONMENT,
+        provenance_library=PROVENANCE_LIBRARY,
+        plugin_runner=PLUGIN_RUNNER,
+        plugin_environment=(
+            [PLUGIN_ENVIRONMENT] if PLUGIN_ENVIRONMENT is not None else []
+        ),
+        plugin_rule_registry=(
+            [PLUGIN_RULE_REGISTRY]
+            if PLUGIN_RULE_REGISTRY is not None
+            else []
+        ),
+        plugin_package=PLUGIN_PACKAGE_EXTRA_INPUTS,
+    output:
+        vcf=update(OUTPUT_VCF),
+        resolved_inputs=update(SETTINGS["resolved_inputs"]),
+        attempt_record=update(SETTINGS["attempt_record"]),
+        rule_manifest=update(SETTINGS["rule_manifest"]),
+    log:
+        SETTINGS["log"],
+    benchmark:
+        SETTINGS["benchmark"],
+    threads:
+        SETTINGS.get("threads", 1)
+    resources:
+        mem_mb=SETTINGS.get("memory_mb", 1024)
+    params:
+        mode=SETTINGS["mode"],
+        run_id=SETTINGS["run_id"],
+        sample_id=SETTINGS["sample_id"],
+        output_dir=str(OUTPUT_DIR),
+        input_arguments=INPUT_ARGUMENTS,
+        alignment_arguments=ALIGNMENT_ARGUMENTS,
+        provenance_input_arguments=PROVENANCE_INPUT_ARGUMENTS,
+        upstream_arguments=UPSTREAM_ARGUMENTS,
+        execution_purpose=SETTINGS.get("execution_purpose", "development_only"),
+        timeout_seconds=SETTINGS.get("timeout_seconds", 3600),
+        semantic_rule_name=SETTINGS["semantic_rule_name"],
+        job_key=SETTINGS["job_key"],
+        tool_id=SETTINGS["tool_id"],
+        tool_log=SETTINGS["tool_log"],
+        pangenome_manifest=SETTINGS["pangenome_manifest"],
+        reference=SETTINGS["reference"],
+        truth_profile=SETTINGS["truth_profile"],
+        snakemake_version=SETTINGS["snakemake_version"],
+        execution_profile=SETTINGS["execution_profile"],
+        random_seed=SETTINGS["random_seed"],
+    conda:
+        "../../envs/core.yaml"
+    shell:
+        """
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
+          --rule-name {params.semantic_rule_name:q} \
+          --job-key {params.job_key:q} \
+          --run-id {params.run_id:q} \
+          --module-or-tool-id {params.tool_id:q} \
+          --snakefile-path {input.rule_source:q} \
+          --rule-source-path {input.rule_source:q} \
+          --script-or-wrapper-path {input.executor:q} \
+          --config-snapshot {input.config_snapshot:q} \
+          --score-profile {input.score_profile:q} \
+          --run-context {input.run_context:q} \
+          --pangenome-manifest {params.pangenome_manifest:q} \
+          --reference {params.reference:q} \
+          --truth-profile {params.truth_profile:q} \
+          --snakemake-version {params.snakemake_version:q} \
+          --execution-profile {params.execution_profile:q} \
+          --random-seed {params.random_seed} \
+          --threads {threads} \
+          --resource mem_mb={resources.mem_mb} \
+          --param mode={params.mode:q} \
+          --param execution_purpose={params.execution_purpose:q} \
+          {params.provenance_input_arguments:q} \
+          --output {output.vcf:q} \
+          --output {output.resolved_inputs:q} \
+          --output {output.attempt_record:q} \
+          {params.upstream_arguments:q} \
+          --manifest-output {output.rule_manifest:q} \
+          -- \
+          {PYTHON_EXECUTABLE:q} {input.executor:q} \
+            --tool-manifest {input.tool_manifest:q} \
+            --schema {input.schema:q} \
+            --mode {params.mode:q} \
+            --run-id {params.run_id:q} \
+            --sample-id {params.sample_id:q} \
+            --output-dir {params.output_dir:q} \
+            --resolved-inputs {output.resolved_inputs:q} \
+            --attempt-record {output.attempt_record:q} \
+            --log {params.tool_log:q} \
+            --threads {threads} \
+            --memory-mb {resources.mem_mb} \
+            --execution-purpose {params.execution_purpose:q} \
+            --timeout-seconds {params.timeout_seconds} \
+            {params.input_arguments:q} \
+            {params.alignment_arguments:q} \
+          > {log:q} 2>&1
+        """

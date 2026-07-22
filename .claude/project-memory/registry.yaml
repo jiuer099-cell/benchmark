@@ -1,0 +1,15 @@
+projects:
+  hg002-grch38-pangenome-sv-benchmark:
+    project_id: hg002-grch38-pangenome-sv-benchmark
+    project_slug: hg002-grch38-pangenome-sv-benchmark
+    repo_roots:
+      - .
+    vault_name: memory
+    vault_root: memory/Research/hg002-grch38-pangenome-sv-benchmark
+    hub_note: Research/hg002-grch38-pangenome-sv-benchmark/00-Hub.md
+    status: active
+    auto_sync: true
+    note_language: zh
+    canonical_note: Research/hg002-grch38-pangenome-sv-benchmark/Writing/HG002-GRCh38泛基因组SV-Benchmark设计规范.md
+    code_state: partial
+    updated_at: 2026-07-21T00:00:00Z

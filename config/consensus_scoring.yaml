@@ -1,0 +1,20 @@
+schema_version: 2
+profile:
+  id: pgbench_consensus_v2
+  final_score_name: ConsensusScore
+  score_min: 0.0
+  score_max: 100.0
+  display_decimals: 2
+  produce_ranking: false
+consensus:
+  evaluators: [truvari, aardvark, vcfdist]
+  categories:
+    all_three_correct: All three evaluators accept the result.
+    exactly_two_correct: Exactly two evaluators accept the result.
+    exactly_one_correct: Exactly one evaluator accepts the result.
+    none_correct: No evaluator accepts the result.
+  formula: (3*n3 + 2*n2 + n1) / (3*N) * 100
+  notes:
+    - Every evaluator contributes one equal binary vote per result.
+    - No evaluator, resource, pangenome, or provenance weight is applied.
+    - Provenance remains a validity gate and never contributes points.
