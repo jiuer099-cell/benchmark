@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,15 @@ from pgbench_rule_exec import main as rule_exec_main  # noqa: E402
 
 SHA_A = sha256_bytes(b"a")
 SHA_B = sha256_bytes(b"b")
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is not enabled")
+        raise
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -336,7 +346,7 @@ def test_non_regular_existing_manifest_is_rejected_before_command(
     if existing_kind == "symlink":
         outside = tmp_path / "outside-manifest.json"
         outside.write_text("{}\n", encoding="utf-8")
-        paths["manifest"].symlink_to(outside)
+        _symlink_or_skip(paths["manifest"], outside)
     else:
         paths["manifest"].mkdir()
     command = [

@@ -6,6 +6,7 @@ is launched only by ``pgbench_exec.py``.
 """
 
 from pathlib import Path
+import sys
 
 import yaml
 
@@ -20,6 +21,7 @@ RULE_EXECUTOR = SETTINGS["rule_executor"]
 RULE_SOURCE = "workflow/modules/generic_external/Snakefile"
 CORE_ENVIRONMENT = "workflow/envs/core.yaml"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
+PYTHON_EXECUTABLE = sys.executable
 
 
 def resolve_plugin_execution_path(value):
@@ -58,7 +60,9 @@ PLUGIN_ROOT = Path(SETTINGS["tool_manifest"]).parent
 PLUGIN_PACKAGE_INPUTS = sorted(
     str(path)
     for path in PLUGIN_ROOT.rglob("*")
-    if path.is_file() or path.is_symlink()
+    if (path.is_file() or path.is_symlink())
+    and "__pycache__" not in path.parts
+    and path.suffix.casefold() not in {".pyc", ".pyo"}
 )
 
 
@@ -186,7 +190,7 @@ rule generic_external_tool:
         "../../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name {params.semantic_rule_name:q} \
           --job-key {params.job_key:q} \
           --run-id {params.run_id:q} \
@@ -214,7 +218,7 @@ rule generic_external_tool:
           {params.upstream_arguments:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.executor:q} \
+          {PYTHON_EXECUTABLE:q} {input.executor:q} \
             --tool-manifest {input.tool_manifest:q} \
             --schema {input.schema:q} \
             --mode {params.mode:q} \

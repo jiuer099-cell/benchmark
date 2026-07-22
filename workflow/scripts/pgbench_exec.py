@@ -609,6 +609,7 @@ def build_tool_environment(
     environment.update(
         {
             "HOME": str(home_dir.resolve()),
+            "PYTHONDONTWRITEBYTECODE": "1",
             "TMPDIR": str(temporary_dir.resolve()),
             "XDG_CACHE_HOME": str(cache_dir.resolve()),
             "TZ": "UTC",
@@ -681,18 +682,41 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _recorded_existing_path(value: Any, label: str) -> Path:
+def _recorded_relative_path(
+    value: Any,
+    recorded_root: Any,
+    label: str,
+) -> Path:
+    """Return a recorded artifact path relative to its recorded output root.
+
+    Attempt records are portable provenance: an output tree may be copied from
+    macOS or Linux to Windows before a rerun.  Validate the lexical relationship
+    recorded at creation time, then compare that relative location with the
+    current, already-resolved output tree.  File identity is still protected by
+    the recorded SHA-256 and size checks below.
+    """
+
     if not isinstance(value, str) or not value:
         raise ToolContractError(
             f"previous attempt does not contain a valid {label} path"
         )
-    candidate = Path(value).expanduser()
-    try:
-        return candidate.resolve(strict=True)
-    except OSError as exc:
+    if not isinstance(recorded_root, str) or not recorded_root:
         raise ToolContractError(
-            f"previous attempt {label} path cannot be resolved: {value}"
+            "previous attempt does not contain a valid output_dir path"
+        )
+    recorded_path = PurePosixPath(value.replace("\\", "/"))
+    root_path = PurePosixPath(recorded_root.replace("\\", "/"))
+    try:
+        relative = recorded_path.relative_to(root_path)
+    except ValueError as exc:
+        raise ToolContractError(
+            f"previous attempt {label} escapes its recorded output_dir"
         ) from exc
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ToolContractError(
+            f"previous attempt {label} escapes its recorded output_dir"
+        )
+    return Path(*relative.parts)
 
 
 def _verified_previous_output(
@@ -753,17 +777,14 @@ def _verified_previous_output(
             "does not match: " + ", ".join(mismatched)
         )
 
-    if _recorded_existing_path(previous.get("output_dir"), "output_dir") != output_root:
-        raise ToolContractError(
-            "assigned output VCF already exists but previous output_dir differs"
-        )
     expected_path = final_output_vcf.resolve(strict=True)
-    if (
-        _recorded_existing_path(
-            previous.get("expected_output_vcf"), "expected_output_vcf"
-        )
-        != expected_path
-    ):
+    expected_relative = expected_path.relative_to(output_root)
+    recorded_output_dir = previous.get("output_dir")
+    if _recorded_relative_path(
+        previous.get("expected_output_vcf"),
+        recorded_output_dir,
+        "expected_output_vcf",
+    ) != expected_relative:
         raise ToolContractError(
             "assigned output VCF already exists but previous expected path differs"
         )
@@ -773,7 +794,11 @@ def _verified_previous_output(
         raise ToolContractError(
             "assigned output VCF already exists but previous output metadata is absent"
         )
-    if _recorded_existing_path(output.get("path"), "output.path") != expected_path:
+    if _recorded_relative_path(
+        output.get("path"),
+        recorded_output_dir,
+        "output.path",
+    ) != expected_relative:
         raise ToolContractError(
             "assigned output VCF already exists but previous output path differs"
         )
@@ -1061,6 +1086,27 @@ def _sandbox_command(
 
 
 def _terminate_process_group(process: subprocess.Popen[str]) -> int | None:
+    if os.name == "nt":
+        process.poll()
+        if process.returncode is not None:
+            return process.returncode
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+        try:
+            return process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return process.wait()
+
     def group_exists() -> bool:
         try:
             os.killpg(process.pid, 0)

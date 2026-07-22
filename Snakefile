@@ -1,5 +1,6 @@
 from importlib.metadata import version
 from pathlib import Path
+import sys
 
 import yaml
 from snakemake.exceptions import WorkflowError
@@ -25,6 +26,7 @@ PANGENOME_ID = config["pangenome"]["id"]
 SYNTHETIC_MODE = config.get("development", {}).get("synthetic_mode", False)
 EVALUATION_MODE = "synthetic_smoke" if SYNTHETIC_MODE else "formal"
 SNAKEMAKE_VERSION = version("snakemake")
+PYTHON_EXECUTABLE = sys.executable
 RULE_EXECUTOR = "workflow/scripts/pgbench_rule_exec.py"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
 METRICS_LIBRARY = "workflow/scripts/pgbench_metrics.py"

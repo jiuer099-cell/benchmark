@@ -20,7 +20,7 @@ rule validate_config:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name validate_config \
           --job-key config \
           --run-id {RUN_ID:q} \
@@ -49,7 +49,7 @@ rule validate_config:
           --output {output.data:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --config {input.config:q} \
             --config-schema {input.config_schema:q} \
             --tool-schema {input.tool_schema:q} \
@@ -81,7 +81,7 @@ rule snapshot_run_context:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name snapshot_run_context \
           --job-key context \
           --run-id {RUN_ID:q} \
@@ -111,7 +111,7 @@ rule snapshot_run_context:
           --upstream-manifest {input.validated_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --repo-root . \
             --score-profile {input.score_profile:q} \
             --random-seed {config[execution][random_seed]} \

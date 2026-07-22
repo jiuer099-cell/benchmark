@@ -339,6 +339,50 @@ def _validate_metrics_records(
                 )
             aggregates[metric_id] = record
 
+    if score.get("score_profile") == "pgbench_consensus_v2":
+        consensus_counts = score.get("consensus_counts")
+        if not isinstance(consensus_counts, Mapping):
+            raise FinalScoreSealError(
+                "score.consensus_counts must be a mapping for consensus scoring"
+            )
+        expected_fields = {
+            "all_three_correct",
+            "exactly_two_correct",
+            "exactly_one_correct",
+            "none_correct",
+        }
+        if set(consensus_counts) != expected_fields:
+            raise FinalScoreSealError(
+                "score.consensus_counts must contain exactly the four support tiers"
+            )
+        total = 0
+        for field in sorted(expected_fields):
+            count = consensus_counts[field]
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise FinalScoreSealError(
+                    f"score.consensus_counts.{field} must be a non-negative integer"
+                )
+            metric_id = f"consensus.{field}.count"
+            aggregate = aggregates.get(metric_id)
+            if aggregate is None:
+                raise FinalScoreSealError(
+                    f"metrics is missing required consensus aggregate {metric_id}"
+                )
+            if (
+                aggregate.get("status") != "defined"
+                or aggregate.get("value_type") != "count"
+                or aggregate.get("value") != count
+            ):
+                raise FinalScoreSealError(
+                    f"score consensus count does not match metrics aggregate {metric_id}"
+                )
+            total += count
+        if score.get("total_evaluated") != total:
+            raise FinalScoreSealError(
+                "score.total_evaluated does not equal the consensus count sum"
+            )
+        return
+
     required_f1 = score.get("required_f1_metrics")
     if not isinstance(required_f1, Mapping) or not required_f1:
         raise FinalScoreSealError(
@@ -831,7 +875,12 @@ def finalize_score_provenance(
         "score_artifact_hash_verified": True,
         "metrics_artifact_hash_verified": True,
         "metrics_provenance_ids_verified": True,
-        "required_f1_metrics_verified": True,
+        "required_f1_metrics_verified": (
+            score.get("score_profile") != "pgbench_consensus_v2"
+        ),
+        "consensus_counts_verified": (
+            score.get("score_profile") == "pgbench_consensus_v2"
+        ),
         "upstream_relationships_verified": True,
         "valid_score_gates": valid_gates,
     }

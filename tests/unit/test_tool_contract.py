@@ -29,6 +29,15 @@ TOOL_SCHEMA = ROOT / "workflow" / "schemas" / "tool.schema.yaml"
 EXAMPLE_PLUGIN = ROOT / "plugins" / "example_genotyper"
 
 
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is not enabled")
+        raise
+
+
 def _write_candidate_vcf(path: Path) -> None:
     path.write_text(
         "\n".join(
@@ -338,6 +347,37 @@ def test_verified_previous_vcf_and_index_are_archived_on_rerun(
     ]
 
 
+def test_verified_previous_output_survives_cross_platform_repo_move(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    first = _execute_example(
+        tmp_path,
+        output_name="relocated",
+        supplied_inputs=inputs,
+    )
+    attempt_path = Path(first.attempt_record_path)
+    previous = json.loads(attempt_path.read_text(encoding="utf-8"))
+    old_root = "/legacy/benchmark/results/HG002/tool"
+    old_output = f"{old_root}/raw/calls.vcf.gz"
+    previous["output_dir"] = old_root
+    previous["expected_output_vcf"] = old_output
+    previous["output"]["path"] = old_output
+    attempt_path.write_text(
+        json.dumps(previous, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    second = _execute_example(
+        tmp_path,
+        output_name="relocated",
+        supplied_inputs=inputs,
+    )
+
+    assert Path(second.output.path).is_file()
+    assert second.output.sha256 == first.output.sha256
+
+
 def test_failed_rerun_keeps_previous_vcf_only_in_recoverable_archive(
     tmp_path: Path,
 ) -> None:
@@ -395,7 +435,7 @@ def test_preexisting_non_regular_vcf_is_rejected_without_archival(
     if existing_kind == "symlink":
         outside = tmp_path / "outside.vcf.gz"
         outside.write_bytes(b"outside")
-        final_output.symlink_to(outside)
+        _symlink_or_skip(final_output, outside)
     else:
         final_output.mkdir()
 
@@ -436,7 +476,7 @@ def test_previous_output_index_symlink_is_rejected_before_vcf_moves(
     outside = tmp_path / "outside.tbi"
     outside.write_bytes(b"outside index")
     index = Path(f"{final_output}.tbi")
-    index.symlink_to(outside)
+    _symlink_or_skip(index, outside)
 
     with pytest.raises(ToolContractError, match="must not be a symlink"):
         _execute_example(
@@ -572,8 +612,12 @@ def test_timeout_terminates_runner_and_records_failure(tmp_path: Path) -> None:
     assert attempt["status"] == "failed"
     assert "ToolTimeoutError" in attempt["error"]
     assert attempt["timed_out"] is True
-    assert attempt["exit_code"] in {-15, -9}
-    assert attempt["termination_signal"] in {15, 9}
+    if os.name == "nt":
+        assert attempt["exit_code"] is not None
+        assert attempt["termination_signal"] is None
+    else:
+        assert attempt["exit_code"] in {-15, -9}
+        assert attempt["termination_signal"] in {15, 9}
 
 
 def test_output_validator_rejects_file_that_predates_attempt(

@@ -72,7 +72,7 @@ rule fuse_evaluator_metrics:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name fuse_evaluator_metrics \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -116,7 +116,7 @@ rule fuse_evaluator_metrics:
           --upstream-manifest {input.link_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --fixture {input.fixture:q} \
             --metric-dictionary {input.metric_dictionary:q} \
             --metrics-schema {input.metrics_schema:q} \
@@ -172,7 +172,7 @@ rule compute_pgbench_score:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name compute_pgbench_score \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -215,7 +215,7 @@ rule compute_pgbench_score:
           --upstream-manifest {input.audit_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --metrics {input.metrics:q} \
             --provenance-audit {input.audit:q} \
             --run-context {input.context:q} \

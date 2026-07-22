@@ -45,7 +45,7 @@ rule build_blinded_challenge_panel:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name build_blinded_challenge_panel \
           --job-key {SAMPLE_ID:q} \
           --run-id {RUN_ID:q} \
@@ -83,7 +83,7 @@ rule build_blinded_challenge_panel:
           --upstream-manifest {input.pangenome_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --panel-vcf {input.panel:q} \
             --truth-vcf {input.truth:q} \
             --output-vcf {output.vcf:q} \

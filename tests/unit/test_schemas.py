@@ -181,7 +181,7 @@ def _valid_pangenome_manifest() -> dict:
         "pangenome_id": "grch38_hprc_1kg_sv_v1",
         "backbone_reference": {
             "id": "grch38",
-            "path": "resources/references/GRCh38_no_alt_analysis_set.fasta",
+            "path": "resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta",
             "sha256": digest,
         },
         "population_sources": [

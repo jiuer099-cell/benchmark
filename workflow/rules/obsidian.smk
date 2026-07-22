@@ -38,7 +38,7 @@ rule sync_obsidian_design:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name sync_obsidian_design \
           --job-key {OBSIDIAN_JOB_KEY:q} \
           --run-id {RUN_ID:q} \
@@ -72,7 +72,7 @@ rule sync_obsidian_design:
           --upstream-manifest {input.context_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --repo-root . \
             --design {input.design:q} \
             --config {input.config:q} \
@@ -122,7 +122,7 @@ rule check_obsidian_sync:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name check_obsidian_sync \
           --job-key {OBSIDIAN_JOB_KEY:q} \
           --run-id {RUN_ID:q} \
@@ -156,7 +156,7 @@ rule check_obsidian_sync:
           --upstream-manifest {input.context_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --repo-root . \
             --design {input.design:q} \
             --config {input.config:q} \

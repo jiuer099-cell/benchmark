@@ -12,9 +12,9 @@ sample:
 
 reference:
   id: grch38
-  fasta: resources/references/GRCh38_no_alt_analysis_set.fasta
-  fai: resources/references/GRCh38_no_alt_analysis_set.fasta.fai
-  dict: resources/references/GRCh38_no_alt_analysis_set.dict
+  fasta: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta
+  fai: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta.fai
+  dict: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.dict
 
 pangenome:
   id: grch38_hprc_1kg_sv_v1

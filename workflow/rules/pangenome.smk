@@ -36,7 +36,7 @@ rule build_pangenome_manifest:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name build_pangenome_manifest \
           --job-key {PANGENOME_ID:q} \
           --run-id {RUN_ID:q} \
@@ -75,7 +75,7 @@ rule build_pangenome_manifest:
           --upstream-manifest {input.context_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --pangenome-id {PANGENOME_ID:q} \
             --backbone-id {config[reference][id]:q} \
             --reference {input.reference:q} \

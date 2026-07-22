@@ -7,7 +7,7 @@ vcfdist.
 
 ## Reference and truth data
 
-- reference: GRCh38 (`GRCh38_no_alt_analysis_set.fasta`);
+- reference: GRCh38 no-alt plus hs38d1 decoy (`GRCh38_no_alt_plus_hs38d1_analysis_set.fasta`), matching the GIAB PacBio CLR GRCh38 BAM;
 - sample: HG002 / NA24385;
 - primary truth profile: `giab_hg002_grch38_v5_0q`;
 - pangenome backbone: GRCh38;
