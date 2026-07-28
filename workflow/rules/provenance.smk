@@ -107,7 +107,7 @@ rule build_rule_lineage:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name build_rule_lineage \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -133,7 +133,7 @@ rule build_rule_lineage:
           {params.upstream_args:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             {params.manifest_args:q} \
             --output-json {output.json:q} \
             --output-tsv {output.tsv:q} \
@@ -215,7 +215,7 @@ rule audit_score_inputs:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name audit_score_inputs \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -240,7 +240,7 @@ rule audit_score_inputs:
           {params.upstream_args:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             {params.manifest_args:q} \
             {params.expected_args:q} \
             --workspace-root . \
@@ -351,7 +351,7 @@ rule finalize_score_provenance:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name finalize_score_provenance \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -379,7 +379,7 @@ rule finalize_score_provenance:
           {params.upstream_args:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --score-json {input.score:q} \
             --score-rule-manifest {input.score_rule_manifest:q} \
             --pre-score-audit {input.audit:q} \

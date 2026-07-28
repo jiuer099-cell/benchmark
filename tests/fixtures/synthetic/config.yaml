@@ -9,6 +9,7 @@ sample:
   sex: male
   technology: pacbio_clr
   bam: tests/fixtures/synthetic/missing-development-only.bam
+  fastq: null
 
 reference:
   id: grch38
@@ -21,6 +22,16 @@ pangenome:
   truth_leakage_policy: exclude_hg002_truth
   build_graph_assets: false
   allele_namespace: PGSV
+  excluded_samples: [HG002, NA24385]
+  population_vcf: null
+  graph_assets:
+    manifest: null
+    gbz: null
+    xg: null
+    min: null
+    dist: null
+    sample_list: null
+    reference_path: GRCh38
 
 truth:
   primary: giab_hg002_grch38_v5_0q
@@ -55,6 +66,18 @@ score:
   profile: pgbench_consensus_v2
   final_score_name: ConsensusScore
   produce_ranking: false
+
+evaluation:
+  evaluators: [truvari, aardvark, vcfdist]
+  truth_vcf: null
+  benchmark_bed: null
+  vcfdist_credit_threshold: 0.7
+  commands:
+    bcftools: [bcftools]
+    tabix: [tabix]
+    truvari: [truvari]
+    aardvark: [aardvark]
+    vcfdist: [vcfdist]
 
 obsidian:
   enabled: false

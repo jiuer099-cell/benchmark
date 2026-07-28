@@ -1,0 +1,62 @@
+interface_version: 1
+id: pangenie
+name: PanGenie short-read pangenome genotyper
+version: 4.2.1
+source: external
+paradigm: short_read_pangenome_genotyping
+
+tasks: [prepare_assets, index, genotyping, postprocess]
+
+inputs:
+  reads: short_fastq
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: false
+    accepted_formats: [vg, xg_gbwt]
+  shared_alignment:
+    required: false
+    accepted_formats: [bam]
+  read_sequences_auxiliary: false
+
+capabilities:
+  technology: [illumina_short_read]
+  svtypes: [DEL, INS, DUP, INV, CNV, CPX]
+  phasing: false
+  novel_discovery: false
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: trusted_reviewed
+  sandbox_backend: none
+
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs:
+      - canonical_fastq
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    optional_inputs: []
+    forbidden_inputs:
+      - original_input_bam
+      - shared_alignment
+      - haplotype_fastq
+      - graph_assets
+    billable_stages:
+      - prepare_assets
+      - index
+      - genotype
+      - postprocess
+
+outputs:
+  vcf: raw/calls.vcf
+  candidate_output_contract: all_sites
+  absence_semantics: no_call

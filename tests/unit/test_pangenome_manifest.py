@@ -61,6 +61,7 @@ def test_assigns_stable_ids_and_writes_manifest(tmp_path: Path) -> None:
         namespace="PGSV",
         excluded_truth_samples=["HG002"],
         graph_build_recipe_sha256=None,
+        graph_assets_lock=None,
         generated_at="2026-07-17T00:00:00+00:00",
     )
     assert manifest["panel_vcf"]["record_count"] == 2
@@ -98,4 +99,22 @@ def test_duplicate_canonical_alleles_are_rejected(tmp_path: Path) -> None:
             tmp_path / "panel.vcf",
             tmp_path / "ledger.tsv",
             namespace="PGSV",
+        )
+
+
+def test_population_vcf_with_hg002_is_rejected(tmp_path: Path) -> None:
+    population = tmp_path / "leaking.vcf"
+    population.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "1\t20\ta\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=30\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(PangenomeManifestError, match="excluded HG002"):
+        assign_stable_alleles(
+            population,
+            tmp_path / "panel.vcf",
+            tmp_path / "ledger.tsv",
+            namespace="PGSV",
+            excluded_samples=["HG002", "NA24385"],
         )

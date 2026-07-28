@@ -54,7 +54,7 @@ rule render_report:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name render_report \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -92,7 +92,7 @@ rule render_report:
           --upstream-manifest {input.finalizer_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --score-json {input.score:q} \
             --score-package {input.package:q} \
             --finalizer-manifest {input.finalizer_rule_manifest:q} \
@@ -173,7 +173,7 @@ rule render_report_index:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name render_report_index \
           --job-key index \
           --run-id {RUN_ID:q} \
@@ -201,7 +201,7 @@ rule render_report_index:
           {params.upstream_args:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             {params.card_args:q} \
             {params.score_args:q} \
             {params.metrics_args:q} \

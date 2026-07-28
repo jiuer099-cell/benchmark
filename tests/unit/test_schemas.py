@@ -181,7 +181,7 @@ def _valid_pangenome_manifest() -> dict:
         "pangenome_id": "grch38_hprc_1kg_sv_v1",
         "backbone_reference": {
             "id": "grch38",
-            "path": "resources/references/GRCh38_no_alt_analysis_set.fasta",
+            "path": "resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta",
             "sha256": digest,
         },
         "population_sources": [
@@ -202,6 +202,7 @@ def _valid_pangenome_manifest() -> dict:
             "path": "resources/pangenome/allele-ledger.tsv.gz",
             "sha256": digest,
         },
+        "graph_assets": None,
         "graph_build_recipe_sha256": None,
         "generated_at": "2026-07-17T00:00:00Z",
     }
@@ -272,8 +273,41 @@ def test_example_config_validates_and_starts_without_unimplemented_tools() -> No
     assert config["tools"]["enabled"] == []
     assert config["tools"]["planned_tools"]
     assert config["score"]["produce_ranking"] is False
-    assert config["execution"]["official_score_mode"] == "end_to_end_from_reads"
+    assert (
+        config["execution"]["official_score_mode"]
+        == "caller_only_shared_alignment"
+    )
     assert config["development"]["synthetic_mode"] is False
+
+
+def test_vg_end_to_end_example_config_matches_schema() -> None:
+    config = _load_yaml(CONFIG / "config.vg.example.yaml")
+    _assert_valid(CONFIG / "config.schema.yaml", config)
+    assert config["execution"]["official_score_mode"] == "end_to_end_from_reads"
+    assert config["external_plugins"] == [
+        {"id": "vg", "manifest": "plugins/vg/tool.yaml"}
+    ]
+
+
+def test_pangenie_end_to_end_example_config_matches_schema() -> None:
+    config = _load_yaml(CONFIG / "config.pangenie.example.yaml")
+    _assert_valid(CONFIG / "config.schema.yaml", config)
+    assert config["sample"]["technology"] == "illumina_short_read"
+    assert config["sample"]["bam"] is None
+    assert config["pangenome"]["build_graph_assets"] is False
+    assert config["external_plugins"] == [
+        {"id": "pangenie", "manifest": "plugins/pangenie/tool.yaml"}
+    ]
+    _assert_valid(
+        SCHEMAS / "tool.schema.yaml",
+        _load_yaml(ROOT / "plugins" / "pangenie" / "tool.yaml"),
+    )
+
+
+def test_caller_only_config_requires_non_null_bam() -> None:
+    config = _load_yaml(CONFIG / "config.example.yaml")
+    config["sample"]["bam"] = None
+    _assert_invalid(CONFIG / "config.schema.yaml", config)
 
 
 @pytest.mark.parametrize(
@@ -432,6 +466,42 @@ def test_pangenome_manifest_requires_hg002_truth_exclusion() -> None:
     manifest = _valid_pangenome_manifest()
     _assert_valid(SCHEMAS / "pangenome-manifest.schema.yaml", manifest)
     manifest["truth_samples_excluded"] = ["HG001"]
+    _assert_invalid(SCHEMAS / "pangenome-manifest.schema.yaml", manifest)
+
+
+def test_pangenome_manifest_accepts_content_locked_graph_assets() -> None:
+    manifest = _valid_pangenome_manifest()
+    digest = "c" * 64
+    asset = {
+        "path": "resources/pangenome/graph/graph.gbz",
+        "sha256": digest,
+        "size_bytes": 100,
+    }
+    manifest["graph_assets"] = {
+        "manifest": {
+            **asset,
+            "path": "resources/pangenome/graph/graph-assets.lock.yaml",
+        },
+        "lock_manifest": {
+            **asset,
+            "path": "results/pangenome/graph-assets.lock.yaml",
+        },
+            "asset_root": "resources/pangenome/graph",
+            "reference_path": "GRCh38",
+            "excluded_samples": ["HG002", "NA24385"],
+            "gbz": asset,
+        "xg": {**asset, "path": "resources/pangenome/graph/graph.xg"},
+        "min": {**asset, "path": "resources/pangenome/graph/graph.min"},
+        "dist": {**asset, "path": "resources/pangenome/graph/graph.dist"},
+        "sample_list": {
+            **asset,
+            "path": "resources/pangenome/graph/samples.txt",
+        },
+        "sample_count": 2,
+    }
+    _assert_valid(SCHEMAS / "pangenome-manifest.schema.yaml", manifest)
+
+    manifest["graph_assets"]["gbz"]["sha256"] = "unlocked"
     _assert_invalid(SCHEMAS / "pangenome-manifest.schema.yaml", manifest)
 
 

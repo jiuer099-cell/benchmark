@@ -36,6 +36,131 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def load_graph_assets_lock(path: Path) -> dict:
+    """Load a graph lock and re-verify every frozen asset before embedding it."""
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            lock = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as exc:
+        raise PangenomeManifestError(
+            f"cannot load graph assets lock {path}: {exc}"
+        ) from exc
+    if not isinstance(lock, dict):
+        raise PangenomeManifestError("graph assets lock must contain a YAML mapping")
+    if lock.get("schema_version") != 1:
+        raise PangenomeManifestError("unsupported graph assets lock schema_version")
+    assets = lock.get("assets")
+    required_assets = {"gbz", "xg", "min", "dist", "sample_list"}
+    if not isinstance(assets, dict) or set(assets) != required_assets:
+        raise PangenomeManifestError(
+            "graph assets lock must contain exactly gbz, xg, min, dist, sample_list"
+        )
+    reference_path = lock.get("reference_path")
+    asset_root = lock.get("asset_root")
+    sample_count = lock.get("sample_count")
+    excluded_samples = lock.get("excluded_samples")
+    if not isinstance(reference_path, str) or not reference_path:
+        raise PangenomeManifestError("graph assets lock has no reference_path")
+    if not isinstance(asset_root, str) or not asset_root:
+        raise PangenomeManifestError("graph assets lock has no asset_root")
+    if not isinstance(sample_count, int) or sample_count < 1:
+        raise PangenomeManifestError("graph assets lock has invalid sample_count")
+    if (
+        not isinstance(excluded_samples, list)
+        or "HG002" not in excluded_samples
+        or len(excluded_samples) != len(set(excluded_samples))
+    ):
+        raise PangenomeManifestError(
+            "graph assets lock has invalid excluded_samples"
+        )
+    source_record = lock.get("source_manifest")
+    if not isinstance(source_record, dict):
+        raise PangenomeManifestError("graph assets lock has no source_manifest")
+    source_path_raw = source_record.get("path")
+    if not isinstance(source_path_raw, str) or not source_path_raw:
+        raise PangenomeManifestError("graph source manifest has no path")
+    source_path = Path(source_path_raw)
+    if not source_path.is_file():
+        raise PangenomeManifestError(
+            f"graph source manifest does not exist: {source_path}"
+        )
+    source_sha = sha256_file(source_path)
+    source_size = source_path.stat().st_size
+    if (
+        source_record.get("sha256") != source_sha
+        or source_record.get("size_bytes") != source_size
+    ):
+        raise PangenomeManifestError(
+            "graph source manifest no longer matches its content identity"
+        )
+    try:
+        source_path.resolve(strict=True).relative_to(
+            Path(asset_root).resolve(strict=True)
+        )
+    except (OSError, ValueError) as exc:
+        raise PangenomeManifestError(
+            "graph source manifest is outside asset_root"
+        ) from exc
+
+    verified: dict[str, dict[str, str | int]] = {}
+    for name in sorted(required_assets):
+        record = assets[name]
+        if not isinstance(record, dict):
+            raise PangenomeManifestError(f"graph asset {name} record must be a mapping")
+        raw_path = record.get("path")
+        expected_sha = record.get("sha256")
+        expected_size = record.get("size_bytes")
+        if not isinstance(raw_path, str) or not raw_path:
+            raise PangenomeManifestError(f"graph asset {name} has no path")
+        asset_path = Path(raw_path)
+        if not asset_path.is_file():
+            raise PangenomeManifestError(
+                f"locked graph asset {name} does not exist: {asset_path}"
+            )
+        observed_sha = sha256_file(asset_path)
+        observed_size = asset_path.stat().st_size
+        if observed_sha != expected_sha or observed_size != expected_size:
+            raise PangenomeManifestError(
+                f"locked graph asset {name} no longer matches its content identity"
+            )
+        try:
+            asset_path.resolve(strict=True).relative_to(
+                Path(asset_root).resolve(strict=True)
+            )
+        except (OSError, ValueError) as exc:
+            raise PangenomeManifestError(
+                f"locked graph asset {name} is outside asset_root"
+            ) from exc
+        verified[name] = {
+            "path": raw_path,
+            "sha256": observed_sha,
+            "size_bytes": observed_size,
+        }
+
+    return {
+        "manifest": {
+            "path": source_path_raw,
+            "sha256": source_sha,
+            "size_bytes": source_size,
+        },
+        "lock_manifest": {
+            "path": str(path),
+            "sha256": sha256_file(path),
+            "size_bytes": path.stat().st_size,
+        },
+        "asset_root": asset_root,
+        "reference_path": reference_path,
+        "excluded_samples": excluded_samples,
+        "gbz": verified["gbz"],
+        "xg": verified["xg"],
+        "min": verified["min"],
+        "dist": verified["dist"],
+        "sample_list": verified["sample_list"],
+        "sample_count": sample_count,
+    }
+
+
 def _open_text(path: Path, mode: str) -> TextIO:
     if path.suffix == ".gz":
         return cast(TextIO, gzip.open(path, mode, encoding="utf-8"))
@@ -139,6 +264,7 @@ def assign_stable_alleles(
     ledger_path: Path,
     *,
     namespace: str,
+    excluded_samples: Iterable[str] = (),
 ) -> int:
     """Write an ID-annotated panel and allele ledger; return record count."""
 
@@ -147,6 +273,7 @@ def assign_stable_alleles(
     seen_ids: set[str] = set()
     record_count = 0
     info_header_written = False
+    excluded = set(excluded_samples)
 
     with (
         _open_text(input_vcf, "rt") as source,
@@ -178,6 +305,13 @@ def assign_stable_alleles(
                 panel.write(raw_line)
                 continue
             if raw_line.startswith("#CHROM"):
+                header_fields = raw_line.rstrip("\n").split("\t")
+                leaked = sorted(excluded.intersection(header_fields[9:]))
+                if leaked:
+                    raise PangenomeManifestError(
+                        "population VCF contains excluded HG002 truth sample aliases: "
+                        + ", ".join(leaked)
+                    )
                 if not info_header_written:
                     panel.write(
                         "##INFO=<ID=PANGENOME_ALLELE_ID,Number=1,Type=String,"
@@ -266,6 +400,7 @@ def build_manifest(
     namespace: str,
     excluded_truth_samples: Iterable[str],
     graph_build_recipe_sha256: str | None,
+    graph_assets_lock: Path | None,
     generated_at: str,
 ) -> dict:
     excluded = list(excluded_truth_samples)
@@ -301,6 +436,11 @@ def build_manifest(
             "path": str(allele_ledger),
             "sha256": sha256_file(allele_ledger),
         },
+        "graph_assets": (
+            load_graph_assets_lock(graph_assets_lock)
+            if graph_assets_lock is not None
+            else None
+        ),
         "graph_build_recipe_sha256": graph_build_recipe_sha256,
         "generated_at": generated_at,
     }
@@ -322,9 +462,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--exclude-truth-sample",
         action="append",
-        default=["HG002"],
+        default=[],
     )
     parser.add_argument("--graph-build-recipe-sha256")
+    parser.add_argument("--graph-assets-lock", type=Path)
     parser.add_argument("--generated-at")
     return parser.parse_args(argv)
 
@@ -333,11 +474,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     generated_at = args.generated_at or datetime.now(UTC).isoformat()
     try:
+        excluded_samples = args.exclude_truth_sample or ["HG002", "NA24385"]
         assign_stable_alleles(
             args.population_vcf,
             args.output_panel,
             args.output_ledger,
             namespace=args.allele_namespace,
+            excluded_samples=excluded_samples,
         )
         manifest = build_manifest(
             pangenome_id=args.pangenome_id,
@@ -348,8 +491,9 @@ def main(argv: list[str] | None = None) -> int:
             panel_vcf=args.output_panel,
             allele_ledger=args.output_ledger,
             namespace=args.allele_namespace,
-            excluded_truth_samples=args.exclude_truth_sample,
+            excluded_truth_samples=excluded_samples,
             graph_build_recipe_sha256=args.graph_build_recipe_sha256,
+            graph_assets_lock=args.graph_assets_lock,
             generated_at=generated_at,
         )
         args.output_manifest.parent.mkdir(parents=True, exist_ok=True)

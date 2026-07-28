@@ -136,7 +136,14 @@ def build_challenge_panel(
                 output.write(line)
                 continue
             if line.startswith("#CHROM"):
-                output.write(line.rstrip("\n") + "\tFORMAT\tHG002\n")
+                header_fields = line.rstrip("\n").split("\t")
+                if len(header_fields) < 8:
+                    raise ChallengePanelError("panel VCF has an invalid #CHROM header")
+                # PanGenie needs panel haplotypes through pangenome_panel, but
+                # those samples must not leak into the shared blinded universe.
+                output.write(
+                    "\t".join(header_fields[:8] + ["FORMAT", "HG002"]) + "\n"
+                )
                 saw_column_header = True
                 continue
             if not line.strip():

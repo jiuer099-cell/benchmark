@@ -1948,7 +1948,7 @@ HTML 至少包含：
 本项目绑定到：
 
 ```text
-/Users/wanghao/Desktop/risefl_mvp/memory/
+<VAULT_ROOT>/
   Research/hg002-grch37-pangenome-sv-benchmark/
 ```
 
@@ -1961,7 +1961,7 @@ Writing/HG002-GRCh37泛基因组SV-Benchmark设计规范.md
 该 note 必须包含：
 
 ```yaml
-repo_root: /Users/wanghao/Documents/Codex/2026-07-16/referenced-chatgpt-conversation-this-is-untrusted
+repo_root: <REPO_ROOT>
 repo_design_path: docs/superpowers/specs/2026-07-16-hg002-grch37-sv-benchmark-design.md
 repo_commit: <current commit>
 git_head: <current commit>

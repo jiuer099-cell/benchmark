@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,15 @@ from pgbench_provenance import (  # noqa: E402
 
 SHA_A = sha256_bytes(b"a")
 SHA_B = sha256_bytes(b"b")
+
+
+def _symlink_or_skip(link: Path, target: str) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is not enabled")
+        raise
 
 
 def _manifest_payload(
@@ -165,7 +175,7 @@ def test_file_directory_and_symlink_hashes_are_deterministic(tmp_path: Path) -> 
     nested.mkdir()
     (nested / "z.txt").write_text("z\n", encoding="utf-8")
     link = tree / "target-link"
-    link.symlink_to("target.txt")
+    _symlink_or_skip(link, "target.txt")
 
     first = sha256_path(tree)
     assert first == sha256_path(tree)
@@ -190,7 +200,7 @@ def test_empty_directory_and_broken_symlink_have_explicit_behavior(
     assert sha256_path(empty_a) == sha256_path(empty_b)
 
     broken = tmp_path / "broken"
-    broken.symlink_to("missing")
+    _symlink_or_skip(broken, "missing")
     with pytest.raises(PathHashError, match="broken symlink"):
         sha256_path(broken)
 

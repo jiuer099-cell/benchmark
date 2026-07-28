@@ -196,15 +196,31 @@ rules:
     description: Freeze pangenome assets, hashes, sources, and truth exclusions.
     phase: pangenome
     kind: core
-    inputs: [id_panel_vcf, allele_ledger_tsv, reference_fasta]
+    inputs: [id_panel_vcf, allele_ledger_tsv, reference_fasta, graph_assets_lock_yaml]
     outputs: [pangenome_manifest_yaml]
-    upstream: [assign_pangenome_allele_ids, prepare_reference]
+    upstream: [assign_pangenome_allele_ids, prepare_reference, lock_graph_assets]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
     source_path: workflow/rules/pangenome.smk
+    environment: workflow/envs/core.yaml
+    resource_class: local_small
+
+  - id: lock_graph_assets
+    description: Validate the conventional vg bundle and freeze every graph asset identity.
+    phase: pangenome
+    kind: core
+    inputs: [graph_source_manifest, graph_gbz, graph_xg, graph_min, graph_dist, graph_sample_list]
+    outputs: [graph_assets_lock_yaml]
+    upstream: [validate_config, snapshot_run_context]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/validate_graph_assets.py
     environment: workflow/envs/core.yaml
     resource_class: local_small
 
@@ -324,7 +340,7 @@ rules:
     description: Execute one validated external runner in the selected official mode.
     phase: tool_execution
     kind: tool_template
-    inputs: [tool_manifest, mode_allowed_assets, pangenome_manifest_yaml, blinded_challenge_vcf]
+    inputs: [tool_manifest, mode_allowed_assets, pangenome_manifest_yaml, blinded_challenge_vcf, graph_asset_directory, graph_source_manifest, graph_assets_lock_yaml]
     outputs: [tool_raw_vcf, resolved_inputs_json, tool_attempt_record]
     upstream: ["tool__{tool}__preflight", build_blinded_challenge_panel]
     audit_scope: pre_score
@@ -577,51 +593,51 @@ rules:
     resource_class: local_medium
 
   - id: evaluate_truvari
-    description: Run Truvari bench and refine.
+    description: Run Truvari bench and emit one binary vote for every canonical query result.
     phase: evaluation
     kind: core
-    inputs: [truvari_view_vcf, primary_truth_vcf, primary_truth_bed]
-    outputs: [truvari_artifacts]
-    upstream: [make_truvari_view, prepare_primary_truth]
+    inputs: [linked_vcf, primary_truth_vcf, primary_truth_bed, reference_fasta]
+    outputs: [truvari_vote_ledger, truvari_artifacts, evaluator_complete_json]
+    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: null
+    implementation_status: implemented
+    source_path: workflow/scripts/run_formal_evaluator.py
+    environment: workflow/envs/core.yaml
     resource_class: compute_large
 
   - id: evaluate_aardvark
-    description: Run Aardvark haplotype comparison.
+    description: Run Aardvark haplotype comparison and emit one binary vote for every canonical query result.
     phase: evaluation
     kind: core
-    inputs: [aardvark_view_vcf, primary_truth_vcf, reference_fasta]
-    outputs: [aardvark_artifacts]
-    upstream: [make_aardvark_view, prepare_primary_truth]
+    inputs: [linked_vcf, primary_truth_vcf, primary_truth_bed, reference_fasta]
+    outputs: [aardvark_vote_ledger, aardvark_artifacts, evaluator_complete_json]
+    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: null
+    implementation_status: implemented
+    source_path: workflow/scripts/run_formal_evaluator.py
+    environment: workflow/envs/core.yaml
     resource_class: compute_large
 
   - id: evaluate_vcfdist
-    description: Run vcfdist representation and phase comparison.
+    description: Run vcfdist representation and phase comparison and threshold credit into one equal binary vote per result.
     phase: evaluation
     kind: core
-    inputs: [vcfdist_view_vcf, primary_truth_vcf, reference_fasta]
-    outputs: [vcfdist_artifacts]
-    upstream: [make_vcfdist_view, prepare_primary_truth]
+    inputs: [linked_vcf, primary_truth_vcf, primary_truth_bed, reference_fasta]
+    outputs: [vcfdist_vote_ledger, vcfdist_artifacts, evaluator_complete_json]
+    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: null
+    implementation_status: implemented
+    source_path: workflow/scripts/run_formal_evaluator.py
+    environment: workflow/envs/core.yaml
     resource_class: compute_large
 
   - id: parse_truvari_metrics
@@ -689,17 +705,17 @@ rules:
     resource_class: local_medium
 
   - id: fuse_evaluator_metrics
-    description: Materialize schema-validated evaluator, pangenome, and resource metrics; the synthetic adapter is verified and formal evaluators remain Phase 2.
+    description: Fuse three equal binary evaluator ledgers into all-three, exactly-two, exactly-one, and none-correct counts without evaluator weights.
     phase: fusion
     kind: core
     inputs: [standard_evaluator_metrics, metric_dictionary, score_profile]
     outputs: [metrics_json]
-    upstream: [stratify_evaluator_metrics]
+    upstream: [evaluate_truvari, evaluate_aardvark, evaluate_vcfdist]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: partial
+    implementation_status: implemented
     source_path: workflow/rules/scoring.smk
     environment: workflow/envs/core.yaml
     resource_class: local_small

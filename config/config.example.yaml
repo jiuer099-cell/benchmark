@@ -2,19 +2,21 @@ schema_version: 1
 
 project:
   id: hg002_grch38_sv_benchmark
-  run_id: hg002_clr_baseline
+  run_id: hg002_clr_graph_panel_kanpig
 
 sample:
   id: HG002
   sex: male
   technology: pacbio_clr
   bam: resources/alignments/HG002.GRCh38.bam
+  # Required only by end_to_end_from_reads (for example the vg adapter).
+  fastq: null
 
 reference:
   id: grch38
-  fasta: resources/references/GRCh38_no_alt_analysis_set.fasta
-  fai: resources/references/GRCh38_no_alt_analysis_set.fasta.fai
-  dict: resources/references/GRCh38_no_alt_analysis_set.dict
+  fasta: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta
+  fai: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta.fai
+  dict: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.dict
 
 pangenome:
   id: grch38_hprc_1kg_sv_v1
@@ -23,6 +25,21 @@ pangenome:
   truth_leakage_policy: exclude_hg002_truth
   build_graph_assets: true
   allele_namespace: PGSV
+  excluded_samples: [HG002, NA24385]
+  # A sequence-resolved, GRCh38-coordinate population SV VCF. HG002 must not
+  # occur among its samples.
+  population_vcf: resources/pangenome/grch38_hprc_1kg_sv_v1/population.sv.vcf.gz
+  graph_assets:
+    # Non-empty source YAML. If it declares reference_path or
+    # assets.<name>.sha256, the lock rule verifies those declarations.
+    manifest: resources/pangenome/grch38_hprc_1kg_sv_v1/graph-assets.lock.yaml
+    gbz: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.gbz
+    xg: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.xg
+    min: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.min
+    dist: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.dist
+    sample_list: resources/pangenome/grch38_hprc_1kg_sv_v1/samples.txt
+    # Exact reference-sense path used when vg calls are projected to GRCh38.
+    reference_path: GRCh38
 
 truth:
   primary: giab_hg002_grch38_v5_0q
@@ -37,13 +54,17 @@ catalogs:
 execution:
   tracks:
     - caller_only_shared_alignment
-    - end_to_end_from_reads
-  official_score_mode: end_to_end_from_reads
+  # This production example matches the data currently being downloaded:
+  # the common GIAB GRCh38 BAM. Use end_to_end_from_reads only with FASTQ.
+  official_score_mode: caller_only_shared_alignment
   use_conda: true
   use_apptainer: false
   keep_going: true
   benchmark_repeats: 1
   random_seed: 20260716
+  tool_threads: 16
+  tool_memory_mb: 65536
+  tool_timeout_seconds: 604800
 
 development:
   synthetic_mode: false
@@ -65,6 +86,20 @@ score:
   final_score_name: ConsensusScore
   produce_ranking: false
 
+evaluation:
+  evaluators: [truvari, aardvark, vcfdist]
+  truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
+  benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
+  # vcfdist emits fractional credit. It becomes one equal binary vote only
+  # after this frozen threshold is applied.
+  vcfdist_credit_threshold: 0.7
+  commands:
+    bcftools: [mamba, run, -n, pgbench-bio, bcftools]
+    tabix: [mamba, run, -n, pgbench-bio, tabix]
+    truvari: [mamba, run, -n, eval-truvari, truvari]
+    aardvark: [mamba, run, -n, eval-aardvark, aardvark]
+    vcfdist: [mamba, run, -n, eval-vcfdist, vcfdist]
+
 obsidian:
   enabled: true
   vault_root: null
@@ -73,8 +108,6 @@ obsidian:
   canonical_note: Writing/HG002-GRCh38泛基因组SV-Benchmark设计规范.md
   binding_file: .claude/project-memory/hg002-grch38-pangenome-sv-benchmark.md
 
-# Phase 1 intentionally starts with no executable tool modules. Move a tool ID
-# from planned_tools to enabled only after its module and manifest are present.
 tools:
   enabled: []
   planned_tools:
@@ -83,9 +116,9 @@ tools:
     - pbsv
     - svim
     - sniffles2_force
-    - kanpig
-    - svjedi_graph
     - vg
     - pangenie
 
-external_plugins: []
+external_plugins:
+  - id: kanpig
+    manifest: plugins/kanpig/tool.yaml

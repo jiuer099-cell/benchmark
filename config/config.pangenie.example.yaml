@@ -1,0 +1,110 @@
+schema_version: 1
+
+project:
+  id: hg002_grch38_sv_benchmark
+  run_id: hg002_illumina_pangenie
+
+sample:
+  id: HG002
+  sex: male
+  technology: illumina_short_read
+  bam: null
+  # Concatenate all HG002 Illumina read files into one gzip stream. PanGenie
+  # counts k-mers and does not require paired files to remain separate.
+  fastq: resources/reads/HG002.Illumina_2x250.all.fastq.gz
+
+reference:
+  id: grch38
+  fasta: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta
+  fai: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta.fai
+  dict: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.dict
+
+pangenome:
+  id: grch38_pangenie_hprc_loo_v1
+  backbone: grch38
+  population_panel: pangenie_hprc_grch38_loo
+  truth_leakage_policy: exclude_hg002_truth
+  build_graph_assets: false
+  allele_namespace: PGSV
+  excluded_samples: [HG002, NA24385]
+  # Must be a PanGenie-ready, fully phased, non-overlapping,
+  # sequence-resolved multi-sample VCF with HG002 removed.
+  population_vcf: resources/pangenome/grch38_pangenie_hprc_loo_v1/pangenie.panel.vcf.gz
+  graph_assets:
+    manifest: null
+    gbz: null
+    xg: null
+    min: null
+    dist: null
+    sample_list: null
+    reference_path: GRCh38
+
+truth:
+  primary: giab_hg002_grch38_v5_0q
+  secondary: []
+
+catalogs:
+  truthsets: config/truthsets.yaml
+  stratifications: config/stratifications.yaml
+  score_weights: config/consensus_scoring.yaml
+  metric_dictionary: config/metric_dictionary.yaml
+
+execution:
+  tracks: [end_to_end_from_reads]
+  official_score_mode: end_to_end_from_reads
+  use_conda: true
+  use_apptainer: false
+  keep_going: true
+  benchmark_repeats: 1
+  random_seed: 20260716
+  tool_threads: 16
+  tool_memory_mb: 65536
+  tool_timeout_seconds: 604800
+
+development:
+  synthetic_mode: false
+  canonical_fastq: null
+  population_vcf: null
+  truth_vcf: null
+  benchmark_bed: null
+  evaluator_fixture_dir: null
+  allow_missing_bam: false
+
+score:
+  profile: pgbench_consensus_v2
+  final_score_name: ConsensusScore
+  produce_ranking: false
+
+evaluation:
+  evaluators: [truvari, aardvark, vcfdist]
+  truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
+  benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
+  vcfdist_credit_threshold: 0.7
+  commands:
+    bcftools: [mamba, run, -n, pgbench-bio, bcftools]
+    tabix: [mamba, run, -n, pgbench-bio, tabix]
+    truvari: [mamba, run, -n, eval-truvari, truvari]
+    aardvark: [mamba, run, -n, eval-aardvark, aardvark]
+    vcfdist: [mamba, run, -n, eval-vcfdist, vcfdist]
+
+obsidian:
+  enabled: false
+  vault_root: null
+  vault_root_env: PGBENCH_OBSIDIAN_VAULT
+  project_relpath: Research/hg002-grch38-pangenome-sv-benchmark
+  canonical_note: Writing/HG002-GRCh38-pangenome-SV-benchmark.md
+  binding_file: .claude/project-memory/hg002-grch38-pangenome-sv-benchmark.md
+
+tools:
+  enabled: []
+  planned_tools:
+    - sniffles2
+    - cutesv
+    - pbsv
+    - svim
+    - sniffles2_force
+    - vg
+
+external_plugins:
+  - id: pangenie
+    manifest: plugins/pangenie/tool.yaml

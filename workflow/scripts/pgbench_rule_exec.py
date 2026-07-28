@@ -303,6 +303,8 @@ def _normalize_command(raw: Sequence[str]) -> list[str]:
         command = command[1:]
     if not command:
         raise RuleExecutionError("a command must follow the -- separator")
+    if command[0].casefold() in {"python", "python3", "python.exe"}:
+        command[0] = sys.executable
     return command
 
 

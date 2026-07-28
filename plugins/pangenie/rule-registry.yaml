@@ -1,0 +1,47 @@
+schema_version: 1
+rules:
+  - id: tool__pangenie__prepare_and_index
+    description: Prepare uncompressed inputs and index the frozen phased pangenome VCF.
+    phase: tool_execution
+    kind: plugin
+    inputs:
+      - canonical_short_read_fastq
+      - phased_sequence_resolved_pangenome_vcf
+      - grch38_reference
+    outputs:
+      - pangenie_kmer_graph_index
+    upstream:
+      - build_pangenome_manifest
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/pangenie/run.py
+    environment: plugins/pangenie/envs/environment.yaml
+    resource_class: tool_large
+    active_when:
+      tool: pangenie
+      task: index
+  - id: tool__pangenie__genotype
+    description: Genotype the frozen pangenome bubbles from HG002 short-read k-mers.
+    phase: tool_execution
+    kind: plugin
+    inputs:
+      - canonical_short_read_fastq
+      - pangenie_kmer_graph_index
+    outputs:
+      - raw_all_sites_vcf
+    upstream:
+      - tool__pangenie__prepare_and_index
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/pangenie/run.py
+    environment: plugins/pangenie/envs/environment.yaml
+    resource_class: tool_large
+    active_when:
+      tool: pangenie
+      task: genotyping

@@ -169,11 +169,19 @@ def validate_configuration(
         tool_schema_path=tool_schema_path,
     )
     development = config.get("development", {})
-    bam_path = Path(config["sample"]["bam"])
+    needs_bam = (
+        config["execution"]["official_score_mode"]
+        == "caller_only_shared_alignment"
+    )
+    bam_value = config["sample"].get("bam")
+    bam_path = Path(bam_value) if isinstance(bam_value, str) else None
     if (
-        not development.get("synthetic_mode", False)
-        or not development.get("allow_missing_bam", False)
-    ) and not bam_path.exists():
+        needs_bam
+        and (
+            not development.get("synthetic_mode", False)
+            or not development.get("allow_missing_bam", False)
+        )
+    ) and (bam_path is None or not bam_path.exists()):
         raise ConfigValidationError(
             f"sample BAM does not exist: {bam_path}; use synthetic_mode only "
             "for local fixtures"

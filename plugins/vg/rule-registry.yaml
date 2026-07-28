@@ -1,0 +1,68 @@
+schema_version: 1
+rules:
+  - id: tool__vg__map
+    description: Map canonical HG002 long reads to the frozen graph with GraphAligner.
+    phase: tool_execution
+    kind: plugin
+    inputs:
+      - canonical_fastq
+      - frozen_vg_graph_assets
+    outputs:
+      - graph_alignment_gam
+    upstream:
+      - lock_graph_assets
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/vg/run.py
+    environment: plugins/vg/envs/environment.yaml
+    resource_class: tool_large
+    active_when:
+      tool: vg
+      task: mapping
+  - id: tool__vg__pack
+    description: Accumulate graph-alignment support into a vg pack.
+    phase: tool_execution
+    kind: plugin
+    inputs:
+      - graph_alignment_gam
+      - frozen_vg_graph_assets
+    outputs:
+      - graph_support_pack
+    upstream:
+      - tool__vg__map
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/vg/run.py
+    environment: plugins/vg/envs/environment.yaml
+    resource_class: tool_large
+    active_when:
+      tool: vg
+      task: calling
+  - id: tool__vg__call
+    description: Compute graph snarls and emit graph-supported variant sites.
+    phase: tool_execution
+    kind: plugin
+    inputs:
+      - graph_support_pack
+      - frozen_vg_graph_assets
+    outputs:
+      - raw_variant_sites_vcf
+    upstream:
+      - tool__vg__pack
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/vg/run.py
+    environment: plugins/vg/envs/environment.yaml
+    resource_class: tool_large
+    active_when:
+      tool: vg
+      task: calling

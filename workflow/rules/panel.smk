@@ -2,10 +2,10 @@ def truth_vcf_input(wildcards):
     path = config.get("development", {}).get("truth_vcf")
     if path:
         return path
-    raise WorkflowError(
-        "production truth asset resolution is not implemented yet; "
-        "configure the frozen truth catalog in Phase 2"
-    )
+    path = config.get("evaluation", {}).get("truth_vcf")
+    if path:
+        return path
+    raise WorkflowError("evaluation.truth_vcf is required in formal mode")
 
 
 rule build_blinded_challenge_panel:
@@ -45,7 +45,7 @@ rule build_blinded_challenge_panel:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name build_blinded_challenge_panel \
           --job-key {SAMPLE_ID:q} \
           --run-id {RUN_ID:q} \
@@ -83,7 +83,7 @@ rule build_blinded_challenge_panel:
           --upstream-manifest {input.pangenome_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --panel-vcf {input.panel:q} \
             --truth-vcf {input.truth:q} \
             --output-vcf {output.vcf:q} \

@@ -1,15 +1,121 @@
 def synthetic_metric_fixture(wildcards):
     if not SYNTHETIC_MODE:
-        raise WorkflowError(
-            "formal evaluator fusion is a Phase 2 gate; no synthetic fixture "
-            "may be used for a formal score"
-        )
+        return []
     directory = config.get("development", {}).get("evaluator_fixture_dir")
     if not directory:
         raise WorkflowError(
             "synthetic scoring requires development.evaluator_fixture_dir"
         )
     return f"{directory}/score_input.json"
+
+
+def formal_vote_ledgers(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return [
+        f"results/evaluation/{wildcards.tool}/{evaluator}/votes.tsv"
+        for evaluator in FORMAL_EVALUATORS
+    ]
+
+
+def formal_evaluator_manifests(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return [
+        semantic_rule_manifest(
+            f"evaluate_{evaluator}",
+            f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
+        )
+        for evaluator in FORMAL_EVALUATORS
+    ]
+
+
+def metrics_materializer(wildcards):
+    if SYNTHETIC_MODE:
+        return "workflow/scripts/materialize_synthetic_metrics.py"
+    return "workflow/scripts/materialize_formal_consensus_metrics.py"
+
+
+def dynamic_metric_inputs(wildcards):
+    return [
+        *(
+            [synthetic_metric_fixture(wildcards)]
+            if SYNTHETIC_MODE
+            else formal_vote_ledgers(wildcards)
+        ),
+        *formal_evaluator_manifests(wildcards),
+    ]
+
+
+def dynamic_metric_upstreams(wildcards):
+    return [
+        semantic_rule_manifest(
+            "link_pangenome_alleles",
+            f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
+        ),
+        *formal_evaluator_manifests(wildcards),
+    ]
+
+
+def materializer_arguments(wildcards):
+    output = f"results/summary/{wildcards.tool}/metrics.json"
+    if SYNTHETIC_MODE:
+        return [
+            "--fixture",
+            synthetic_metric_fixture(wildcards),
+            "--metric-dictionary",
+            config["catalogs"]["metric_dictionary"],
+            "--metrics-schema",
+            "workflow/schemas/metrics.schema.yaml",
+            "--score-profile",
+            config["catalogs"]["score_weights"],
+            "--evaluator-manifest",
+            (
+                "results/provenance/rules/"
+                f"tool__{wildcards.tool}__execute/"
+                f"{SAMPLE_ID}.{OFFICIAL_MODE}.json"
+            ),
+            "--pangenome-manifest",
+            (
+                "results/provenance/rules/link_pangenome_alleles/"
+                f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}.json"
+            ),
+            "--resource-manifest",
+            (
+                "results/provenance/rules/"
+                f"tool__{wildcards.tool}__execute/"
+                f"{SAMPLE_ID}.{OFFICIAL_MODE}.json"
+            ),
+            "--output",
+            output,
+        ]
+    evaluator_root = f"results/evaluation/{wildcards.tool}"
+    return [
+        "--truvari-ledger",
+        f"{evaluator_root}/truvari/votes.tsv",
+        "--aardvark-ledger",
+        f"{evaluator_root}/aardvark/votes.tsv",
+        "--vcfdist-ledger",
+        f"{evaluator_root}/vcfdist/votes.tsv",
+        *cli_repeated(
+            "--evaluator-manifest",
+            formal_evaluator_manifests(wildcards),
+        ),
+        "--score-profile",
+        config["catalogs"]["score_weights"],
+        "--run-id",
+        RUN_ID,
+        "--sample-id",
+        SAMPLE_ID,
+        "--tool-id",
+        wildcards.tool,
+        "--official-score-mode",
+        OFFICIAL_MODE,
+        "--primary-truth-profile",
+        config["truth"]["primary"],
+        "--output",
+        output,
+    ]
 
 
 def fused_metrics_rule_manifest(wildcards):
@@ -22,6 +128,8 @@ def fused_metrics_rule_manifest(wildcards):
 rule fuse_evaluator_metrics:
     input:
         fixture=synthetic_metric_fixture,
+        evaluator_ledgers=formal_vote_ledgers,
+        evaluator_manifests=formal_evaluator_manifests,
         linked=(
             f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             "{tool}/canonical/linked.vcf"
@@ -48,7 +156,7 @@ rule fuse_evaluator_metrics:
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/scoring.smk",
         core_env="workflow/envs/core.yaml",
-        script="workflow/scripts/materialize_synthetic_metrics.py",
+        script=metrics_materializer,
         provenance_library=PROVENANCE_LIBRARY,
         metrics_library=METRICS_LIBRARY,
         scoring_library=SCORING_LIBRARY,
@@ -68,11 +176,19 @@ rule fuse_evaluator_metrics:
             f"benchmarks/rules/fuse_evaluator_metrics/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
+    params:
+        dynamic_input_args=lambda wildcards: cli_repeated(
+            "--input", dynamic_metric_inputs(wildcards)
+        ),
+        dynamic_upstream_args=lambda wildcards: cli_repeated(
+            "--upstream-manifest", dynamic_metric_upstreams(wildcards)
+        ),
+        materializer_args=materializer_arguments,
     conda:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name fuse_evaluator_metrics \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -93,7 +209,7 @@ rule fuse_evaluator_metrics:
           --resource mem_mb=512 \
           --wildcard tool={wildcards.tool:q} \
           --param evaluation_mode={EVALUATION_MODE:q} \
-          --input {input.fixture:q} \
+          {params.dynamic_input_args:q} \
           --input {input.linked:q} \
           --input {input.links:q} \
           --input {input.link_rule_manifest:q} \
@@ -113,18 +229,11 @@ rule fuse_evaluator_metrics:
           --input {input.metrics_library:q} \
           --input {input.scoring_library:q} \
           --output {output.metrics:q} \
-          --upstream-manifest {input.link_rule_manifest:q} \
+          {params.dynamic_upstream_args:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
-            --fixture {input.fixture:q} \
-            --metric-dictionary {input.metric_dictionary:q} \
-            --metrics-schema {input.metrics_schema:q} \
-            --score-profile {input.score_profile:q} \
-            --evaluator-manifest {input.tool_rule_manifest:q} \
-            --pangenome-manifest {input.link_rule_manifest:q} \
-            --resource-manifest {input.tool_rule_manifest:q} \
-            --output {output.metrics:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
+            {params.materializer_args:q} \
           > {log:q} 2>&1
         """
 
@@ -172,7 +281,7 @@ rule compute_pgbench_score:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name compute_pgbench_score \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -215,7 +324,7 @@ rule compute_pgbench_score:
           --upstream-manifest {input.audit_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --metrics {input.metrics:q} \
             --provenance-audit {input.audit:q} \
             --run-context {input.context:q} \

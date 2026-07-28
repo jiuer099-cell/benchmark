@@ -38,7 +38,7 @@ rule canonicalize_vcf:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name canonicalize_vcf \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -74,7 +74,7 @@ rule canonicalize_vcf:
           --upstream-manifest {input.tool_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --input-vcf {input.raw:q} \
             --reference {input.reference:q} \
             --output-vcf {output.vcf:q} \
@@ -132,7 +132,7 @@ rule link_pangenome_alleles:
         "../envs/core.yaml"
     shell:
         """
-        python {input.rule_executor:q} \
+        {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
           --rule-name link_pangenome_alleles \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
@@ -170,7 +170,7 @@ rule link_pangenome_alleles:
           --upstream-manifest {input.pangenome_rule_manifest:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          python {input.script:q} \
+          {PYTHON_EXECUTABLE:q} {input.script:q} \
             --canonical-vcf {input.canonical:q} \
             --allele-ledger {input.ledger:q} \
             --output-vcf {output.vcf:q} \

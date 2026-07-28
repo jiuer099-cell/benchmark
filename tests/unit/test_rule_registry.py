@@ -24,6 +24,7 @@ EXPECTED_RULE_IDS = {
     "prepare_population_sv_source",
     "normalize_population_panel",
     "assign_pangenome_allele_ids",
+    "lock_graph_assets",
     "build_pangenome_manifest",
     "audit_truth_leakage",
     "build_canonical_graph_recipe",
@@ -80,7 +81,7 @@ def test_registry_matches_schema_and_confirmed_rule_catalog() -> None:
     schema = _load_yaml(SCHEMA_PATH)
     Draft202012Validator(schema).validate(registry)
     ids = [entry["id"] for entry in registry["rules"]]
-    assert len(ids) == len(set(ids)) == 53
+    assert len(ids) == len(set(ids)) == 54
     assert set(ids) == EXPECTED_RULE_IDS
 
 
@@ -118,6 +119,9 @@ def test_every_executable_core_rule_is_registered_and_not_planned() -> None:
         )
     }
     executable.discard("all")
+    # One Snakemake wildcard rule implements three semantically registered
+    # evaluator rules; the wrapped executor records evaluate_<evaluator>.
+    executable.discard("run_formal_evaluator")
     assert executable
     assert executable <= set(rules)
     for rule_id in executable:
@@ -129,3 +133,8 @@ def test_every_executable_core_rule_is_registered_and_not_planned() -> None:
         "implemented",
         "verified",
     }
+    for evaluator in ("truvari", "aardvark", "vcfdist"):
+        assert rules[f"evaluate_{evaluator}"]["implementation_status"] in {
+            "implemented",
+            "verified",
+        }

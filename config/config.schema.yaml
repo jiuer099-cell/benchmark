@@ -30,7 +30,7 @@ properties:
   sample:
     type: object
     additionalProperties: false
-    required: [id, sex, technology, bam]
+    required: [id, sex, technology, bam, fastq]
     properties:
       id:
         $ref: "#/$defs/identifier"
@@ -43,7 +43,13 @@ properties:
           - ont
           - illumina_short_read
       bam:
-        $ref: "#/$defs/nonEmptyPath"
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
+      fastq:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
       allow_sample_name_override:
         type: boolean
         default: false
@@ -72,6 +78,9 @@ properties:
       - truth_leakage_policy
       - build_graph_assets
       - allele_namespace
+      - population_vcf
+      - graph_assets
+      - excluded_samples
     properties:
       id:
         $ref: "#/$defs/identifier"
@@ -85,8 +94,59 @@ properties:
         type: boolean
       allele_namespace:
         const: PGSV
+      excluded_samples:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        contains:
+          const: HG002
+        items:
+          $ref: "#/$defs/identifier"
       manifest:
         $ref: "#/$defs/nonEmptyPath"
+      population_vcf:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
+      graph_assets:
+        type: object
+        additionalProperties: false
+        required:
+          - manifest
+          - gbz
+          - xg
+          - min
+          - dist
+          - sample_list
+          - reference_path
+        properties:
+          manifest:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          gbz:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          xg:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          min:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          dist:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          sample_list:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          reference_path:
+            type: string
+            minLength: 1
   truth:
     type: object
     additionalProperties: false
@@ -149,6 +209,15 @@ properties:
         type: integer
         minimum: 0
         maximum: 4294967295
+      tool_threads:
+        type: integer
+        minimum: 1
+      tool_memory_mb:
+        type: integer
+        minimum: 512
+      tool_timeout_seconds:
+        type: integer
+        minimum: 1
   development:
     type: object
     additionalProperties: false
@@ -216,6 +285,52 @@ properties:
         const: ConsensusScore
       produce_ranking:
         const: false
+  evaluation:
+    type: object
+    additionalProperties: false
+    required:
+      - evaluators
+      - truth_vcf
+      - benchmark_bed
+      - commands
+      - vcfdist_credit_threshold
+    properties:
+      evaluators:
+        type: array
+        minItems: 3
+        maxItems: 3
+        uniqueItems: true
+        prefixItems:
+          - const: truvari
+          - const: aardvark
+          - const: vcfdist
+      truth_vcf:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
+      benchmark_bed:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
+      vcfdist_credit_threshold:
+        type: number
+        minimum: 0
+        maximum: 1
+      commands:
+        type: object
+        additionalProperties: false
+        required: [bcftools, tabix, truvari, aardvark, vcfdist]
+        properties:
+          bcftools:
+            $ref: "#/$defs/command"
+          tabix:
+            $ref: "#/$defs/command"
+          truvari:
+            $ref: "#/$defs/command"
+          aardvark:
+            $ref: "#/$defs/command"
+          vcfdist:
+            $ref: "#/$defs/command"
   obsidian:
     type: object
     additionalProperties: false
@@ -337,6 +452,66 @@ allOf:
               type: "null"
             allow_missing_bam:
               const: false
+        pangenome:
+          properties:
+            population_vcf:
+              $ref: "#/$defs/nonEmptyPath"
+        evaluation:
+          properties:
+            truth_vcf:
+              $ref: "#/$defs/nonEmptyPath"
+            benchmark_bed:
+              $ref: "#/$defs/nonEmptyPath"
+  - if:
+      properties:
+        development:
+          properties:
+            synthetic_mode:
+              const: false
+          required: [synthetic_mode]
+        execution:
+          properties:
+            official_score_mode:
+              const: end_to_end_from_reads
+          required: [official_score_mode]
+      required: [development, execution]
+    then:
+      properties:
+        sample:
+          properties:
+            fastq:
+              $ref: "#/$defs/nonEmptyPath"
+  - if:
+      properties:
+        development:
+          properties:
+            synthetic_mode:
+              const: false
+          required: [synthetic_mode]
+        pangenome:
+          properties:
+            build_graph_assets:
+              const: true
+          required: [build_graph_assets]
+      required: [development, pangenome]
+    then:
+      properties:
+        pangenome:
+          properties:
+            graph_assets:
+              properties:
+                manifest:
+                  $ref: "#/$defs/nonEmptyPath"
+                gbz:
+                  $ref: "#/$defs/nonEmptyPath"
+                xg:
+                  $ref: "#/$defs/nonEmptyPath"
+                min:
+                  $ref: "#/$defs/nonEmptyPath"
+                dist:
+                  $ref: "#/$defs/nonEmptyPath"
+                sample_list:
+                  $ref: "#/$defs/nonEmptyPath"
   - if:
       properties:
         development:
@@ -369,6 +544,20 @@ allOf:
       properties:
         caller_only:
           required: [shared_bam]
+  - if:
+      properties:
+        execution:
+          properties:
+            official_score_mode:
+              const: caller_only_shared_alignment
+          required: [official_score_mode]
+      required: [execution]
+    then:
+      properties:
+        sample:
+          properties:
+            bam:
+              $ref: "#/$defs/nonEmptyPath"
 
 $defs:
   identifier:
@@ -388,3 +577,9 @@ $defs:
       - type: string
         pattern: "^[a-f0-9]{64}$"
       - type: "null"
+  command:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 1

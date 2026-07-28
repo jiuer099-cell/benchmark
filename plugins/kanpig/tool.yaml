@@ -1,0 +1,62 @@
+interface_version: 1
+id: kanpig
+name: KanPIG long-read SV genotyper
+version: 2.0.2
+source: external
+paradigm: genotyping_only
+
+tasks:
+  - genotyping
+  - postprocess
+
+inputs:
+  reads: bam
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: false
+    accepted_formats: [vg, xg_gbwt]
+  shared_alignment:
+    required: true
+    accepted_formats: [bam]
+  read_sequences_auxiliary: false
+
+capabilities:
+  technology: [pacbio_clr, pacbio_hifi, ont]
+  svtypes: [DEL, INS]
+  phasing: true
+  novel_discovery: false
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: trusted_reviewed
+  sandbox_backend: none
+
+supported_modes:
+  caller_only_shared_alignment:
+    required_inputs:
+      - shared_alignment
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    optional_inputs:
+      - graph_assets
+    forbidden_inputs:
+      - canonical_fastq
+      - haplotype_fastq
+      - original_input_bam
+    billable_stages:
+      - genotype
+      - postprocess
+
+outputs:
+  vcf: raw/calls.vcf
+  candidate_output_contract: all_sites
+  absence_semantics: no_call

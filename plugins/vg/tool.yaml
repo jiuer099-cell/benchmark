@@ -1,0 +1,61 @@
+interface_version: 1
+id: vg
+name: GraphAligner plus vg graph SV calling
+version: "1"
+source: external
+paradigm: graph_pangenome
+
+tasks: [mapping, calling, postprocess]
+
+inputs:
+  reads: long_fastq
+  reference: required
+  candidates: optional
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: true
+    accepted_formats: [vg, xg_gbwt]
+  shared_alignment:
+    required: false
+    accepted_formats: [gam, gaf]
+  read_sequences_auxiliary: false
+
+capabilities:
+  technology: [pacbio_clr, pacbio_hifi, ont]
+  svtypes: [DEL, INS, DUP, INV, CNV, BND, CPX]
+  phasing: false
+  novel_discovery: true
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: trusted_reviewed
+  sandbox_backend: none
+
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs:
+      - canonical_fastq
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - graph_assets
+    optional_inputs:
+      - candidate_panel
+    forbidden_inputs:
+      - original_input_bam
+      - shared_alignment
+      - haplotype_fastq
+    billable_stages:
+      - map
+      - call
+      - postprocess
+
+outputs:
+  vcf: raw/calls.vcf
+  candidate_output_contract: variant_sites
+  absence_semantics: hom_ref

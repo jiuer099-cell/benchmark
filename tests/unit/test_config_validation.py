@@ -43,7 +43,7 @@ def test_synthetic_config_may_explicitly_allow_missing_bam(tmp_path: Path) -> No
         repo_root=ROOT,
     )
     assert validated["development"]["synthetic_mode"] is True
-    assert plugins == {}
+    assert set(plugins) == {"kanpig"}
 
 
 def test_formal_config_rejects_missing_bam(tmp_path: Path) -> None:

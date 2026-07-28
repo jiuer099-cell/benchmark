@@ -95,3 +95,55 @@ def test_candidate_ids_are_seed_deterministic(tmp_path: Path) -> None:
         )
         outputs.append(output.read_text())
     assert outputs[0] == outputs[1]
+
+
+def test_multisample_panel_columns_are_removed_from_blinded_vcf(
+    tmp_path: Path,
+) -> None:
+    panel = tmp_path / "panel.vcf"
+    panel.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tPANEL1\tPANEL2\n"
+        "chr1\t10\tv1\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_1;SVTYPE=INS;END=10\tGT\t0|1\t1|0\n"
+        "chr1\t20\tv2\tAT\tA\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_2;SVTYPE=DEL;END=21\tGT\t0|0\t0|1\n",
+        encoding="utf-8",
+    )
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tt1\tA\tAT\t.\tPASS\tSVTYPE=INS;END=10\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "challenge.vcf"
+    build_challenge_panel(
+        panel_vcf=panel,
+        truth_vcf=truth,
+        output_vcf=output,
+        hidden_ledger=tmp_path / "hidden.tsv",
+        audit_json=tmp_path / "audit.json",
+        seed="fixed",
+    )
+
+    lines = output.read_text(encoding="utf-8").splitlines()
+    header = next(line for line in lines if line.startswith("#CHROM"))
+    assert header.split("\t") == [
+        "#CHROM",
+        "POS",
+        "ID",
+        "REF",
+        "ALT",
+        "QUAL",
+        "FILTER",
+        "INFO",
+        "FORMAT",
+        "HG002",
+    ]
+    assert all(
+        len(line.split("\t")) == 10
+        for line in lines
+        if line and not line.startswith("#")
+    )
+    assert "PANEL1" not in output.read_text(encoding="utf-8")
