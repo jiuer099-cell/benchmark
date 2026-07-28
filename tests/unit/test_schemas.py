@@ -273,6 +273,7 @@ def test_example_config_validates_and_starts_without_unimplemented_tools() -> No
     assert config["tools"]["enabled"] == []
     assert config["tools"]["planned_tools"]
     assert config["score"]["produce_ranking"] is False
+    assert config["score"]["final_score_name"] == "ComparableScore"
     assert (
         config["execution"]["official_score_mode"]
         == "caller_only_shared_alignment"

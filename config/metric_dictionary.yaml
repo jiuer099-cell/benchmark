@@ -9,6 +9,12 @@ value_rules:
   require_numerator_denominator_and_eligible_count: true
 
 metrics:
+  benchmark.truth.eligible.count:
+    value_type: count
+    source: fusion
+    required_for_valid_score: true
+    point_component: null
+    universe: Fixed primary-truth VCF records overlapping the benchmark BED.
   consensus.all_three_correct.count:
     value_type: count
     source: fusion

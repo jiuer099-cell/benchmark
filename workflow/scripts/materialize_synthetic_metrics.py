@@ -31,6 +31,7 @@ class SyntheticMetricError(ValueError):
 
 
 COMPONENT_PATHS = {
+    "benchmark.truth.eligible.count": ("truth_eligible_count",),
     "consensus.all_three_correct.count": ("consensus", "all_three_correct"),
     "consensus.exactly_two_correct.count": ("consensus", "exactly_two_correct"),
     "consensus.exactly_one_correct.count": ("consensus", "exactly_one_correct"),

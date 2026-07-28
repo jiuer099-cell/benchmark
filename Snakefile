@@ -228,6 +228,10 @@ FINAL_SCORE_PACKAGES = [
     f"results/summary/{settings['tool_id']}/score-package.json"
     for settings in EXTERNAL_SETTINGS
 ]
+TOOL_MANIFESTS = [
+    settings["tool_manifest"]
+    for settings in EXTERNAL_SETTINGS
+]
 if EXTERNAL_SETTINGS:
     FINAL_TARGETS = [
         "results/report/index.html",

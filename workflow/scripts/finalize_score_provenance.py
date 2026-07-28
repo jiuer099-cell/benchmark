@@ -381,6 +381,38 @@ def _validate_metrics_records(
             raise FinalScoreSealError(
                 "score.total_evaluated does not equal the consensus count sum"
             )
+        truth_record = aggregates.get("benchmark.truth.eligible.count")
+        truth_total = score.get("truth_eligible_count")
+        if (
+            truth_record is None
+            or truth_record.get("status") != "defined"
+            or truth_record.get("value_type") != "count"
+            or truth_record.get("value") != truth_total
+            or isinstance(truth_total, bool)
+            or not isinstance(truth_total, int)
+            or truth_total <= 0
+        ):
+            raise FinalScoreSealError(
+                "score truth_eligible_count does not match the fixed truth metric"
+            )
+        vote_points = (
+            3 * consensus_counts["all_three_correct"]
+            + 2 * consensus_counts["exactly_two_correct"]
+            + consensus_counts["exactly_one_correct"]
+        )
+        effective_tp = min(vote_points / 3.0, float(truth_total))
+        expected_raw = 2.0 * effective_tp / (total + truth_total) * 100.0
+        comparable_raw = score.get("comparable_score_raw")
+        if (
+            isinstance(comparable_raw, bool)
+            or not isinstance(comparable_raw, int | float)
+            or abs(float(comparable_raw) - expected_raw) > 1e-9
+            or score.get("pgbench_score_raw") != comparable_raw
+            or score.get("pgbench_score") != score.get("comparable_score")
+        ):
+            raise FinalScoreSealError(
+                "score ComparableScore does not match the fixed-universe formula"
+            )
         return
 
     required_f1 = score.get("required_f1_metrics")

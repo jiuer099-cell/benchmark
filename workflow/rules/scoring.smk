@@ -36,6 +36,18 @@ def metrics_materializer(wildcards):
     return "workflow/scripts/materialize_formal_consensus_metrics.py"
 
 
+def scoring_truth_input(wildcards):
+    if SYNTHETIC_MODE:
+        return config["development"]["truth_vcf"]
+    return config["evaluation"]["truth_vcf"]
+
+
+def scoring_regions_input(wildcards):
+    if SYNTHETIC_MODE:
+        return config["development"]["benchmark_bed"]
+    return config["evaluation"]["benchmark_bed"]
+
+
 def dynamic_metric_inputs(wildcards):
     return [
         *(
@@ -113,6 +125,10 @@ def materializer_arguments(wildcards):
         OFFICIAL_MODE,
         "--primary-truth-profile",
         config["truth"]["primary"],
+        "--truth-vcf",
+        config["evaluation"]["truth_vcf"],
+        "--benchmark-bed",
+        config["evaluation"]["benchmark_bed"],
         "--output",
         output,
     ]
@@ -153,6 +169,8 @@ rule fuse_evaluator_metrics:
         metrics_schema="workflow/schemas/metrics.schema.yaml",
         pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
+        truth=scoring_truth_input,
+        regions=scoring_regions_input,
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/scoring.smk",
         core_env="workflow/envs/core.yaml",
@@ -221,6 +239,8 @@ rule fuse_evaluator_metrics:
           --input {input.metrics_schema:q} \
           --input {input.pangenome_manifest:q} \
           --input {input.reference:q} \
+          --input {input.truth:q} \
+          --input {input.regions:q} \
           --input {input.rule_executor:q} \
           --input {input.rule_source:q} \
           --input {input.core_env:q} \

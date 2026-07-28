@@ -10,6 +10,7 @@
   "evaluation_mode": "synthetic_smoke",
   "eligibility_status": "eligible",
   "infrastructure_valid": true,
+  "truth_eligible_count": 1200,
   "consensus": {
     "all_three_correct": 620,
     "exactly_two_correct": 210,

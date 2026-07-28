@@ -191,4 +191,4 @@ def test_summary_arguments_are_all_or_none(tmp_path: Path) -> None:
 def test_render_index_uses_filename_order_not_score_order() -> None:
     html = render_index([Path("z_tool.html"), Path("a_tool.html")])
     assert html.index("a_tool") < html.index("z_tool")
-    assert "排名" in html
+    assert "no ranking" in html

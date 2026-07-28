@@ -390,13 +390,16 @@ def build_score_payload_from_metrics(
 
     aggregates = _aggregate_records(records)
     if score_profile_id == "pgbench_consensus_v2":
+        truth_metric_id = "benchmark.truth.eligible.count"
         consensus_metrics = {
             "all_three_correct": "consensus.all_three_correct.count",
             "exactly_two_correct": "consensus.exactly_two_correct.count",
             "exactly_one_correct": "consensus.exactly_one_correct.count",
             "none_correct": "consensus.none_correct.count",
         }
-        missing = sorted(set(consensus_metrics.values()) - set(aggregates))
+        missing = sorted(
+            ({truth_metric_id} | set(consensus_metrics.values())) - set(aggregates)
+        )
         if missing:
             raise MetricContractError(
                 "metrics document is missing consensus counts: " + ", ".join(missing)
@@ -407,11 +410,23 @@ def build_score_payload_from_metrics(
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MetricContractError(f"{metric_id} must be a non-negative integer")
             consensus[category] = value
+        truth_eligible_count = _scoreable_value(
+            aggregates[truth_metric_id], truth_metric_id
+        )
+        if (
+            isinstance(truth_eligible_count, bool)
+            or not isinstance(truth_eligible_count, int)
+            or truth_eligible_count <= 0
+        ):
+            raise MetricContractError(
+                f"{truth_metric_id} must be a positive integer"
+            )
         return {
             "tuple": normalized_expected,
             "score_profile": score_profile_id,
             "eligibility_status": "eligible",
             "infrastructure_valid": True,
+            "truth_eligible_count": truth_eligible_count,
             "consensus": consensus,
         }
     (

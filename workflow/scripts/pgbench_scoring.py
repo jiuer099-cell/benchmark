@@ -27,7 +27,14 @@ CONSENSUS_FIELDS = frozenset(
     {"all_three_correct", "exactly_two_correct", "exactly_one_correct", "none_correct"}
 )
 SCORE_PAYLOAD_FIELDS = frozenset(
-    {"tuple", "score_profile", "eligibility_status", "infrastructure_valid", "consensus"}
+    {
+        "tuple",
+        "score_profile",
+        "eligibility_status",
+        "infrastructure_valid",
+        "truth_eligible_count",
+        "consensus",
+    }
 )
 NON_SCORABLE_STATUSES = {
     "not_applicable", "runtime_failed", "invalid_output", "incompatible_output",
@@ -59,6 +66,13 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         raise ScoreInputError("consensus evaluators must be Truvari, Aardvark, vcfdist")
     if consensus.get("formula") != "(3*n3 + 2*n2 + n1) / (3*N) * 100":
         raise ScoreInputError("unsupported consensus formula")
+    comparability = profile.get("comparability")
+    if (
+        not isinstance(comparability, dict)
+        or comparability.get("truth_metric") != "benchmark.truth.eligible.count"
+        or comparability.get("formula") != "2*min(softTP,T)/(Q+T)*100"
+    ):
+        raise ScoreInputError("unsupported cross-track comparability contract")
     profile["_source_path"] = str(path)
     profile["_sha256"] = _profile_sha256(path)
     return profile
@@ -84,8 +98,14 @@ class ScoreResult:
     pgbench_score: float | None
     pgbench_score_raw: float | None
     consensus_score: float | None
+    comparable_score: float | None
+    comparable_score_raw: float | None
     consensus_counts: Mapping[str, int]
     total_evaluated: int
+    truth_eligible_count: int
+    soft_true_positive_count: float | None
+    comparable_precision: float | None
+    comparable_recall: float | None
     unanimous_correct_rate: float | None
     majority_correct_rate: float | None
     point_breakdown: Mapping[str, float]
@@ -164,7 +184,28 @@ def calculate_pgbench_score(
         raise ScoreInputError("unsupported evaluation mode")
     status = payload.get("eligibility_status")
     if status in NON_SCORABLE_STATUSES:
-        return ScoreResult(trusted, profile_id, profile["_sha256"], evaluation_mode, str(status), None, None, None, {}, 0, None, None, {}, reason=str(payload.get("reason") or status))
+        return ScoreResult(
+            tuple_key=trusted,
+            score_profile=profile_id,
+            score_profile_sha256=profile["_sha256"],
+            evaluation_mode=evaluation_mode,
+            score_status=str(status),
+            pgbench_score=None,
+            pgbench_score_raw=None,
+            consensus_score=None,
+            comparable_score=None,
+            comparable_score_raw=None,
+            consensus_counts={},
+            total_evaluated=0,
+            truth_eligible_count=0,
+            soft_true_positive_count=None,
+            comparable_precision=None,
+            comparable_recall=None,
+            unanimous_correct_rate=None,
+            majority_correct_rate=None,
+            point_breakdown={},
+            reason=str(payload.get("reason") or status),
+        )
     if status != "eligible" or payload.get("infrastructure_valid") is not True:
         raise ScoreInputError("eligible consensus input requires valid infrastructure")
     raw_counts = payload.get("consensus")
@@ -176,14 +217,70 @@ def calculate_pgbench_score(
     if total == 0:
         raise ScoreInputError("consensus must contain at least one evaluated result")
     n3, n2, n1 = counts["all_three_correct"], counts["exactly_two_correct"], counts["exactly_one_correct"]
-    raw = (3 * n3 + 2 * n2 + n1) / (3 * total) * 100.0
-    score = round(raw, int(profile["profile"].get("display_decimals", 2)))
+    truth_total = payload.get("truth_eligible_count")
+    if (
+        isinstance(truth_total, bool)
+        or not isinstance(truth_total, int)
+        or truth_total <= 0
+    ):
+        raise ScoreInputError("truth_eligible_count must be a positive integer")
+    vote_points = 3 * n3 + 2 * n2 + n1
+    consensus_raw = vote_points / (3 * total) * 100.0
+    soft_tp = vote_points / 3.0
+    effective_tp = min(soft_tp, float(truth_total))
+    comparable_raw = 2.0 * effective_tp / (total + truth_total) * 100.0
+    decimals = int(profile["profile"].get("display_decimals", 2))
+    consensus_score = round(consensus_raw, decimals)
+    comparable_score = round(comparable_raw, decimals)
     score_status = "valid" if evaluation_mode == "formal" else "provisional"
     traceability = payload.get("traceability")
     if isinstance(traceability, Mapping):
         if traceability.get("core_provenance_valid") is False:
-            return ScoreResult(trusted, profile_id, profile["_sha256"], evaluation_mode, "invalid", None, None, None, counts, total, n3 / total, (n3 + n2) / total, {}, reason="core provenance validation failed")
+            return ScoreResult(
+                tuple_key=trusted,
+                score_profile=profile_id,
+                score_profile_sha256=profile["_sha256"],
+                evaluation_mode=evaluation_mode,
+                score_status="invalid",
+                pgbench_score=None,
+                pgbench_score_raw=None,
+                consensus_score=None,
+                comparable_score=None,
+                comparable_score_raw=None,
+                consensus_counts=counts,
+                total_evaluated=total,
+                truth_eligible_count=truth_total,
+                soft_true_positive_count=soft_tp,
+                comparable_precision=effective_tp / total,
+                comparable_recall=effective_tp / truth_total,
+                unanimous_correct_rate=n3 / total,
+                majority_correct_rate=(n3 + n2) / total,
+                point_breakdown={},
+                reason="core provenance validation failed",
+            )
         if not all(traceability.get(k) is True for k in ("hash_lineage_complete", "environment_complete", "run_context_complete")) or traceability.get("manifest_completeness") != 1.0:
             score_status = "provisional"
     breakdown = {"all_three_correct": float(n3), "exactly_two_correct": float(n2), "exactly_one_correct": float(n1), "none_correct": float(counts["none_correct"])}
-    return ScoreResult(trusted, profile_id, profile["_sha256"], evaluation_mode, score_status, score, raw, score, counts, total, n3 / total, (n3 + n2) / total, breakdown, evaluator_scores={}, required_f1_metrics={})
+    return ScoreResult(
+        tuple_key=trusted,
+        score_profile=profile_id,
+        score_profile_sha256=profile["_sha256"],
+        evaluation_mode=evaluation_mode,
+        score_status=score_status,
+        pgbench_score=comparable_score,
+        pgbench_score_raw=comparable_raw,
+        consensus_score=consensus_score,
+        comparable_score=comparable_score,
+        comparable_score_raw=comparable_raw,
+        consensus_counts=counts,
+        total_evaluated=total,
+        truth_eligible_count=truth_total,
+        soft_true_positive_count=soft_tp,
+        comparable_precision=effective_tp / total,
+        comparable_recall=effective_tp / truth_total,
+        unanimous_correct_rate=n3 / total,
+        majority_correct_rate=(n3 + n2) / total,
+        point_breakdown=breakdown,
+        evaluator_scores={},
+        required_f1_metrics={},
+    )

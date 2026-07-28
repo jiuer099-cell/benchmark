@@ -110,6 +110,7 @@ rule render_report_index:
         scores=SCORE_JSONS,
         metrics=METRICS_JSONS,
         packages=FINAL_SCORE_PACKAGES,
+        tool_manifests=TOOL_MANIFESTS,
         finalizer_rule_manifests=FINALIZER_RULE_MANIFESTS,
         context="results/provenance/run-context.json",
         config=CONFIG_PATH,
@@ -143,6 +144,9 @@ rule render_report_index:
         finalizer_args=cli_repeated(
             "--finalizer-manifest", FINALIZER_RULE_MANIFESTS
         ),
+        tool_manifest_args=cli_repeated(
+            "--tool-manifest", TOOL_MANIFESTS
+        ),
         provenance_input_args=cli_repeated(
             "--input",
             [
@@ -151,6 +155,7 @@ rule render_report_index:
                 *SCORE_JSONS,
                 *METRICS_JSONS,
                 *FINAL_SCORE_PACKAGES,
+                *TOOL_MANIFESTS,
                 *FINALIZER_RULE_MANIFESTS,
                 "results/provenance/run-context.json",
                 CONFIG_PATH,
@@ -207,6 +212,7 @@ rule render_report_index:
             {params.metrics_args:q} \
             {params.package_args:q} \
             {params.finalizer_args:q} \
+            {params.tool_manifest_args:q} \
             --output {output.html:q} \
             --output-score-tsv {output.score_tsv:q} \
             --output-point-tsv {output.points_tsv:q} \

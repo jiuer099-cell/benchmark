@@ -18,8 +18,9 @@ genotypers through the same algorithmic steps.
    `rule-registry.yaml` describes the tool-specific internal stages.
 3. **Common postprocessing**
    validates the tool VCF, normalizes it, links it to stable pangenome alleles,
-   evaluates the identical result universe with Truvari/Aardvark/vcfdist, and
-   produces the unweighted consensus report.
+   evaluates it with Truvari/Aardvark/vcfdist against the same fixed GIAB truth
+   universe, and produces the unweighted consensus and cross-track comparable
+   reports.
 
 The formal benchmark measures the entire tool-owned middle as one isolated,
 reproducible execution unit. Internal stages remain tool-specific and are
@@ -36,6 +37,22 @@ listed in the plugin rule registry for auditability.
 PanGenie and KanPIG are re-genotypers: they cannot discover an allele absent
 from their candidate/pangenome panel. The vg adapter has `variant_sites`
 semantics and can report novel graph-supported sites.
+
+## Fairness contract
+
+- All official runs must use HG002, the same GRCh38 reference build, primary
+  truth profile, benchmark BED, and frozen score-profile hash.
+- Tool-native read technology is allowed: PacBio tools use the registered
+  PacBio evidence and PanGenie uses the registered HG002 Illumina evidence.
+- A graph or population panel must exclude HG002 and NA24385.
+- The tool-owned middle cannot read truth assets.
+- `ConsensusScore` describes agreement on query results.
+- `ComparableScore` uses the fixed eligible truth count as well as the query
+  count, so false positives and false negatives both lower the score.
+- Cross-technology scores compare complete pipeline utility. Claims about
+  algorithm-only superiority must be restricted to one technology/task track.
+- Runtime, memory, disk, and provenance are reported or used as validity gates;
+  none is an accuracy-score weight.
 
 ## Add a user-provided genotyper
 

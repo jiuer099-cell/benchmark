@@ -191,7 +191,7 @@ leave-one-out panel VCF is still required at the path in
 `config/config.pangenie.example.yaml`; do not substitute an HPRC panel whose
 allele construction included HG002.
 
-## Unweighted consensus evaluation
+## Fair scoring on a fixed truth universe
 
 There are no evaluator weights and no resource, pangenome, or provenance points.
 For every normalized query result, each evaluator casts one equal binary vote.
@@ -202,16 +202,42 @@ The report records:
 - `exactly_one_correct`: accepted by exactly one;
 - `none_correct`: rejected by all three.
 
-With `N` evaluated results, the comprehensive score is:
+The query-only diagnostic score remains:
 
 ```text
 ConsensusScore = (3*n3 + 2*n2 + n1) / (3*N) * 100
 ```
 
-The raw category counts, total, unanimous-correct rate, majority-correct rate,
-and score are all retained. Provenance is only a validity gate: incomplete
-non-core provenance makes a result provisional, while core lineage failure makes
-it invalid and suppresses the numeric score. The benchmark does not rank tools.
+`ConsensusScore` alone is not used for cross-tool comparison: a tool could emit
+only a few high-confidence calls and avoid false-negative penalties. Production
+runs therefore count the fixed primary-truth VCF records overlapping the
+benchmark BED (`T`) and calculate:
+
+```text
+softTP = (3*n3 + 2*n2 + n1) / 3
+Q = n3 + n2 + n1 + n0
+ComparableScore = 2 * min(softTP, T) / (Q + T) * 100
+```
+
+`ComparableScore` is the primary end-to-end score. False-positive query calls
+increase `Q`; missed truth records increase `T` without increasing `softTP`.
+The score is comparable only when sample, reference, truth profile, benchmark
+regions, and frozen score-profile SHA-256 are identical. Across PacBio and
+Illumina it compares the practical accuracy of the complete pipeline, including
+the sequencing evidence. Within one technology track it is the stricter
+algorithm comparison.
+
+PanGenie additionally requires interpretation of its panel-limited task:
+`ConsensusScore` and panel-stratified genotype metrics describe in-panel
+genotyping, while `ComparableScore` retains the complete GIAB truth denominator
+and therefore exposes out-of-panel coverage limitations.
+
+The raw category counts, fixed truth count, query count, soft true-positive
+count, comparable precision/recall, and both scores are retained. Provenance is
+only a validity gate: incomplete non-core provenance makes a result provisional,
+while core lineage failure makes it invalid and suppresses numeric scores.
+Resource measurements are reported but never contribute points. The benchmark
+does not assign ordinal ranks.
 
 The frozen contract is `config/consensus_scoring.yaml`.
 
@@ -266,3 +292,23 @@ results/report/index.html
 
 `point_breakdown.tsv` is retained as a compatibility filename; its rows now
 contain consensus category counts, never weighted points.
+
+### Combine long- and short-read runs in one HTML
+
+Each Snakemake configuration produces a finalized `score.json`. Preserve the
+result directories from the PacBio and Illumina runs, then build one
+cross-track presentation:
+
+```bash
+cd /home/luzhiting/hg002-grch38-pangenome-sv-benchmark
+
+mamba run -n pgbench-bio python workflow/scripts/render_suite_report.py \
+  --entry archived_results/kanpig/score.json plugins/kanpig/tool.yaml \
+  --entry archived_results/vg/score.json plugins/vg/tool.yaml \
+  --entry archived_results/pangenie/score.json plugins/pangenie/tool.yaml \
+  --output archived_results/pangenome-sv-suite.html
+```
+
+The suite renderer refuses to combine scores with different samples, truth
+profiles, or score-profile hashes. It preserves the configured display order
+and shows tool paradigm and sequencing technology next to both scores.

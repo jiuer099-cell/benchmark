@@ -245,7 +245,12 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256",
         "evaluation_mode",
         "score_status",
+        "ComparableScore",
         "ConsensusScore",
+        "truth_eligible_count",
+        "query_result_count",
+        "comparable_precision",
+        "comparable_recall",
     ]
     row = {
         **tuple_key,
@@ -253,9 +258,12 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256": score["score_profile_sha256"],
         "evaluation_mode": score["evaluation_mode"],
         "score_status": score["score_status"],
-        "ConsensusScore": (
-            "" if score.get("consensus_score", score.get("pgbench_score")) is None else score.get("consensus_score", score.get("pgbench_score"))
-        ),
+        "ComparableScore": score.get("comparable_score", score.get("pgbench_score")),
+        "ConsensusScore": score.get("consensus_score"),
+        "truth_eligible_count": score.get("truth_eligible_count"),
+        "query_result_count": score.get("total_evaluated"),
+        "comparable_precision": score.get("comparable_precision"),
+        "comparable_recall": score.get("comparable_recall"),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -282,10 +290,15 @@ def _write_breakdown_tsv(path: Path, score: Mapping[str, Any]) -> None:
 
 def _html(score: Mapping[str, Any]) -> str:
     tuple_key = score["tuple_key"]
-    score_value = (
+    comparable_value = (
         "not available"
-        if score.get("consensus_score", score.get("pgbench_score")) is None
-        else f"{float(score.get('consensus_score', score.get('pgbench_score'))):.2f}"
+        if score.get("comparable_score", score.get("pgbench_score")) is None
+        else f"{float(score.get('comparable_score', score.get('pgbench_score'))):.2f}"
+    )
+    consensus_value = (
+        "not available"
+        if score.get("consensus_score") is None
+        else f"{float(score['consensus_score']):.2f}"
     )
     point_rows = "\n".join(
         f"<tr><td>{escape(component)}</td><td>{float(points):.4f}</td></tr>"
@@ -295,7 +308,7 @@ def _html(score: Mapping[str, Any]) -> str:
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>PGBench consensus card: {escape(str(tuple_key["tool"]))}</title>
+  <title>PGBench pangenome SV score card: {escape(str(tuple_key["tool"]))}</title>
   <style>
     body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 72rem; }}
     table {{ border-collapse: collapse; width: 100%; }}
@@ -305,9 +318,10 @@ def _html(score: Mapping[str, Any]) -> str:
   </style>
 </head>
 <body>
-  <h1>PGBench three-evaluator consensus card</h1>
-  <p class="notice">This report contains one score for one tool tuple. It does
-  not rank tools or calculate a run-level aggregate score.</p>
+  <h1>PGBench 泛基因组结构变异工具得分卡</h1>
+  <p class="notice">ComparableScore 使用相同 HG002、GRCh38、GIAB truth 和
+  benchmark BED，并同时惩罚错误结果与漏检。跨测序模态时，它比较的是完整
+  pipeline 的实际效果，不代表与测序平台无关的纯算法能力。</p>
   <dl>
     <dt>Run</dt><dd>{escape(str(tuple_key["run_id"]))}</dd>
     <dt>Sample</dt><dd>{escape(str(tuple_key["sample"]))}</dd>
@@ -317,7 +331,12 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
-  <p class="score">ConsensusScore: {score_value} / 100</p>
+  <p class="score">ComparableScore: {comparable_value} / 100</p>
+  <p>ConsensusScore: {consensus_value} / 100</p>
+  <p>固定 truth 数量：{score.get("truth_eligible_count", "")}；
+  工具输出数量：{score.get("total_evaluated", "")}；
+  comparable precision：{score.get("comparable_precision", "")}；
+  comparable recall：{score.get("comparable_recall", "")}。</p>
   <p>All three correct: {score.get("consensus_counts", {}).get("all_three_correct", "")}; exactly two: {score.get("consensus_counts", {}).get("exactly_two_correct", "")}; exactly one: {score.get("consensus_counts", {}).get("exactly_one_correct", "")}; none: {score.get("consensus_counts", {}).get("none_correct", "")}.</p>
   <h2>Consensus counts</h2>
   <table>

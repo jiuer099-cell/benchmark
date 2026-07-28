@@ -82,6 +82,16 @@ def test_materialize_formal_consensus_counts(tmp_path: Path) -> None:
         path = tmp_path / f"manifest-{index}.json"
         path.write_text(f'{{"id": {index}}}\n', encoding="utf-8")
         manifests.append(path)
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t10\tT1\tA\tAT\t.\tPASS\tSVTYPE=INS\n"
+        "chr1\t20\tT2\tAT\tA\t.\tPASS\tSVTYPE=DEL;END=21\n",
+        encoding="utf-8",
+    )
+    regions = tmp_path / "benchmark.bed"
+    regions.write_text("chr1\t0\t100\n", encoding="utf-8")
     args = Namespace(
         truvari_ledger=paths["truvari"],
         aardvark_ledger=paths["aardvark"],
@@ -93,12 +103,15 @@ def test_materialize_formal_consensus_counts(tmp_path: Path) -> None:
         tool_id="kanpig",
         official_score_mode="caller_only_shared_alignment",
         primary_truth_profile="giab_hg002_grch38_v5_0q",
+        truth_vcf=truth,
+        benchmark_bed=regions,
     )
     payload = materialize(args)
     values = {
         record["metric_id"]: record["value"] for record in payload["records"]
     }
     assert values == {
+        "benchmark.truth.eligible.count": 2,
         "consensus.all_three_correct.count": 1,
         "consensus.exactly_two_correct.count": 1,
         "consensus.exactly_one_correct.count": 1,
@@ -129,6 +142,8 @@ def test_materialize_rejects_different_result_universes(tmp_path: Path) -> None:
         tool_id="kanpig",
         official_score_mode="caller_only_shared_alignment",
         primary_truth_profile="giab_hg002_grch38_v5_0q",
+        truth_vcf=tmp_path / "unused.vcf",
+        benchmark_bed=tmp_path / "unused.bed",
     )
     try:
         materialize(args)

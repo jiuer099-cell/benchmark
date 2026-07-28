@@ -39,6 +39,7 @@ def _expected_tuple() -> dict[str, str]:
 
 def _required_metric_ids() -> set[str]:
     return {
+        "benchmark.truth.eligible.count",
         "consensus.all_three_correct.count",
         "consensus.exactly_two_correct.count",
         "consensus.exactly_one_correct.count",
@@ -168,6 +169,7 @@ def test_standard_metrics_are_mapped_by_profile_metric_ids() -> None:
         "exactly_one_correct": 1,
         "none_correct": 1,
     }
+    assert payload["truth_eligible_count"] == 1
     assert "traceability" not in payload
 
 
@@ -215,7 +217,12 @@ def test_metric_counts_must_be_non_null() -> None:
 
 def test_consensus_count_must_be_integer() -> None:
     document = _metrics_document()
-    document["records"][0]["value"] = 0.5
+    record = next(
+        item
+        for item in document["records"]
+        if item["metric_id"] == "consensus.all_three_correct.count"
+    )
+    record["value"] = 0.5
     with pytest.raises(MetricContractError, match="non-negative integer"):
         _build(document)
 

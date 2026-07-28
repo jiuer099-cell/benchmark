@@ -26,6 +26,7 @@ def _payload() -> dict:
         "score_profile": "pgbench_consensus_v2",
         "eligibility_status": "eligible",
         "infrastructure_valid": True,
+        "truth_eligible_count": 100,
         "consensus": {
             "all_three_correct": 60,
             "exactly_two_correct": 20,
@@ -53,7 +54,11 @@ def test_equal_vote_consensus_formula_and_counts() -> None:
     }
     assert result.total_evaluated == 100
     assert result.consensus_score == round(230 / 300 * 100, 2)
-    assert result.pgbench_score == result.consensus_score
+    assert result.comparable_score == round(2 * (230 / 3) / 200 * 100, 2)
+    assert result.pgbench_score == result.comparable_score
+    assert result.truth_eligible_count == 100
+    assert result.comparable_precision == 230 / 3 / 100
+    assert result.comparable_recall == 230 / 3 / 100
     assert result.unanimous_correct_rate == 0.6
     assert result.majority_correct_rate == 0.8
     assert result.evaluator_points is None

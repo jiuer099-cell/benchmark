@@ -801,7 +801,7 @@ rules:
     resource_class: local_small
 
   - id: render_report
-    description: Render tool cards and a no-ranking HTML report.
+    description: Render per-tool ComparableScore and consensus HTML cards.
     phase: reporting
     kind: post_score
     inputs: [pgbench_score_json, final_score_package_json]
@@ -817,7 +817,7 @@ rules:
     resource_class: local_small
 
   - id: render_report_index
-    description: Render a no-ranking index over individual tool score cards.
+    description: Render a no-ranking comparison table over tool score cards.
     phase: reporting
     kind: post_score
     inputs: [tool_html_reports, sealed_tool_scores, metrics_json]

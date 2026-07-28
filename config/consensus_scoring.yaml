@@ -1,7 +1,7 @@
 schema_version: 2
 profile:
   id: pgbench_consensus_v2
-  final_score_name: ConsensusScore
+  final_score_name: ComparableScore
   score_min: 0.0
   score_max: 100.0
   display_decimals: 2
@@ -18,3 +18,15 @@ consensus:
     - Every evaluator contributes one equal binary vote per result.
     - No evaluator, resource, pangenome, or provenance weight is applied.
     - Provenance remains a validity gate and never contributes points.
+comparability:
+  truth_metric: benchmark.truth.eligible.count
+  formula: 2*min(softTP,T)/(Q+T)*100
+  definitions:
+    softTP: (3*n3 + 2*n2 + n1) / 3
+    Q: n3 + n2 + n1 + n0
+    T: Fixed eligible truth records in the primary GIAB benchmark BED.
+  scope: End-to-end practical accuracy on the same sample, reference, truth profile, and benchmark regions.
+  notes:
+    - False-positive query results increase Q and lower the score.
+    - Missing truth results increase T without increasing softTP and lower the score.
+    - Cross-modality comparison describes complete pipelines, not sequencing-platform-independent algorithm quality.

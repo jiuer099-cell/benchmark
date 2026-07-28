@@ -52,6 +52,7 @@ $defs:
     pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
   metricId:
     enum:
+      - benchmark.truth.eligible.count
       - consensus.all_three_correct.count
       - consensus.exactly_two_correct.count
       - consensus.exactly_one_correct.count

@@ -72,7 +72,7 @@ development:
 
 score:
   profile: pgbench_consensus_v2
-  final_score_name: ConsensusScore
+  final_score_name: ComparableScore
   produce_ranking: false
 
 evaluation:

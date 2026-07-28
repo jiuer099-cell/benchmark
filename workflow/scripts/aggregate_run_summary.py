@@ -381,8 +381,14 @@ def aggregate(
                 "score_profile_sha256": score.get("score_profile_sha256"),
                 "evaluation_mode": score.get("evaluation_mode"),
                 "score_status": score.get("score_status"),
-                "ConsensusScore": score.get("consensus_score", score.get("pgbench_score")),
+                "ComparableScore": score.get(
+                    "comparable_score", score.get("pgbench_score")
+                ),
+                "ConsensusScore": score.get("consensus_score"),
                 "total_evaluated": score.get("total_evaluated"),
+                "truth_eligible_count": score.get("truth_eligible_count"),
+                "comparable_precision": score.get("comparable_precision"),
+                "comparable_recall": score.get("comparable_recall"),
                 "unanimous_correct_rate": score.get("unanimous_correct_rate"),
                 "majority_correct_rate": score.get("majority_correct_rate"),
             }
@@ -419,8 +425,12 @@ def aggregate(
             "score_profile_sha256",
             "evaluation_mode",
             "score_status",
+            "ComparableScore",
             "ConsensusScore",
             "total_evaluated",
+            "truth_eligible_count",
+            "comparable_precision",
+            "comparable_recall",
             "unanimous_correct_rate",
             "majority_correct_rate",
         ),

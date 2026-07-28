@@ -282,7 +282,7 @@ properties:
       profile:
         const: pgbench_consensus_v2
       final_score_name:
-        const: ConsensusScore
+        const: ComparableScore
       produce_ranking:
         const: false
   evaluation:

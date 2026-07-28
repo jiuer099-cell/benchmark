@@ -4,17 +4,109 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
+import gzip
 import hashlib
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
+from typing import TextIO
 
 import yaml  # type: ignore[import-untyped]
 
 
 class ConsensusMetricError(ValueError):
     """Raised when evaluator ledgers do not describe one identical universe."""
+
+
+def open_text(path: Path) -> TextIO:
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8")
+    return path.open("r", encoding="utf-8")
+
+
+def load_benchmark_regions(path: Path) -> dict[str, tuple[list[int], list[int]]]:
+    raw: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip() or line.startswith(("#", "track", "browser")):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 3:
+                raise ConsensusMetricError(
+                    f"malformed BED record at {path}:{line_number}"
+                )
+            start, end = int(fields[1]), int(fields[2])
+            if start < 0 or end <= start:
+                raise ConsensusMetricError(
+                    f"invalid BED interval at {path}:{line_number}"
+                )
+            raw[fields[0]].append((start, end))
+    if not raw:
+        raise ConsensusMetricError(f"benchmark BED contains no regions: {path}")
+
+    merged: dict[str, tuple[list[int], list[int]]] = {}
+    for contig, intervals in raw.items():
+        compact: list[list[int]] = []
+        for start, end in sorted(intervals):
+            if compact and start <= compact[-1][1]:
+                compact[-1][1] = max(compact[-1][1], end)
+            else:
+                compact.append([start, end])
+        merged[contig] = (
+            [interval[0] for interval in compact],
+            [interval[1] for interval in compact],
+        )
+    return merged
+
+
+def overlaps_regions(
+    regions: dict[str, tuple[list[int], list[int]]],
+    contig: str,
+    start: int,
+    end: int,
+) -> bool:
+    interval_index = regions.get(contig)
+    if interval_index is None:
+        return False
+    starts, ends = interval_index
+    index = bisect.bisect_right(starts, end - 1) - 1
+    return index >= 0 and ends[index] > start
+
+
+def info_end(position_1_based: int, ref: str, info: str) -> int:
+    for field in info.split(";"):
+        if field.startswith("END="):
+            try:
+                return max(position_1_based, int(field[4:]))
+            except ValueError as exc:
+                raise ConsensusMetricError(f"invalid INFO/END value: {field}") from exc
+    return position_1_based + max(1, len(ref)) - 1
+
+
+def eligible_truth_count(truth_vcf: Path, benchmark_bed: Path) -> int:
+    regions = load_benchmark_regions(benchmark_bed)
+    count = 0
+    with open_text(truth_vcf) as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 8:
+                raise ConsensusMetricError(
+                    f"malformed truth VCF record at {truth_vcf}:{line_number}"
+                )
+            position = int(fields[1])
+            end = info_end(position, fields[3], fields[7])
+            if overlaps_regions(regions, fields[0], position - 1, end):
+                count += 1
+    if count == 0:
+        raise ConsensusMetricError(
+            "primary truth VCF has no records overlapping the benchmark BED"
+        )
+    return count
 
 
 def load_ledger(path: Path, expected_evaluator: str) -> dict[str, bool]:
@@ -68,10 +160,12 @@ def materialize(args: argparse.Namespace) -> dict:
         vote_count = sum(ledgers[name][result_id] for name in ledgers)
         counts[vote_count] += 1
     total = len(first)
+    truth_total = eligible_truth_count(args.truth_vcf, args.benchmark_bed)
     profile = yaml.safe_load(args.score_profile.read_text(encoding="utf-8"))
     profile_id = profile["profile"]["id"]
     provenance_id = provenance_bundle(args.evaluator_manifests)
     categories = (
+        ("benchmark.truth.eligible.count", truth_total),
         ("consensus.all_three_correct.count", counts[3]),
         ("consensus.exactly_two_correct.count", counts[2]),
         ("consensus.exactly_one_correct.count", counts[1]),
@@ -87,9 +181,21 @@ def materialize(args: argparse.Namespace) -> dict:
                 "status": "defined",
                 "evaluator": "fusion",
                 "numerator": value,
-                "denominator": total,
-                "eligible_count": total,
-                "universe_id": "formal_query_result_universe_v1",
+                "denominator": (
+                    truth_total
+                    if metric_id == "benchmark.truth.eligible.count"
+                    else total
+                ),
+                "eligible_count": (
+                    truth_total
+                    if metric_id == "benchmark.truth.eligible.count"
+                    else total
+                ),
+                "universe_id": (
+                    "primary_truth_benchmark_universe_v1"
+                    if metric_id == "benchmark.truth.eligible.count"
+                    else "formal_query_result_universe_v1"
+                ),
                 "undefined_reason": None,
                 "parser_id": "three_evaluator_binary_vote_fusion_v1",
                 "parser_source_field": "correct",
@@ -130,6 +236,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tool-id", required=True)
     parser.add_argument("--official-score-mode", required=True)
     parser.add_argument("--primary-truth-profile", required=True)
+    parser.add_argument("--truth-vcf", required=True, type=Path)
+    parser.add_argument("--benchmark-bed", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args(argv)
 
