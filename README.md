@@ -39,6 +39,10 @@ examples cover GraphAligner/vg, KanPIG, and PanGenie. User-provided genotypers
 use the same checked plugin contract; see
 [`docs/TOOL_PLUGIN_GUIDE.md`](docs/TOOL_PLUGIN_GUIDE.md).
 
+The bundled production scope is intentionally pangenome-specific. Linear
+reference long-read callers are not planned built-ins; they may only be added
+as user plugins when a study explicitly needs a linear-reference baseline.
+
 ## Resource preflight
 
 Installing callers such as Kanpig is not enough to run the benchmark. Check the

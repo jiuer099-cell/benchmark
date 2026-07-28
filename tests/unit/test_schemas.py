@@ -271,7 +271,7 @@ def test_example_config_validates_and_starts_without_unimplemented_tools() -> No
     config = _load_yaml(CONFIG / "config.example.yaml")
     _assert_valid(CONFIG / "config.schema.yaml", config)
     assert config["tools"]["enabled"] == []
-    assert config["tools"]["planned_tools"]
+    assert config["tools"]["planned_tools"] == []
     assert config["score"]["produce_ranking"] is False
     assert config["score"]["final_score_name"] == "ComparableScore"
     assert (
@@ -314,7 +314,7 @@ def test_caller_only_config_requires_non_null_bam() -> None:
 @pytest.mark.parametrize(
     "mutation",
     [
-        lambda config: config["tools"].update(enabled=["sniffles2", "sniffles2"]),
+        lambda config: config["tools"].update(enabled=["kanpig", "kanpig"]),
         lambda config: config["score"].update(produce_ranking=True),
         lambda config: config["reference"].pop("fasta"),
         lambda config: config["execution"].update(

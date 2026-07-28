@@ -99,13 +99,7 @@ obsidian:
 
 tools:
   enabled: []
-  planned_tools:
-    - sniffles2
-    - cutesv
-    - pbsv
-    - svim
-    - sniffles2_force
-    - pangenie
+  planned_tools: []
 
 external_plugins:
   - id: vg

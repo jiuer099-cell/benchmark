@@ -89,11 +89,7 @@ obsidian:
 
 tools:
   enabled: []
-  planned_tools:
-    - sniffles2
-    - sniffles2_force
-    - kanpig
-    - svjedi_graph
+  planned_tools: []
 
 external_plugins:
   - id: example_genotyper
