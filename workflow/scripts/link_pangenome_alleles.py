@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -100,8 +102,63 @@ class LinkResult:
     similarity: float | None
 
 
-def load_ledger(path: Path) -> tuple[dict[str, Allele], list[Allele]]:
+def _allow_large_vcf_alleles() -> None:
+    """Raise csv's legacy 128 KiB field cap without assuming C-long width."""
+
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
+def _relevant_call_index(
+    calls: list[Call],
+) -> dict[tuple[str, str], tuple[list[int], list[Call]]]:
+    grouped: dict[tuple[str, str], list[Call]] = defaultdict(list)
+    for call in calls:
+        grouped[(call.chrom, call.svtype)].append(call)
+    return {
+        key: (
+            [call.pos for call in sorted_calls],
+            sorted_calls,
+        )
+        for key, values in grouped.items()
+        for sorted_calls in [sorted(values, key=lambda call: call.pos)]
+    }
+
+
+def _allele_is_relevant(
+    allele: Allele,
+    *,
+    claimed_ids: set[str],
+    call_index: dict[tuple[str, str], tuple[list[int], list[Call]]],
+) -> bool:
+    if allele.allele_id in claimed_ids:
+        return True
+    indexed = call_index.get((allele.chrom, allele.svtype))
+    if indexed is None:
+        return False
+    positions, calls = indexed
+    distance = max(100.0, 0.10 * max(1, abs(allele.svlen)))
+    left = bisect.bisect_left(positions, allele.pos - distance)
+    right = bisect.bisect_right(positions, allele.pos + distance)
+    return any(compatibility(call, allele) is not None for call in calls[left:right])
+
+
+def load_ledger(
+    path: Path,
+    *,
+    relevant_calls: list[Call] | None = None,
+) -> tuple[dict[str, Allele], list[Allele]]:
+    _allow_large_vcf_alleles()
     alleles: dict[str, Allele] = {}
+    claimed_ids = {
+        call.claimed_id for call in (relevant_calls or []) if call.claimed_id
+    }
+    call_index = _relevant_call_index(relevant_calls or [])
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         required = {
@@ -131,10 +188,16 @@ def load_ledger(path: Path) -> tuple[dict[str, Allele], list[Allele]]:
                 af=row["AF"],
                 graph_class=row["GRAPH_COMPLEXITY_CLASS"],
             )
+            if relevant_calls is not None and not _allele_is_relevant(
+                allele,
+                claimed_ids=claimed_ids,
+                call_index=call_index,
+            ):
+                continue
             if allele.allele_id in alleles:
                 raise AlleleLinkError(f"duplicate allele ID {allele.allele_id}")
             alleles[allele.allele_id] = allele
-    if not alleles:
+    if not alleles and relevant_calls is None:
         raise AlleleLinkError("allele ledger is empty")
     return alleles, list(alleles.values())
 
@@ -286,7 +349,15 @@ def link_vcf(
     output_vcf: Path,
     links_tsv: Path,
 ) -> int:
-    allele_by_id, alleles = load_ledger(ledger_path)
+    calls: list[Call] = []
+    with canonical_vcf.open("r", encoding="utf-8") as source:
+        for raw_line in source:
+            if raw_line.strip() and not raw_line.startswith("#"):
+                calls.append(parse_call(raw_line.rstrip("\n").split("\t")))
+    allele_by_id, alleles = load_ledger(
+        ledger_path,
+        relevant_calls=calls,
+    )
     output_vcf.parent.mkdir(parents=True, exist_ok=True)
     links_tsv.parent.mkdir(parents=True, exist_ok=True)
     temporary_vcf = output_vcf.with_name(f".{output_vcf.name}.tmp")

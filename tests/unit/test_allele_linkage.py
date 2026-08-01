@@ -12,6 +12,7 @@ from link_pangenome_alleles import (  # noqa: E402
     Call,
     link_call,
     link_vcf,
+    load_ledger,
 )
 
 
@@ -128,3 +129,23 @@ def test_link_vcf_writes_auditable_ledger(tmp_path: Path) -> None:
         row = next(csv.DictReader(handle, delimiter="\t"))
     assert row["PANGENOME_ALLELE_ID"] == "PGSV_A"
     assert row["LINK_STATUS"] == "in_panel_exact"
+
+
+def test_relevant_ledger_scan_accepts_large_irrelevant_alleles(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "alleles.tsv"
+    ledger.write_text(
+        "PANGENOME_ALLELE_ID\tCHROM\tPOS\tEND\tSVTYPE\tSVLEN\tREF\tALT\tAF\t"
+        "GRAPH_COMPLEXITY_CLASS\tSOURCE_RECORD_ID\n"
+        "PGSV_HUGE\t2\t1\t200002\tINS\t200001\tA\t"
+        + ("T" * 200_000)
+        + "\t0.01\tcomplex\thuge\n"
+        "PGSV_A\t1\t100\t110\tDEL\t-10\tA\t<DEL>\t0.01\t"
+        "simple_biallelic\ta\n",
+        encoding="utf-8",
+    )
+    call = _call(pos=100, end=110, claimed_id="PGSV_A")
+    by_id, alleles = load_ledger(ledger, relevant_calls=[call])
+    assert set(by_id) == {"PGSV_A"}
+    assert [allele.allele_id for allele in alleles] == ["PGSV_A"]
