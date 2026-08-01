@@ -16,7 +16,7 @@ import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 import yaml  # type: ignore[import-untyped]
 
@@ -111,7 +111,31 @@ def record_key(fields: list[str]) -> tuple[str, int, str, str]:
     return fields[0], int(fields[1]), fields[3], fields[4]
 
 
-def query_universe(path: Path) -> tuple[list[str], dict[str, tuple[str, int, str, str]]]:
+def aardvark_record_key(fields: list[str]) -> tuple[str, int, str, str]:
+    """Return the representation emitted by Aardvark's default VCF writer.
+
+    Aardvark rebuilds output records from internal variants, drops input IDs,
+    and removes matching suffix bases while both alleles remain anchored.
+    Mirroring that transformation keeps every evaluator decision attached to
+    its canonical query event without silently treating an unmatched row as FP.
+    """
+    chrom, pos, ref, alt = record_key(fields)
+    if "," in alt:
+        raise FormalEvaluatorError(
+            "Aardvark formal query must be biallelic, but encountered "
+            f"{chrom}:{pos} {ref}>{alt}"
+        )
+    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
+        ref = ref[:-1]
+        alt = alt[:-1]
+    return chrom, pos, ref, alt
+
+
+def query_universe(
+    path: Path,
+    *,
+    key_fn: Callable[[list[str]], tuple[str, int, str, str]] = record_key,
+) -> tuple[list[str], dict[str, tuple[str, int, str, str]]]:
     order: list[str] = []
     keys: dict[str, tuple[str, int, str, str]] = {}
     for fields in vcf_records(path):
@@ -121,7 +145,7 @@ def query_universe(path: Path) -> tuple[list[str], dict[str, tuple[str, int, str
         if result_id in keys:
             raise FormalEvaluatorError(f"duplicate canonical query ID: {result_id}")
         order.append(result_id)
-        keys[result_id] = record_key(fields)
+        keys[result_id] = key_fn(fields)
     return order, keys
 
 
@@ -129,8 +153,10 @@ def _resolve_votes(
     query: Path,
     decisions_by_id: dict[str, bool],
     decisions_by_key: dict[tuple[str, int, str, str], list[bool]],
+    *,
+    key_fn: Callable[[list[str]], tuple[str, int, str, str]] = record_key,
 ) -> tuple[list[str], dict[str, bool]]:
-    order, keys = query_universe(query)
+    order, keys = query_universe(query, key_fn=key_fn)
     votes: dict[str, bool] = {}
     for result_id in order:
         if result_id in decisions_by_id:
@@ -199,8 +225,8 @@ def parse_aardvark(query: Path, artifacts: Path) -> tuple[list[str], dict[str, b
         correct = decision == "TP"
         if fields[2] and fields[2] != ".":
             by_id[fields[2]] = correct
-        by_key[record_key(fields)].append(correct)
-    return _resolve_votes(query, by_id, by_key)
+        by_key[aardvark_record_key(fields)].append(correct)
+    return _resolve_votes(query, by_id, by_key, key_fn=aardvark_record_key)
 
 
 def parse_vcfdist(

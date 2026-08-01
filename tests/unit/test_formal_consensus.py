@@ -215,6 +215,31 @@ def test_aardvark_and_vcfdist_are_mapped_to_same_query_universe(
     assert votes == {"CANON_A": True, "CANON_B": False}
 
 
+def test_aardvark_output_suffix_trimming_and_missing_ids_are_mapped(
+    tmp_path: Path,
+) -> None:
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tCANON_TRIMMED\tACT\tAGT\t.\tPASS\tSVTYPE=INDEL\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    aardvark = tmp_path / "aardvark"
+    aardvark.mkdir()
+    with gzip.open(aardvark / "query.vcf.gz", "wt", encoding="utf-8") as handle:
+        handle.write(
+            "##fileformat=VCFv4.2\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+            "chr1\t100\t.\tAC\tAG\t.\tPASS\t.\tGT:BD\t0/1:TP\n"
+        )
+
+    order, votes = parse_aardvark(query, aardvark)
+    assert order == ["CANON_TRIMMED"]
+    assert votes == {"CANON_TRIMMED": True}
+
+
 def test_evaluator_commands_freeze_the_common_maximum_size(
     tmp_path: Path,
 ) -> None:
