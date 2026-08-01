@@ -8,8 +8,16 @@ sample:
   id: HG002
   sex: male
   technology: pacbio_clr
+  library_id: HG002_PacBio_MtSinai_NIST_CLR
+  source_evidence_id: HG002_PacBio_GRCh38_derived_fastq
+  coverage_x: null
+  read_count: null
+  read_bases: null
+  downsampling_seed: null
   bam: resources/alignments/HG002.GRCh38.bam
   fastq: resources/reads/HG002.PacBio_CLR.fastq.gz
+  fastq_r1: null
+  fastq_r2: null
 
 reference:
   id: grch38
@@ -27,9 +35,10 @@ pangenome:
   excluded_samples: [HG002, NA24385]
   population_vcf: resources/pangenome/grch38_hprc_1kg_sv_v1/population.sv.vcf.gz
   graph_assets:
+    profile: vg_gbz_min_dist
     manifest: resources/pangenome/grch38_hprc_1kg_sv_v1/graph-assets.lock.yaml
     gbz: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.gbz
-    xg: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.xg
+    xg: null
     min: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.min
     dist: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.dist
     sample_list: resources/pangenome/grch38_hprc_1kg_sv_v1/samples.txt
@@ -43,6 +52,7 @@ catalogs:
   truthsets: config/truthsets.yaml
   stratifications: config/stratifications.yaml
   score_weights: config/consensus_scoring.yaml
+  evaluator_profile: config/evaluator_profile.yaml
   metric_dictionary: config/metric_dictionary.yaml
 
 execution:
@@ -51,7 +61,8 @@ execution:
   use_conda: true
   use_apptainer: false
   keep_going: true
-  benchmark_repeats: 1
+  benchmark_repeats: 3
+  cache_policy: isolated_empty_tool_cache
   random_seed: 20260716
   tool_threads: 16
   tool_memory_mb: 65536
@@ -81,7 +92,6 @@ evaluation:
   evaluators: [truvari, aardvark, vcfdist]
   truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
   benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
-  vcfdist_credit_threshold: 0.7
   commands:
     bcftools: [mamba, run, -n, pgbench-bio, bcftools]
     tabix: [mamba, run, -n, pgbench-bio, tabix]

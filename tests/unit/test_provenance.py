@@ -81,7 +81,7 @@ def _manifest_payload(
         "score_profile_sha256": score_profile_sha256,
         "pangenome_manifest_sha256": SHA_B,
         "reference_sha256": SHA_A,
-        "truth_profile": "giab_hg002_grch37_v5_0q",
+        "truth_profile": "giab_hg002_grch38_v5_0q",
         "conda_lock_sha256": SHA_B,
         "container_uri": None,
         "container_digest": None,
@@ -129,11 +129,25 @@ def _prepared_manifest(
     )
 
 
-def _write_companions(root: Path, manifest: dict[str, Any]) -> None:
-    log = root / "logs" / "rules" / manifest["rule_name"] / f"{manifest['job_key']}.log"
+def _write_companions(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    run_scoped: bool = False,
+) -> None:
+    scope = [manifest["run_id"]] if run_scoped else []
+    log = (
+        root
+        / "logs"
+        / Path(*scope)
+        / "rules"
+        / manifest["rule_name"]
+        / f"{manifest['job_key']}.log"
+    )
     benchmark = (
         root
         / "benchmarks"
+        / Path(*scope)
         / "rules"
         / manifest["rule_name"]
         / f"{manifest['job_key']}.jsonl"
@@ -450,6 +464,43 @@ def test_audit_calculates_exact_traceability_fields(tmp_path: Path) -> None:
     assert audit["environment_complete"] is True
     assert audit["run_context_complete"] is True
     assert audit["core_provenance_valid"] is True
+
+
+def test_audit_discovers_run_id_scoped_companions(tmp_path: Path) -> None:
+    result = tmp_path / "score.json"
+    result.write_text("{}\n", encoding="utf-8")
+    manifest = _prepared_manifest(
+        rule_name="compute_pgbench_score",
+        job_key="hg002",
+        attempt_id="attempt-1",
+        inputs=[],
+        outputs=[result],
+    )
+    manifest["params"]["score_profile"] = "pgbench_v1"
+    _write_companions(tmp_path, manifest, run_scoped=True)
+
+    audit = audit_manifests(
+        [manifest],
+        expected_jobs=[
+            {
+                "rule_name": manifest["rule_name"],
+                "job_key": manifest["job_key"],
+                "manifest_id": manifest["manifest_id"],
+                "core": True,
+            }
+        ],
+        target_manifest_ids=[manifest["manifest_id"]],
+        workspace_root=tmp_path,
+        require_companions=True,
+        verify_paths=True,
+    )
+
+    assert audit["status"] == "valid"
+    assert audit["valid_manifest_log_benchmark_count"] == 1
+    assert not any(
+        issue["code"] in {"missing_log", "missing_benchmark"}
+        for issue in audit["issues"]
+    )
 
 
 def test_missing_noncore_package_is_provisional_but_missing_core_is_invalid(

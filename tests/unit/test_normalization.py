@@ -31,3 +31,41 @@ def test_normalization_sorts_and_preserves_original_representation(
     assert "ORIG_ALT=ATTT" in text
     assert "SVTYPE=INS" in text
     assert text.splitlines()[-3].endswith("\tHG002")
+
+
+def test_normalization_infers_symbolic_deletion_length_from_end(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.fa"
+    reference.write_text(">chr1\n" + "A" * 200 + "\n", encoding="utf-8")
+    raw = tmp_path / "raw.vcf"
+    raw.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tdel\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=175\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "canonical.vcf"
+    normalize_vcf(raw, reference, output)
+    assert "SVLEN=-75" in output.read_text(encoding="utf-8")
+
+
+def test_normalization_infers_resolved_deletion_type_end_and_length(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.fa"
+    reference.write_text(">chr1\n" + "A" * 500 + "\n", encoding="utf-8")
+    ref = "A" + "C" * 60
+    raw = tmp_path / "raw.vcf"
+    raw.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        f"chr1\t100\tresolved-del\t{ref}\tA\t.\tPASS\t.\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "canonical.vcf"
+    normalize_vcf(raw, reference, output)
+    record = output.read_text(encoding="utf-8").splitlines()[-1]
+    assert "SVTYPE=DEL" in record
+    assert "END=160" in record
+    assert "SVLEN=-60" in record

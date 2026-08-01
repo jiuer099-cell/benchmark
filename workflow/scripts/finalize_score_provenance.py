@@ -400,7 +400,11 @@ def _validate_metrics_records(
             + 2 * consensus_counts["exactly_two_correct"]
             + consensus_counts["exactly_one_correct"]
         )
-        effective_tp = min(vote_points / 3.0, float(truth_total))
+        effective_tp = vote_points / 3.0
+        if effective_tp > float(truth_total) + 1e-9:
+            raise FinalScoreSealError(
+                "soft true-positive credit exceeds the one-to-one truth universe"
+            )
         expected_raw = 2.0 * effective_tp / (total + truth_total) * 100.0
         comparable_raw = score.get("comparable_score_raw")
         if (

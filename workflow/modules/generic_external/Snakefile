@@ -174,7 +174,10 @@ rule generic_external_tool:
     log:
         SETTINGS["log"],
     benchmark:
-        SETTINGS["benchmark"],
+        repeat(
+            SETTINGS["benchmark"],
+            SETTINGS.get("benchmark_repeats", 1),
+        ),
     threads:
         SETTINGS.get("threads", 1)
     resources:
@@ -190,6 +193,9 @@ rule generic_external_tool:
         upstream_arguments=UPSTREAM_ARGUMENTS,
         execution_purpose=SETTINGS.get("execution_purpose", "development_only"),
         timeout_seconds=SETTINGS.get("timeout_seconds", 3600),
+        cache_policy=SETTINGS.get(
+            "cache_policy", "isolated_empty_tool_cache"
+        ),
         semantic_rule_name=SETTINGS["semantic_rule_name"],
         job_key=SETTINGS["job_key"],
         tool_id=SETTINGS["tool_id"],
@@ -244,8 +250,10 @@ rule generic_external_tool:
             --log {params.tool_log:q} \
             --threads {threads} \
             --memory-mb {resources.mem_mb} \
+            --cache-policy {params.cache_policy:q} \
             --execution-purpose {params.execution_purpose:q} \
             --timeout-seconds {params.timeout_seconds} \
+            --random-seed {params.random_seed} \
             {params.input_arguments:q} \
             {params.alignment_arguments:q} \
           > {log:q} 2>&1

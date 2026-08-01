@@ -42,255 +42,255 @@ metrics:
   truvari.event.overall.f1:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.overall_event_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Primary-BED profile-eligible truth clusters and query calls.
   truvari.event.svtype.macro_f1:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.svtype_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Predefined truth-positive SVTYPE strata.
   truvari.event.length.macro_f1:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.length_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Predefined truth-positive SV length bins.
   truvari.gt.exact_concordance:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.exact_gt_concordance
+    required_for_valid_score: false
+    point_component: null
     universe: Fixed challenge genotype universe linked by Truvari; no-call is discordant.
   truvari.match.sequence_similarity:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.fidelity
+    required_for_valid_score: false
+    point_component: null
     universe: Primary matched truth clusters; missing query sequence is zero.
   truvari.match.size_similarity:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.fidelity
+    required_for_valid_score: false
+    point_component: null
     universe: Primary matched truth clusters.
   truvari.match.start_accuracy:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.fidelity
+    required_for_valid_score: false
+    point_component: null
     universe: Primary matched truth clusters.
   truvari.match.end_accuracy:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.fidelity
+    required_for_valid_score: false
+    point_component: null
     universe: Primary matched truth clusters.
   truvari.match.mean_similarity:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.fidelity
+    required_for_valid_score: false
+    point_component: null
     universe: Weighted sequence, size, start, and end similarity for primary assignments.
   truvari.context.difficult.macro_f1:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.truvari.difficult_context_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Score-profile difficult BED strata with positive truth count.
 
   aardvark.haplotype.exact_f1:
     value_type: ratio
     source: aardvark
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.aardvark.exact_haplotype_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Primary truth local-haplotype clusters.
   aardvark.haplotype.partial_f1:
     value_type: ratio
     source: aardvark
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.aardvark.partial_credit_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Primary truth local-haplotype clusters with match weights in [0,1].
   aardvark.gt.exact_concordance:
     value_type: ratio
     source: aardvark
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.aardvark.exact_gt_concordance
+    required_for_valid_score: false
+    point_component: null
     universe: Fixed challenge genotype universe after Aardvark linkage.
   aardvark.complex.exact_f1:
     value_type: ratio
     source: aardvark
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.aardvark.complex_cluster_f1
+    required_for_valid_score: false
+    point_component: null
     universe: CPX clusters or local windows with at least two interacting truth alleles.
   aardvark.haplotype.sequence_similarity:
     value_type: ratio
     source: aardvark
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.aardvark.allele_sequence_fidelity
+    required_for_valid_score: false
+    point_component: null
     universe: Truth clusters with sequence; missing query sequence is zero.
 
   vcfdist.representation.f1:
     value_type: ratio
     source: vcfdist
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.vcfdist.representation_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Pre-run frozen vcfdist-eligible truth clusters.
   vcfdist.gt.exact_concordance:
     value_type: ratio
     source: vcfdist
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.vcfdist.gt_concordance
+    required_for_valid_score: false
+    point_component: null
     universe: vcfdist-eligible challenge genotypes.
   vcfdist.phase.phased_gt_concordance:
     value_type: ratio
     source: vcfdist
     required_for_valid_score: false
-    point_component: evaluator_accuracy.vcfdist.phase_accuracy
+    point_component: null
     universe: Truth phase-eligible heterozygous clusters.
   vcfdist.phase.switch_error_rate:
     value_type: ratio
     source: vcfdist
     required_for_valid_score: false
-    point_component: evaluator_accuracy.vcfdist.phase_accuracy
+    point_component: null
     universe: Truth phase-eligible phase transitions.
   vcfdist.phase.flip_error_rate:
     value_type: ratio
     source: vcfdist
     required_for_valid_score: false
-    point_component: evaluator_accuracy.vcfdist.phase_accuracy
+    point_component: null
     universe: Truth phase-eligible phase sets.
   vcfdist.phase.accuracy:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.vcfdist.phase_accuracy
+    required_for_valid_score: false
+    point_component: null
     universe: Fixed combination of phased GT concordance, switch errors, and flip errors.
   vcfdist.complex.consistency:
     value_type: ratio
     source: vcfdist
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.vcfdist.complex_consistency
+    required_for_valid_score: false
+    point_component: null
     universe: Predefined eligible complex clusters.
   vcfdist.eligible.coverage:
     value_type: ratio
     source: vcfdist
-    required_for_valid_score: true
-    point_component: evaluator_accuracy.vcfdist.eligible_coverage
+    required_for_valid_score: false
+    point_component: null
     universe: Predefined vcfdist-eligible truth clusters.
 
   truvari.pangenome.in_panel.gt.macro_f1:
     value_type: ratio
     source: truvari
-    required_for_valid_score: true
-    point_component: pangenome_robustness.in_panel_gt_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Candidate-level hidden in-panel genotype ledger.
   aardvark.pangenome.in_panel.gt.macro_f1:
     value_type: ratio
     source: aardvark
-    required_for_valid_score: true
-    point_component: pangenome_robustness.in_panel_gt_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Candidate-level hidden in-panel genotype ledger.
   vcfdist.pangenome.in_panel.gt.macro_f1:
     value_type: ratio
     source: vcfdist
-    required_for_valid_score: true
-    point_component: pangenome_robustness.in_panel_gt_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Candidate-level hidden in-panel genotype ledger.
   pangenome.in_panel.gt.fused_macro_f1:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: pangenome_robustness.in_panel_gt_macro_f1
-    universe: Fixed 40:35:25 fusion of evaluator-specific in-panel genotype macro-F1.
+    required_for_valid_score: false
+    point_component: null
+    universe: Unweighted diagnostic mean of evaluator-specific in-panel genotype macro-F1; never a ComparableScore component.
   pangenome.link.precision:
     value_type: ratio
     source: pangenome_linker
-    required_for_valid_score: true
-    point_component: pangenome_robustness.allele_link_precision
+    required_for_valid_score: false
+    point_component: null
     universe: Calls with exact, equivalent, ambiguous, invalid-ID, or wrong-link status.
   pangenome.link.coverage:
     value_type: ratio
     source: pangenome_linker
-    required_for_valid_score: true
-    point_component: pangenome_robustness.allele_link_coverage
+    required_for_valid_score: false
+    point_component: null
     universe: Eligible truth-positive in-panel alleles.
   pangenome.af.fused_macro_f1:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: pangenome_robustness.population_af_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Frozen ultrarare, rare, low-frequency, and common population-AF bins.
   pangenome.graph.fused_macro_f1:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: pangenome_robustness.graph_complexity_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Frozen graph_complexity_v1 classes.
   pangenome.context.fused_macro_f1:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: pangenome_robustness.difficult_context_macro_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Frozen difficult-context BED strata.
   pangenome.novel.fused_f1:
     value_type: ratio
     source: fusion
-    required_for_valid_score: true
-    point_component: pangenome_robustness.out_of_panel_truth_f1
+    required_for_valid_score: false
+    point_component: null
     universe: Primary truth clusters without an exact/equivalent population-panel allele.
 
   resource.wall_time.hours:
     value_type: duration
     unit: hours
     source: resource_collector
-    required_for_valid_score: true
-    point_component: resource_efficiency.wall_time_hours
+    required_for_valid_score: false
+    point_component: null
     universe: Official-mode billable stage boundary.
   resource.peak_rss.gib:
     value_type: size
     unit: GiB
     source: resource_collector
-    required_for_valid_score: true
-    point_component: resource_efficiency.peak_rss_gib
+    required_for_valid_score: false
+    point_component: null
     universe: Maximum simultaneous RSS sum for billable processes.
   resource.disk_peak.gib:
     value_type: size
     unit: GiB
     source: resource_collector
-    required_for_valid_score: true
-    point_component: resource_efficiency.disk_peak_gib
+    required_for_valid_score: false
+    point_component: null
     universe: Peak tool-scoped work/output increment.
   resource.cpu.hours:
     value_type: duration
     unit: CPU-hours
     source: resource_collector
-    required_for_valid_score: true
-    point_component: resource_efficiency.cpu_hours
+    required_for_valid_score: false
+    point_component: null
     universe: Sum of billable process user and system CPU time.
 
   traceability.manifest_completeness:
     value_type: ratio
     source: provenance_audit
-    required_for_valid_score: true
-    point_component: traceability.manifest_completeness
+    required_for_valid_score: false
+    point_component: null
     universe: All executed pre-score audited jobs.
   traceability.hash_lineage.complete:
     value_type: boolean
     source: provenance_audit
-    required_for_valid_score: true
-    point_component: traceability.hash_lineage_complete
+    required_for_valid_score: false
+    point_component: null
     universe: Required path and hash lineage to source inputs and raw VCF.
   traceability.environment.complete:
     value_type: boolean
     source: provenance_audit
-    required_for_valid_score: true
-    point_component: traceability.environment_complete
+    required_for_valid_score: false
+    point_component: null
     universe: Conda lock or container digest for all required jobs.
   traceability.run_context.complete:
     value_type: boolean
     source: provenance_audit
-    required_for_valid_score: true
-    point_component: traceability.run_context_complete
-    universe: Config snapshot, seed, Git state, evaluator weights, and hardware fingerprint.
+    required_for_valid_score: false
+    point_component: null
+    universe: Config snapshot, seed, Git state, frozen evaluator profile, unweighted vote contract, and hardware fingerprint.

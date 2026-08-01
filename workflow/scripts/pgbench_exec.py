@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import shutil
@@ -19,6 +20,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from itertools import zip_longest
 from typing import Any, TextIO, cast
 
 import jsonschema
@@ -54,10 +56,14 @@ SUPPORTED_MODES = {
 }
 MODE_INPUTS = {
     "canonical_fastq",
+    "short_fastq_r1",
+    "short_fastq_r2",
     "haplotype_fastq",
     "original_input_bam",
     "shared_alignment",
+    "shared_alignment_index",
     "reference",
+    "reference_index",
     "pangenome_manifest",
     "pangenome_panel",
     "candidate_panel",
@@ -74,11 +80,114 @@ TRANSPORT_TO_CONTRACT = {
     "hp1_fastq": "haplotype_fastq",
     "hp2_fastq": "haplotype_fastq",
 }
+
+
+def _fastq_records(path: Path) -> Iterator[tuple[str, int]]:
+    """Yield normalized read names and base counts after strict FASTQ checks."""
+
+    opener = gzip.open if path.name.casefold().endswith(".gz") else open
+    try:
+        with opener(path, "rt", encoding="utf-8", errors="strict", newline="") as handle:
+            record_number = 0
+            while True:
+                header = handle.readline()
+                if header == "":
+                    return
+                sequence = handle.readline()
+                plus = handle.readline()
+                quality = handle.readline()
+                record_number += 1
+                if not sequence or not plus or not quality:
+                    raise ToolContractError(
+                        f"truncated FASTQ record {record_number}: {path}"
+                    )
+                header = header.rstrip("\r\n")
+                sequence = sequence.rstrip("\r\n")
+                plus = plus.rstrip("\r\n")
+                quality = quality.rstrip("\r\n")
+                if not header.startswith("@"):
+                    raise ToolContractError(
+                        f"FASTQ record {record_number} lacks @ header: {path}"
+                    )
+                if not plus.startswith("+"):
+                    raise ToolContractError(
+                        f"FASTQ record {record_number} lacks + separator: {path}"
+                    )
+                if not sequence or len(sequence) != len(quality):
+                    raise ToolContractError(
+                        f"FASTQ sequence/quality length mismatch at record "
+                        f"{record_number}: {path}"
+                    )
+                name = header[1:].split(maxsplit=1)[0]
+                if name.endswith("/1") or name.endswith("/2"):
+                    name = name[:-2]
+                if not name:
+                    raise ToolContractError(
+                        f"FASTQ record {record_number} has an empty read name: {path}"
+                    )
+                yield name, len(sequence)
+    except (OSError, EOFError, UnicodeError) as exc:
+        raise ToolContractError(f"cannot fully decode FASTQ {path}: {exc}") from exc
+
+
+def validate_read_evidence(supplied_inputs: Mapping[str, Path]) -> dict[str, Any]:
+    """Validate complete FASTQ streams and mate correspondence before execution."""
+
+    r1 = supplied_inputs.get("short_fastq_r1")
+    r2 = supplied_inputs.get("short_fastq_r2")
+    if (r1 is None) != (r2 is None):
+        raise ToolContractError(
+            "short-read evidence must supply both short_fastq_r1 and short_fastq_r2"
+        )
+    result: dict[str, Any] = {"contract": "pgbench_fastq_validation_v1"}
+    if r1 is not None and r2 is not None:
+        read_count = 0
+        read_bases = 0
+        for pair_number, pair in enumerate(
+            zip_longest(_fastq_records(r1), _fastq_records(r2)), start=1
+        ):
+            left, right = pair
+            if left is None or right is None:
+                raise ToolContractError(
+                    "paired FASTQ files contain different record counts"
+                )
+            if left[0] != right[0]:
+                raise ToolContractError(
+                    f"paired FASTQ read-name mismatch at pair {pair_number}: "
+                    f"{left[0]!r} != {right[0]!r}"
+                )
+            read_count += 1
+            read_bases += left[1] + right[1]
+        if read_count == 0:
+            raise ToolContractError("paired FASTQ evidence is empty")
+        result["paired_fastq"] = {
+            "read_pairs": read_count,
+            "read_count": read_count * 2,
+            "read_bases": read_bases,
+            "mate_names_match": True,
+        }
+    canonical = supplied_inputs.get("canonical_fastq")
+    if canonical is not None:
+        read_count = 0
+        read_bases = 0
+        for _, length in _fastq_records(canonical):
+            read_count += 1
+            read_bases += length
+        if read_count == 0:
+            raise ToolContractError("canonical FASTQ evidence is empty")
+        result["canonical_fastq"] = {
+            "read_count": read_count,
+            "read_bases": read_bases,
+        }
+    return result
 INPUT_ENVIRONMENT = {
     "canonical_fastq": "PGBENCH_INPUT_FASTQ",
+    "short_fastq_r1": "PGBENCH_INPUT_FASTQ_R1",
+    "short_fastq_r2": "PGBENCH_INPUT_FASTQ_R2",
     "hp1_fastq": "PGBENCH_HP1_FASTQ",
     "hp2_fastq": "PGBENCH_HP2_FASTQ",
     "reference": "PGBENCH_REFERENCE_FASTA",
+    "reference_index": "PGBENCH_REFERENCE_INDEX",
     "candidate_panel": "PGBENCH_CANDIDATE_VCF",
     "pangenome_manifest": "PGBENCH_PANGENOME_MANIFEST",
     "pangenome_panel": "PGBENCH_PANEL_VCF",
@@ -86,6 +195,7 @@ INPUT_ENVIRONMENT = {
     "graph_assets": "PGBENCH_GRAPH_DIR",
     "tool_index": "PGBENCH_INDEX_DIR",
     "shared_alignment": "PGBENCH_SHARED_ALIGNMENT",
+    "shared_alignment_index": "PGBENCH_SHARED_ALIGNMENT_INDEX",
 }
 BASE_PGBENCH_ENVIRONMENT = {
     "PGBENCH_RUN_ID",
@@ -95,9 +205,13 @@ BASE_PGBENCH_ENVIRONMENT = {
     "PGBENCH_OUTPUT_VCF",
     "PGBENCH_THREADS",
     "PGBENCH_MEMORY_MB",
+    "PGBENCH_CACHE_POLICY",
     "PGBENCH_ALLELE_NAMESPACE",
+    "PGBENCH_RANDOM_SEED",
+    "PGBENCH_GRAPH_REFERENCE_PATH",
 }
 OUTPUT_INDEX_SUFFIXES = (".tbi", ".csi", ".idx")
+GRAPH_ASSET_LOCK_NAME = "graph-assets.lock.yaml"
 
 
 class ToolContractError(ValueError):
@@ -262,14 +376,31 @@ def _semantic_manifest_errors(manifest: Mapping[str, Any]) -> list[str]:
                 errors.append(
                     "caller_only_shared_alignment must forbid original_input_bam"
                 )
-            if not auxiliary_reads and "canonical_fastq" not in forbidden:
+            read_inputs = {
+                "canonical_fastq",
+                "short_fastq_r1",
+                "short_fastq_r2",
+            }
+            if not auxiliary_reads and not read_inputs.issubset(forbidden):
                 errors.append(
-                    "caller_only_shared_alignment must forbid canonical_fastq "
+                    "caller_only_shared_alignment must forbid all FASTQ inputs "
                     "unless read_sequences_auxiliary is true"
                 )
         elif mode == "end_to_end_from_reads":
-            if "canonical_fastq" not in required:
-                errors.append("end_to_end_from_reads must require canonical_fastq")
+            has_single = "canonical_fastq" in required
+            has_pair = {"short_fastq_r1", "short_fastq_r2"}.issubset(required)
+            has_partial_pair = bool(
+                {"short_fastq_r1", "short_fastq_r2"} & required
+            ) and not has_pair
+            if not has_single and not has_pair:
+                errors.append(
+                    "end_to_end_from_reads must require canonical_fastq or "
+                    "the complete short_fastq_r1/short_fastq_r2 pair"
+                )
+            if has_partial_pair:
+                errors.append(
+                    "end_to_end_from_reads must require both paired FASTQ inputs"
+                )
             for forbidden_name in ("original_input_bam", "shared_alignment"):
                 if forbidden_name not in forbidden:
                     errors.append(f"end_to_end_from_reads must forbid {forbidden_name}")
@@ -479,6 +610,7 @@ def resolve_inputs(
             cast(Sequence[str], mode_contract["forbidden_inputs"])
         ),
         "inputs": [item.to_dict() for item in resolved],
+        "read_validation": validate_read_evidence(supplied_inputs),
     }
     atomic_write_json(resolved_inputs_path, payload)
     return tuple(resolved)
@@ -571,6 +703,46 @@ def _runner_command(
     return (str(runner),)
 
 
+def _locked_graph_reference_path(
+    resolved_inputs: Sequence[ResolvedInput],
+) -> str | None:
+    """Read the reference selector from the resolved, content-locked graph bundle."""
+
+    graph_inputs = [item for item in resolved_inputs if item.name == "graph_assets"]
+    if not graph_inputs:
+        return None
+    if len(graph_inputs) != 1:  # defensive assertion against interface drift
+        raise ToolContractError("exactly one graph_assets input is supported")
+
+    graph_input = graph_inputs[0]
+    graph_dir = Path(graph_input.path)
+    if graph_input.path_type != "directory" or not graph_dir.is_dir():
+        raise ToolContractError("graph_assets must resolve to a directory")
+
+    lock_path = graph_dir / GRAPH_ASSET_LOCK_NAME
+    if lock_path.is_symlink():
+        raise ToolContractError(
+            f"graph asset lock must not be a symlink: {lock_path}"
+        )
+    if not lock_path.is_file():
+        raise ToolContractError(
+            "graph_assets is missing its frozen reference selector: "
+            f"{lock_path}"
+        )
+    lock = _load_yaml_mapping(lock_path, "graph asset lock")
+    reference_path = lock.get("reference_path")
+    if (
+        not isinstance(reference_path, str)
+        or not reference_path.strip()
+        or "\n" in reference_path
+        or "\r" in reference_path
+    ):
+        raise ToolContractError(
+            "graph asset lock reference_path must be a non-empty single-line string"
+        )
+    return reference_path
+
+
 def build_tool_environment(
     *,
     base_environment: Mapping[str, str],
@@ -583,8 +755,10 @@ def build_tool_environment(
     output_vcf: Path,
     threads: int,
     memory_mb: int,
+    cache_policy: str = "isolated_empty_tool_cache",
     alignment_kind: str | None,
     attempt_work_dir: Path,
+    random_seed: int = 0,
 ) -> dict[str, str]:
     """Build a minimal deterministic environment with PGBENCH values scrubbed."""
 
@@ -631,11 +805,16 @@ def build_tool_environment(
         "PGBENCH_OUTPUT_VCF": str(output_vcf.resolve()),
         "PGBENCH_THREADS": str(threads),
         "PGBENCH_MEMORY_MB": str(memory_mb),
+        "PGBENCH_CACHE_POLICY": cache_policy,
         "PGBENCH_ALLELE_NAMESPACE": namespaces[0],
+        "PGBENCH_RANDOM_SEED": str(random_seed),
     }
     for item in resolved_inputs:
         if item.environment_variable is not None:
             pgbench_values[item.environment_variable] = item.path
+    graph_reference_path = _locked_graph_reference_path(resolved_inputs)
+    if graph_reference_path is not None:
+        pgbench_values["PGBENCH_GRAPH_REFERENCE_PATH"] = graph_reference_path
     if alignment_kind is not None and any(
         item.name == "shared_alignment" for item in resolved_inputs
     ):
@@ -1001,18 +1180,25 @@ def _sandbox_command(
         *additional_read_only_paths,
     ]
     if backend == "bwrap":
-        system_roots = [
-            path
-            for path in (
-                Path("/usr"),
-                Path("/bin"),
-                Path("/lib"),
-                Path("/lib64"),
-                Path("/etc/alternatives"),
-                Path(sys.prefix),
-            )
-            if path.exists()
-        ]
+        runtime_roots = [Path(sys.prefix)]
+        for variable in ("CONDA_PREFIX", "VIRTUAL_ENV"):
+            value = os.environ.get(variable)
+            if value:
+                runtime_roots.append(Path(value))
+        system_roots: list[Path] = []
+        seen_roots: set[Path] = set()
+        for path in (
+            Path("/usr"),
+            Path("/bin"),
+            Path("/lib"),
+            Path("/lib64"),
+            Path("/etc/alternatives"),
+            *runtime_roots,
+        ):
+            resolved = path.resolve(strict=False)
+            if path.exists() and resolved not in seen_roots:
+                seen_roots.add(resolved)
+                system_roots.append(path)
         mount_targets = [
             *system_roots,
             plugin_root,
@@ -1224,9 +1410,11 @@ def execute_tool(
     log_path: Path,
     threads: int,
     memory_mb: int,
+    cache_policy: str = "isolated_empty_tool_cache",
     alignment_kind: str | None = None,
     execution_purpose: str = "development_only",
     timeout_seconds: int = 3600,
+    random_seed: int = 0,
 ) -> ToolExecutionResult:
     """Execute plugin code now and return only after validating its new VCF."""
 
@@ -1234,6 +1422,10 @@ def execute_tool(
         raise ToolContractError("threads must be at least 1")
     if memory_mb < 1:
         raise ToolContractError("memory_mb must be at least 1")
+    if cache_policy != "isolated_empty_tool_cache":
+        raise ToolContractError(
+            "only cache_policy=isolated_empty_tool_cache is supported"
+        )
     if timeout_seconds < 1:
         raise ToolContractError("timeout_seconds must be at least 1")
     if execution_purpose not in {"development_only", "formal"}:
@@ -1250,14 +1442,11 @@ def execute_tool(
     trust_level = cast(str, execution_contract.get("trust_level", "untrusted"))
     if sandbox_backend not in {"none", "bwrap", "apptainer"}:
         raise ToolContractError(f"unsupported sandbox backend: {sandbox_backend}")
-    if (
-        execution_purpose == "formal"
-        and sandbox_backend == "none"
-        and trust_level != "trusted_reviewed"
-    ):
+    if execution_purpose == "formal" and sandbox_backend == "none":
         raise ToolContractError(
-            "formal execution refuses sandbox_backend=none for an untrusted plugin; "
-            "use bwrap/apptainer or a locally reviewed trusted plugin"
+            "formal execution refuses sandbox_backend=none; bwrap or "
+            "apptainer is required for every plugin, including locally "
+            "reviewed plugins"
         )
     isolation_status = (
         "development_only_contract_enforcement"
@@ -1321,8 +1510,10 @@ def execute_tool(
         output_vcf=attempt_output_vcf,
         threads=threads,
         memory_mb=memory_mb,
+        cache_policy=cache_policy,
         alignment_kind=alignment_kind,
         attempt_work_dir=attempt_work_dir,
+        random_seed=random_seed,
     )
     command = _sandbox_command(
         tool_command=tool_command,
@@ -1397,6 +1588,8 @@ def execute_tool(
             else None
         ),
         "timeout_seconds": timeout_seconds,
+        "cache_policy": cache_policy,
+        "random_seed": random_seed,
         "started_at": started_at,
         "started_at_ns": started_at_ns,
         "finished_at": None,
@@ -1567,6 +1760,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", required=True, type=Path)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--memory-mb", type=int, default=1024)
+    parser.add_argument(
+        "--cache-policy",
+        choices=("isolated_empty_tool_cache",),
+        default="isolated_empty_tool_cache",
+    )
     parser.add_argument("--alignment-kind")
     parser.add_argument(
         "--execution-purpose",
@@ -1574,6 +1772,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="development_only",
     )
     parser.add_argument("--timeout-seconds", type=int, default=3600)
+    parser.add_argument("--random-seed", type=int, default=0)
     return parser
 
 
@@ -1593,9 +1792,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             log_path=args.log,
             threads=args.threads,
             memory_mb=args.memory_mb,
+            cache_policy=args.cache_policy,
             alignment_kind=args.alignment_kind,
             execution_purpose=args.execution_purpose,
             timeout_seconds=args.timeout_seconds,
+            random_seed=args.random_seed,
         )
     except (ToolContractError, ToolExecutionError) as exc:
         raise SystemExit(f"pgbench_exec: {exc}") from exc

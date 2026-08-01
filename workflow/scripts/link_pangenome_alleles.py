@@ -9,7 +9,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from build_pangenome_manifest import format_info, parse_info
+from build_pangenome_manifest import (
+    default_variant_end,
+    format_info,
+    infer_svtype,
+    parse_info,
+)
 
 LINK_STATUSES = {
     "in_panel_exact",
@@ -149,13 +154,23 @@ def parse_call(fields: list[str]) -> Call:
         raise AlleleLinkError("canonical VCF record has fewer than 8 fields")
     info = parse_info(fields[7])
     canon_id = str(info.get("CANON_ID", fields[2]))
-    svtype = str(info.get("SVTYPE", "OTHER"))
+    svtype = infer_svtype(fields[4], info, ref=fields[3])
     claimed = info.get("PANGENOME_ALLELE_ID")
+    pos = int(fields[1])
     return Call(
         canon_id=canon_id,
         chrom=fields[0],
-        pos=int(fields[1]),
-        end=_int_info(info, "END", int(fields[1])),
+        pos=pos,
+        end=_int_info(
+            info,
+            "END",
+            default_variant_end(
+                pos=pos,
+                ref=fields[3],
+                alt=fields[4],
+                svtype=svtype,
+            ),
+        ),
         svtype=svtype,
         svlen=_int_info(info, "SVLEN", len(fields[4]) - len(fields[3])),
         ref=fields[3],

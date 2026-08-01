@@ -11,7 +11,7 @@ genotypers through the same algorithmic steps.
    creates stable allele IDs and a blinded challenge universe, and records
    content provenance.
 2. **Tool-owned middle**
-   starts from the input authorized by the selected track. The adapter may map,
+   starts from the input authorized by the selected execution mode. The adapter may map,
    discover segments, assemble, integrate calls, or genotype a frozen panel.
    Its `tool.yaml` declares the paradigm, tasks, accepted read technology,
    required inputs, output semantics, and execution isolation. Its
@@ -19,8 +19,8 @@ genotypers through the same algorithmic steps.
 3. **Common postprocessing**
    validates the tool VCF, normalizes it, links it to stable pangenome alleles,
    evaluates it with Truvari/Aardvark/vcfdist against the same fixed GIAB truth
-   universe, and produces the unweighted consensus and cross-track comparable
-   reports.
+   universe, and produces the unweighted consensus diagnostics and one unified
+   comparable report.
 
 The formal benchmark measures the entire tool-owned middle as one isolated,
 reproducible execution unit. Internal stages remain tool-specific and are
@@ -32,7 +32,7 @@ listed in the plugin rule registry for auditability.
 | --- | --- | --- | --- |
 | `kanpig` | long-read candidate genotyping | shared GRCh38 BAM | genotype, postprocess |
 | `vg` | graph mapping/calling | PacBio/ONT FASTQ | GraphAligner map, vg pack, vg call |
-| `pangenie` | short-read pangenome genotyping | Illumina FASTQ | prepare, index, k-mer genotype |
+| `pangenie` | short-read pangenome genotyping | paired Illumina R1/R2 FASTQ | prepare, index, k-mer genotype |
 
 PanGenie and KanPIG are re-genotypers: they cannot discover an allele absent
 from their candidate/pangenome panel. The vg adapter has `variant_sites`
@@ -49,8 +49,8 @@ semantics and can report novel graph-supported sites.
 - `ConsensusScore` describes agreement on query results.
 - `ComparableScore` uses the fixed eligible truth count as well as the query
   count, so false positives and false negatives both lower the score.
-- Cross-technology scores compare complete pipeline utility. Claims about
-  algorithm-only superiority must be restricted to one technology/task track.
+- Cross-technology scores compare complete pipeline utility; they are not
+  presented as separate task-type rankings.
 - Runtime, memory, disk, and provenance are reported or used as validity gates;
   none is an accuracy-score weight.
 
@@ -69,6 +69,8 @@ The most useful runner variables are:
 
 ```text
 PGBENCH_INPUT_FASTQ
+PGBENCH_INPUT_FASTQ_R1
+PGBENCH_INPUT_FASTQ_R2
 PGBENCH_SHARED_ALIGNMENT
 PGBENCH_REFERENCE_FASTA
 PGBENCH_PANEL_VCF
@@ -79,6 +81,11 @@ PGBENCH_THREADS
 PGBENCH_MEMORY_MB
 PGBENCH_OUTPUT_VCF
 ```
+
+`PGBENCH_INPUT_FASTQ` is the registered single-file input for technologies
+such as PacBio long reads. A paired short-read plugin must require and consume
+both `PGBENCH_INPUT_FASTQ_R1` and `PGBENCH_INPUT_FASTQ_R2`; it must not accept
+a manually merged short-read file as a substitute for the pair.
 
 Register the plugin in a copied configuration:
 
@@ -92,6 +99,19 @@ For a BAM-based genotyper, implement `caller_only_shared_alignment`; for a
 FASTQ-based method, implement `end_to_end_from_reads`. A genotyping-only tool
 must emit every candidate record (`all_sites`, including `0/0` and `./.`).
 A discovery/calling tool emits only detected variants (`variant_sites`).
+For candidate-site diagnostics, omitted `variant_sites` records are interpreted
+exactly as the manifest declares in `outputs.absence_semantics` (`hom_ref` or
+`no_call`). The core then compares candidate IDs against its private hidden
+ledger after the sandboxed tool has finished. Only candidates inside the
+frozen BED/type/size/allele universe are scored; other panel records remain
+explicitly unscorable rather than becoming assumed `0/0` negatives. Under the
+primary profile, no-calls remain in the denominator as incorrect, with
+called-only concordance reported separately. A discovery plugin without
+blinded candidate IDs may be attributed through a unique
+`PANGENOME_LINKED_ID` only for `in_panel_exact` or `in_panel_equivalent`;
+ambiguous, unresolved, wrong, and conflicting links are audited and cannot be
+silently assigned. Plugins never receive the hidden ledger, and candidate
+GT/no-call diagnostics never alter detection credit.
 
 Validate before a production run:
 
@@ -107,8 +127,9 @@ snakemake --snakefile Snakefile \
   --cores 1 --dry-run
 ```
 
-Unreviewed user code must use `bwrap` or `apptainer` in formal mode. Set
-`trust_level: trusted_reviewed` with `sandbox_backend: none` only after a local
-code review. The executor fingerprints plugin code and inputs, rejects input
-mutation/path escape, validates the fresh VCF, applies a timeout, and records
+Every plugin, including locally reviewed code, must use `bwrap` or `apptainer`
+in formal mode. `sandbox_backend: none` is accepted only for development
+fixtures and is rejected before formal execution. The executor fingerprints
+plugin code and inputs, rejects input mutation/path escape, disables network
+access, validates the fresh VCF, applies a timeout, and records
 attempt/log/provenance artifacts.

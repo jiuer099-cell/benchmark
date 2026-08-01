@@ -20,6 +20,9 @@ inputs:
     accepted_formats:
       - vg
       - xg_gbwt
+    accepted_profiles:
+      - vg_gbz_min_dist
+      - vg_legacy_xg
   shared_alignment:
     required: false
     accepted_formats:
@@ -46,6 +49,7 @@ execution:
   environment: envs/environment.yaml
   rule_registry: rule-registry.yaml
   trust_level: untrusted
+  # Development example only. Formal execution refuses this backend.
   sandbox_backend: none
 
 supported_modes:
@@ -59,6 +63,8 @@ supported_modes:
     optional_inputs: []
     forbidden_inputs:
       - canonical_fastq
+      - short_fastq_r1
+      - short_fastq_r2
       - haplotype_fastq
       - original_input_bam
     billable_stages:
@@ -75,6 +81,8 @@ supported_modes:
     forbidden_inputs:
       - original_input_bam
       - shared_alignment
+      - short_fastq_r1
+      - short_fastq_r2
       - haplotype_fastq
     billable_stages:
       - genotype

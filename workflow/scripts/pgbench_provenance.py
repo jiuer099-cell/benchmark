@@ -1166,11 +1166,36 @@ def _matches_core(rule_name: str, patterns: Sequence[str]) -> bool:
     return any(fnmatch.fnmatchcase(rule_name, pattern) for pattern in patterns)
 
 
-def _companion_paths(root: Path, job: ExpectedJob) -> tuple[Path, Path]:
-    return (
+def _companion_path_candidates(
+    root: Path,
+    job: ExpectedJob,
+    *,
+    run_id: Any,
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Return preferred run-scoped and legacy companion locations.
+
+    Current workflows isolate companions below ``logs/<run_id>`` and
+    ``benchmarks/<run_id>``.  The unscoped paths remain a read-only fallback so
+    manifests produced by releases before run isolation can still be audited.
+    Unsafe run identifiers are never interpolated into a filesystem path.
+    """
+
+    legacy = (
         root / "logs" / "rules" / job.rule_name / f"{job.job_key}.log",
         root / "benchmarks" / "rules" / job.rule_name / f"{job.job_key}.jsonl",
     )
+    if not isinstance(run_id, str) or not _SAFE_KEY_RE.fullmatch(run_id):
+        return ((legacy[0],), (legacy[1],))
+    scoped = (
+        root / "logs" / run_id / "rules" / job.rule_name / f"{job.job_key}.log",
+        root
+        / "benchmarks"
+        / run_id
+        / "rules"
+        / job.rule_name
+        / f"{job.job_key}.jsonl",
+    )
+    return ((scoped[0], legacy[0]), (scoped[1], legacy[1]))
 
 
 def audit_manifests(
@@ -1275,12 +1300,16 @@ def audit_manifests(
         if not validation_errors:
             valid_manifests.append(selected_manifest)
         if require_companions:
-            log_path, benchmark_path = _companion_paths(root, job)
-            for kind, companion in (
-                ("log", log_path),
-                ("benchmark", benchmark_path),
+            log_paths, benchmark_paths = _companion_path_candidates(
+                root,
+                job,
+                run_id=selected_manifest.get("run_id"),
+            )
+            for kind, candidates in (
+                ("log", log_paths),
+                ("benchmark", benchmark_paths),
             ):
-                if not companion.is_file():
+                if not any(candidate.is_file() for candidate in candidates):
                     package_valid = False
                     issues.append(
                         {
@@ -1289,8 +1318,14 @@ def audit_manifests(
                             "manifest_id": selected_manifest.get("manifest_id"),
                             "rule_name": job.rule_name,
                             "job_key": job.job_key,
-                            "path": str(companion),
-                            "message": f"required {kind} record is missing",
+                            "path": str(candidates[0]),
+                            "searched_paths": [
+                                str(candidate) for candidate in candidates
+                            ],
+                            "message": (
+                                f"required {kind} record is missing from "
+                                "run-scoped and legacy locations"
+                            ),
                         }
                     )
         if package_valid:

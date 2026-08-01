@@ -421,7 +421,7 @@ def build_score_payload_from_metrics(
             raise MetricContractError(
                 f"{truth_metric_id} must be a positive integer"
             )
-        return {
+        payload = {
             "tuple": normalized_expected,
             "score_profile": score_profile_id,
             "eligibility_status": "eligible",
@@ -429,6 +429,9 @@ def build_score_payload_from_metrics(
             "truth_eligible_count": truth_eligible_count,
             "consensus": consensus,
         }
+        if "analysis" in document:
+            payload["analysis"] = deepcopy(document["analysis"])
+        return payload
     (
         evaluator_metric_map,
         pangenome_metric_map,

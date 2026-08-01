@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import TextIO
 
 
 def required(name: str) -> str:
@@ -29,6 +30,25 @@ def stage_uncompressed(source: Path, destination: Path) -> Path:
         return source
     with gzip.open(source, "rb") as input_handle, destination.open("wb") as output_handle:
         shutil.copyfileobj(input_handle, output_handle, length=16 * 1024 * 1024)
+    return destination
+
+
+def concatenate_paired_reads(read1: Path, read2: Path, destination: Path) -> Path:
+    """Create the deterministic combined k-mer stream required by PanGenie."""
+
+    with destination.open("wb") as output_handle:
+        for source in (read1, read2):
+            opener = gzip.open if source.suffix.casefold() == ".gz" else Path.open
+            if opener is gzip.open:
+                input_handle = opener(source, "rb")
+            else:
+                input_handle = opener(source, "rb")
+            with input_handle:
+                shutil.copyfileobj(
+                    input_handle,
+                    output_handle,
+                    length=16 * 1024 * 1024,
+                )
     return destination
 
 
@@ -115,10 +135,95 @@ def validate_pangenie_panel(path: Path) -> None:
         raise RuntimeError("PanGenie panel contains no variant records")
 
 
+def open_text(path: Path, mode: str) -> TextIO:
+    if path.suffix.casefold() == ".gz":
+        return gzip.open(path, mode, encoding="utf-8")
+    return path.open(mode, encoding="utf-8")
+
+
+def _allele_id(info: str) -> str | None:
+    for item in info.split(";"):
+        if item.startswith("PANGENOME_ALLELE_ID="):
+            return item.split("=", 1)[1]
+    return None
+
+
+def remap_to_candidate_ids(
+    generated: Path,
+    candidate_vcf: Path,
+    destination: Path,
+) -> None:
+    """Restore the blinded CAND_* namespace required by the benchmark."""
+
+    by_allele: dict[str, str] = {}
+    by_record: dict[tuple[str, str, str, str], str] = {}
+    with open_text(candidate_vcf, "rt") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 8 or not fields[2].startswith("CAND_"):
+                raise RuntimeError(
+                    f"candidate VCF line {line_number} has an invalid record"
+                )
+            key = (fields[0], fields[1], fields[3], fields[4])
+            allele_id = _allele_id(fields[7])
+            if allele_id:
+                if allele_id in by_allele:
+                    raise RuntimeError(
+                        f"candidate VCF has duplicate allele ID {allele_id}"
+                    )
+                by_allele[allele_id] = fields[2]
+            if key in by_record:
+                raise RuntimeError(f"candidate VCF has duplicate record key {key}")
+            by_record[key] = fields[2]
+    if not by_record:
+        raise RuntimeError("candidate VCF contains no records")
+
+    observed: set[str] = set()
+    with generated.open("r", encoding="utf-8") as source, destination.open(
+        "w", encoding="utf-8"
+    ) as output:
+        for line_number, line in enumerate(source, start=1):
+            if not line.strip() or line.startswith("#"):
+                output.write(line)
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 8:
+                raise RuntimeError(
+                    f"PanGenie output line {line_number} is malformed"
+                )
+            allele_id = _allele_id(fields[7])
+            candidate_id = by_allele.get(allele_id) if allele_id else None
+            if candidate_id is None:
+                candidate_id = by_record.get(
+                    (fields[0], fields[1], fields[3], fields[4])
+                )
+            if candidate_id is None:
+                raise RuntimeError(
+                    "PanGenie output contains a record outside the blinded "
+                    f"candidate universe at line {line_number}"
+                )
+            if candidate_id in observed:
+                raise RuntimeError(
+                    f"PanGenie output duplicates candidate {candidate_id}"
+                )
+            observed.add(candidate_id)
+            fields[2] = candidate_id
+            output.write("\t".join(fields) + "\n")
+    missing = sorted(set(by_record.values()) - observed)
+    if missing:
+        raise RuntimeError(
+            f"PanGenie output omitted {len(missing)} blinded candidate records"
+        )
+
+
 def main() -> int:
-    reads = Path(required("PGBENCH_INPUT_FASTQ"))
+    read1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
+    read2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
     panel = Path(required("PGBENCH_PANEL_VCF"))
+    candidate = Path(required("PGBENCH_CANDIDATE_VCF"))
     output = Path(required("PGBENCH_OUTPUT_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
     threads = required("PGBENCH_THREADS")
@@ -129,7 +234,11 @@ def main() -> int:
         dir=required("TMPDIR"),
     ) as temporary_name:
         temporary = Path(temporary_name)
-        staged_reads = stage_uncompressed(reads, temporary / "reads.fastq")
+        staged_reads = concatenate_paired_reads(
+            read1,
+            read2,
+            temporary / "reads.fastq",
+        )
         staged_panel = stage_uncompressed(panel, temporary / "panel.vcf")
         staged_reference = stage_uncompressed(reference, temporary / "reference.fa")
         validate_pangenie_panel(staged_panel)
@@ -170,7 +279,9 @@ def main() -> int:
         generated = Path(f"{result_prefix}_genotyping.vcf")
         if not generated.is_file():
             raise RuntimeError(f"PanGenie did not create expected VCF: {generated}")
-        os.replace(generated, output)
+        remapped = temporary / "candidate-genotypes.vcf"
+        remap_to_candidate_ids(generated, candidate, remapped)
+        os.replace(remapped, output)
     return 0
 
 

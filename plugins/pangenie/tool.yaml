@@ -16,6 +16,7 @@ inputs:
   graph_assets:
     required: false
     accepted_formats: [vg, xg_gbwt]
+    accepted_profiles: []
   shared_alignment:
     required: false
     accepted_formats: [bam]
@@ -34,12 +35,13 @@ execution:
   environment: envs/environment.yaml
   rule_registry: rule-registry.yaml
   trust_level: trusted_reviewed
-  sandbox_backend: none
+  sandbox_backend: bwrap
 
 supported_modes:
   end_to_end_from_reads:
     required_inputs:
-      - canonical_fastq
+      - short_fastq_r1
+      - short_fastq_r2
       - reference
       - pangenome_manifest
       - pangenome_panel
@@ -49,6 +51,7 @@ supported_modes:
       - original_input_bam
       - shared_alignment
       - haplotype_fastq
+      - canonical_fastq
       - graph_assets
     billable_stages:
       - prepare_assets

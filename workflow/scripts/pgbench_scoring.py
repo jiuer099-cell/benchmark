@@ -72,7 +72,7 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         or comparability.get("truth_metric") != "benchmark.truth.eligible.count"
         or comparability.get("formula") != "2*min(softTP,T)/(Q+T)*100"
     ):
-        raise ScoreInputError("unsupported cross-track comparability contract")
+        raise ScoreInputError("unsupported unified comparability contract")
     profile["_source_path"] = str(path)
     profile["_sha256"] = _profile_sha256(path)
     return profile
@@ -115,6 +115,7 @@ class ScoreResult:
     traceability_points: None = None
     evaluator_scores: Mapping[str, float] | None = None
     required_f1_metrics: Mapping[str, Mapping[str, Any]] | None = None
+    formal_analysis: Mapping[str, Any] | None = None
     reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -167,7 +168,7 @@ def calculate_pgbench_score(
     evaluation_mode: str, score_profile_path: Path | None = None,
 ) -> ScoreResult:
     _reject_ranking_fields(payload)
-    allowed = SCORE_PAYLOAD_FIELDS | {"reason", "traceability"}
+    allowed = SCORE_PAYLOAD_FIELDS | {"reason", "traceability", "analysis"}
     missing = SCORE_PAYLOAD_FIELDS - set(payload)
     extra = set(payload) - allowed
     if missing or extra:
@@ -214,8 +215,6 @@ def calculate_pgbench_score(
     _exact_fields(raw_counts, CONSENSUS_FIELDS, "consensus")
     counts = {name: _count(raw_counts[name], name) for name in CONSENSUS_FIELDS}
     total = sum(counts.values())
-    if total == 0:
-        raise ScoreInputError("consensus must contain at least one evaluated result")
     n3, n2, n1 = counts["all_three_correct"], counts["exactly_two_correct"], counts["exactly_one_correct"]
     truth_total = payload.get("truth_eligible_count")
     if (
@@ -225,13 +224,33 @@ def calculate_pgbench_score(
     ):
         raise ScoreInputError("truth_eligible_count must be a positive integer")
     vote_points = 3 * n3 + 2 * n2 + n1
-    consensus_raw = vote_points / (3 * total) * 100.0
+    consensus_raw = vote_points / (3 * total) * 100.0 if total else 0.0
     soft_tp = vote_points / 3.0
-    effective_tp = min(soft_tp, float(truth_total))
-    comparable_raw = 2.0 * effective_tp / (total + truth_total) * 100.0
+    if soft_tp > float(truth_total) + 1e-9:
+        raise ScoreInputError(
+            "soft true-positive credit exceeds the one-to-one truth universe"
+        )
+    effective_tp = soft_tp
+    comparable_raw = 2.0 * soft_tp / (total + truth_total) * 100.0
     decimals = int(profile["profile"].get("display_decimals", 2))
     consensus_score = round(consensus_raw, decimals)
     comparable_score = round(comparable_raw, decimals)
+    analysis = payload.get("analysis")
+    if isinstance(analysis, Mapping):
+        independently_materialized = analysis.get("comparable_score")
+        if (
+            isinstance(independently_materialized, bool)
+            or not isinstance(independently_materialized, (int, float))
+            or not math.isclose(
+                float(independently_materialized),
+                comparable_raw,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+        ):
+            raise ScoreInputError(
+                "formal analysis ComparableScore does not match consensus counts"
+            )
     score_status = "valid" if evaluation_mode == "formal" else "provisional"
     traceability = payload.get("traceability")
     if isinstance(traceability, Mapping):
@@ -251,10 +270,10 @@ def calculate_pgbench_score(
                 total_evaluated=total,
                 truth_eligible_count=truth_total,
                 soft_true_positive_count=soft_tp,
-                comparable_precision=effective_tp / total,
+                comparable_precision=effective_tp / total if total else 0.0,
                 comparable_recall=effective_tp / truth_total,
-                unanimous_correct_rate=n3 / total,
-                majority_correct_rate=(n3 + n2) / total,
+                unanimous_correct_rate=n3 / total if total else 0.0,
+                majority_correct_rate=(n3 + n2) / total if total else 0.0,
                 point_breakdown={},
                 reason="core provenance validation failed",
             )
@@ -276,11 +295,12 @@ def calculate_pgbench_score(
         total_evaluated=total,
         truth_eligible_count=truth_total,
         soft_true_positive_count=soft_tp,
-        comparable_precision=effective_tp / total,
+        comparable_precision=effective_tp / total if total else 0.0,
         comparable_recall=effective_tp / truth_total,
-        unanimous_correct_rate=n3 / total,
-        majority_correct_rate=(n3 + n2) / total,
+        unanimous_correct_rate=n3 / total if total else 0.0,
+        majority_correct_rate=(n3 + n2) / total if total else 0.0,
         point_breakdown=breakdown,
         evaluator_scores={},
         required_f1_metrics={},
+        formal_analysis=dict(analysis) if isinstance(analysis, Mapping) else None,
     )

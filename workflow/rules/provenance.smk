@@ -32,19 +32,19 @@ def expected_pre_score_jobs(wildcards):
 
 
 def pre_score_artifact_paths(wildcards):
-    tool_root = f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/{wildcards.tool}"
+    tool_root = f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wildcards.tool}"
     return [
-        "results/provenance/config.validated.json",
-        "results/provenance/run-context.json",
-        f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        RESULTS_ROOT + "/provenance/config.validated.json",
+        RESULTS_ROOT + "/provenance/run-context.json",
+        f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         (
-            f"results/pangenome/{PANGENOME_ID}/challenge/"
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
             f"{SAMPLE_ID}.blinded.vcf"
         ),
         external_raw_vcf(wildcards),
         f"{tool_root}/canonical/calls.vcf",
         f"{tool_root}/canonical/linked.vcf",
-        f"results/summary/{wildcards.tool}/metrics.json",
+        f"{RESULTS_ROOT}/summary/{wildcards.tool}/metrics.json",
     ]
 
 
@@ -52,10 +52,10 @@ rule build_rule_lineage:
     input:
         manifests=pre_score_manifest_paths,
         artifacts=pre_score_artifact_paths,
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/provenance.smk",
@@ -63,20 +63,20 @@ rule build_rule_lineage:
         script="workflow/scripts/build_rule_lineage.py",
         provenance_library=PROVENANCE_LIBRARY,
     output:
-        json="results/provenance/{tool}/pre-score-lineage.json",
-        tsv="results/provenance/{tool}/pre-score-lineage.tsv",
+        json=RESULTS_ROOT + "/provenance/{tool}/pre-score-lineage.json",
+        tsv=RESULTS_ROOT + "/provenance/{tool}/pre-score-lineage.tsv",
         rule_manifest=(
-            "results/provenance/rules/build_rule_lineage/"
+            RESULTS_ROOT + "/provenance/rules/build_rule_lineage/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"logs/rules/build_rule_lineage/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/build_rule_lineage/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"benchmarks/rules/build_rule_lineage/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/build_rule_lineage/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     params:
@@ -88,10 +88,10 @@ rule build_rule_lineage:
             [
                 *pre_score_manifest_paths(wildcards),
                 *pre_score_artifact_paths(wildcards),
-                "results/provenance/run-context.json",
+                RESULTS_ROOT + "/provenance/run-context.json",
                 CONFIG_PATH,
                 config["catalogs"]["score_weights"],
-                f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+                f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
                 config["reference"]["fasta"],
                 RULE_EXECUTOR,
                 "workflow/rules/provenance.smk",
@@ -145,15 +145,15 @@ rule audit_score_inputs:
     input:
         manifests=pre_score_manifest_paths,
         artifacts=pre_score_artifact_paths,
-        lineage="results/provenance/{tool}/pre-score-lineage.json",
+        lineage=RESULTS_ROOT + "/provenance/{tool}/pre-score-lineage.json",
         lineage_rule_manifest=(
-            "results/provenance/rules/build_rule_lineage/"
+            RESULTS_ROOT + "/provenance/rules/build_rule_lineage/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/provenance.smk",
@@ -161,19 +161,19 @@ rule audit_score_inputs:
         script="workflow/scripts/audit_provenance.py",
         provenance_library=PROVENANCE_LIBRARY,
     output:
-        audit="results/provenance/{tool}/pre-score-audit.json",
+        audit=RESULTS_ROOT + "/provenance/{tool}/pre-score-audit.json",
         rule_manifest=(
-            "results/provenance/rules/audit_score_inputs/"
+            RESULTS_ROOT + "/provenance/rules/audit_score_inputs/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"logs/rules/audit_score_inputs/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/audit_score_inputs/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"benchmarks/rules/audit_score_inputs/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/audit_score_inputs/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     params:
@@ -188,11 +188,11 @@ rule audit_score_inputs:
             [
                 *pre_score_manifest_paths(wildcards),
                 *pre_score_artifact_paths(wildcards),
-                f"results/provenance/{wildcards.tool}/pre-score-lineage.json",
-                "results/provenance/run-context.json",
+                f"{RESULTS_ROOT}/provenance/{wildcards.tool}/pre-score-lineage.json",
+                RESULTS_ROOT + "/provenance/run-context.json",
                 CONFIG_PATH,
                 config["catalogs"]["score_weights"],
-                f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+                f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
                 config["reference"]["fasta"],
                 RULE_EXECUTOR,
                 "workflow/rules/provenance.smk",
@@ -262,22 +262,22 @@ def final_score_supporting_manifest_paths(wildcards):
 
 rule finalize_score_provenance:
     input:
-        score="results/summary/{tool}/score.json",
-        metrics="results/summary/{tool}/metrics.json",
+        score=RESULTS_ROOT + "/summary/{tool}/score.json",
+        metrics=RESULTS_ROOT + "/summary/{tool}/metrics.json",
         score_rule_manifest=(
-            "results/provenance/rules/compute_pgbench_score/"
+            RESULTS_ROOT + "/provenance/rules/compute_pgbench_score/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
-        audit="results/provenance/{tool}/pre-score-audit.json",
+        audit=RESULTS_ROOT + "/provenance/{tool}/pre-score-audit.json",
         audit_rule_manifest=(
-            "results/provenance/rules/audit_score_inputs/"
+            RESULTS_ROOT + "/provenance/rules/audit_score_inputs/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
         supporting_manifests=final_score_supporting_manifest_paths,
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/provenance.smk",
@@ -285,22 +285,22 @@ rule finalize_score_provenance:
         script="workflow/scripts/finalize_score_provenance.py",
         provenance_library=PROVENANCE_LIBRARY,
     output:
-        package="results/summary/{tool}/score-package.json",
-        lineage_json="results/provenance/{tool}/rule-lineage.json",
-        lineage_tsv="results/provenance/{tool}/rule-lineage.tsv",
-        audit="results/provenance/{tool}/provenance-audit.json",
+        package=RESULTS_ROOT + "/summary/{tool}/score-package.json",
+        lineage_json=RESULTS_ROOT + "/provenance/{tool}/rule-lineage.json",
+        lineage_tsv=RESULTS_ROOT + "/provenance/{tool}/rule-lineage.tsv",
+        audit=RESULTS_ROOT + "/provenance/{tool}/provenance-audit.json",
         rule_manifest=(
-            "results/provenance/rules/finalize_score_provenance/"
+            RESULTS_ROOT + "/provenance/rules/finalize_score_provenance/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"logs/rules/finalize_score_provenance/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/finalize_score_provenance/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"benchmarks/rules/finalize_score_provenance/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/finalize_score_provenance/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     params:
@@ -310,22 +310,22 @@ rule finalize_score_provenance:
         provenance_input_args=lambda wildcards: cli_repeated(
             "--input",
             [
-                f"results/summary/{wildcards.tool}/score.json",
-                f"results/summary/{wildcards.tool}/metrics.json",
+                f"{RESULTS_ROOT}/summary/{wildcards.tool}/score.json",
+                f"{RESULTS_ROOT}/summary/{wildcards.tool}/metrics.json",
                 semantic_rule_manifest(
                     "compute_pgbench_score",
                     f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
                 ),
-                f"results/provenance/{wildcards.tool}/pre-score-audit.json",
+                f"{RESULTS_ROOT}/provenance/{wildcards.tool}/pre-score-audit.json",
                 semantic_rule_manifest(
                     "audit_score_inputs",
                     f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
                 ),
                 *final_score_supporting_manifest_paths(wildcards),
-                "results/provenance/run-context.json",
+                RESULTS_ROOT + "/provenance/run-context.json",
                 CONFIG_PATH,
                 config["catalogs"]["score_weights"],
-                f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+                f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
                 config["reference"]["fasta"],
                 RULE_EXECUTOR,
                 "workflow/rules/provenance.smk",

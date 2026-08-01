@@ -8,6 +8,7 @@ import json
 import math
 import re
 import sys
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,24 @@ def _validate_run_context(
         )
 
 
+def _validate_evaluator_context(
+    run_context: dict[str, Any], payload: dict[str, Any]
+) -> None:
+    analysis = payload.get("analysis")
+    if not isinstance(analysis, Mapping):
+        return
+    expected = analysis.get("evaluator_profile_sha256")
+    actual = run_context.get("evaluator_profile_sha256")
+    if (
+        not isinstance(expected, str)
+        or not _SHA256_RE.fullmatch(expected)
+        or actual != expected
+    ):
+        raise ScoreInputError(
+            "formal evaluator profile does not match the frozen run context"
+        )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Calculate one tuple-bound three-evaluator consensus score."
@@ -204,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             metrics_schema_path=args.metrics_schema,
             metric_dictionary_path=args.metric_dictionary,
         )
+        _validate_evaluator_context(run_context, payload)
         payload = _apply_provenance_audit(
             payload, _load_json(args.provenance_audit, "provenance audit")
         )

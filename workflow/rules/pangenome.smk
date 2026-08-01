@@ -21,18 +21,23 @@ def configured_graph_asset(name):
     return resolve
 
 
+def optional_graph_asset(name):
+    value = config["pangenome"]["graph_assets"].get(name)
+    return [value] if value else []
+
+
 rule lock_graph_assets:
     input:
-        validated="results/provenance/config.validated.json",
+        validated=RESULTS_ROOT + "/provenance/config.validated.json",
         validated_manifest=VALIDATE_MANIFEST,
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         context_manifest=CONTEXT_MANIFEST,
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
         reference=config["reference"]["fasta"],
         source_manifest=configured_graph_asset("manifest"),
         gbz=configured_graph_asset("gbz"),
-        xg=configured_graph_asset("xg"),
+        xg=optional_graph_asset("xg"),
         min_index=configured_graph_asset("min"),
         dist=configured_graph_asset("dist"),
         sample_list=configured_graph_asset("sample_list"),
@@ -45,9 +50,9 @@ rule lock_graph_assets:
         lock=GRAPH_ASSET_LOCK,
         rule_manifest=GRAPH_ASSET_RULE_MANIFEST,
     log:
-        f"logs/rules/lock_graph_assets/{PANGENOME_ID}.log",
+        f"{LOG_ROOT}/rules/lock_graph_assets/{PANGENOME_ID}.log",
     benchmark:
-        f"benchmarks/rules/lock_graph_assets/{PANGENOME_ID}.jsonl",
+        f"{BENCHMARK_ROOT}/rules/lock_graph_assets/{PANGENOME_ID}.jsonl",
     conda:
         "../envs/core.yaml"
     params:
@@ -55,6 +60,19 @@ rule lock_graph_assets:
         exclude_sample_arguments=cli_repeated(
             "--exclude-sample",
             config["pangenome"]["excluded_samples"],
+        ),
+        graph_input_arguments=cli_repeated(
+            "--input",
+            [
+                config["pangenome"]["graph_assets"][name]
+                for name in ("manifest", "gbz", "xg", "min", "dist", "sample_list")
+                if config["pangenome"]["graph_assets"].get(name)
+            ],
+        ),
+        xg_script_arguments=(
+            ["--xg", config["pangenome"]["graph_assets"]["xg"]]
+            if config["pangenome"]["graph_assets"].get("xg")
+            else []
         ),
     shell:
         """
@@ -77,18 +95,14 @@ rule lock_graph_assets:
           --threads 1 \
           --resource mem_mb=1024 \
           --param reference_path={config[pangenome][graph_assets][reference_path]:q} \
+          --param graph_profile={GRAPH_PROFILE:q} \
           --param excluded_samples={params.excluded_sample_csv:q} \
           --input {input.validated:q} \
           --input {input.context:q} \
           --input {input.config:q} \
           --input {input.score_profile:q} \
           --input {input.reference:q} \
-          --input {input.source_manifest:q} \
-          --input {input.gbz:q} \
-          --input {input.xg:q} \
-          --input {input.min_index:q} \
-          --input {input.dist:q} \
-          --input {input.sample_list:q} \
+          {params.graph_input_arguments:q} \
           --input {input.rule_source:q} \
           --input {input.rule_executor:q} \
           --input {input.script:q} \
@@ -101,8 +115,9 @@ rule lock_graph_assets:
           -- \
           {PYTHON_EXECUTABLE:q} {input.script:q} \
             --source-manifest {input.source_manifest:q} \
+            --profile {GRAPH_PROFILE:q} \
             --gbz {input.gbz:q} \
-            --xg {input.xg:q} \
+            {params.xg_script_arguments:q} \
             --min {input.min_index:q} \
             --dist {input.dist:q} \
             --sample-list {input.sample_list:q} \
@@ -115,9 +130,9 @@ rule lock_graph_assets:
 
 rule build_pangenome_manifest:
     input:
-        validated="results/provenance/config.validated.json",
+        validated=RESULTS_ROOT + "/provenance/config.validated.json",
         validated_manifest=VALIDATE_MANIFEST,
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         context_manifest=CONTEXT_MANIFEST,
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
@@ -133,14 +148,14 @@ rule build_pangenome_manifest:
         environment=CORE_ENV_SPEC,
         provenance_library="workflow/scripts/pgbench_provenance.py",
     output:
-        panel=f"results/pangenome/{PANGENOME_ID}/panel.vcf",
-        ledger=f"results/pangenome/{PANGENOME_ID}/allele-ledger.tsv",
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        panel=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/panel.vcf",
+        ledger=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/allele-ledger.tsv",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         rule_manifest=PANGENOME_RULE_MANIFEST,
     log:
-        f"logs/rules/build_pangenome_manifest/{PANGENOME_ID}.log",
+        f"{LOG_ROOT}/rules/build_pangenome_manifest/{PANGENOME_ID}.log",
     benchmark:
-        f"benchmarks/rules/build_pangenome_manifest/{PANGENOME_ID}.jsonl",
+        f"{BENCHMARK_ROOT}/rules/build_pangenome_manifest/{PANGENOME_ID}.jsonl",
     conda:
         "../envs/core.yaml"
     params:

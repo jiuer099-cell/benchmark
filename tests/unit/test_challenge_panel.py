@@ -147,3 +147,55 @@ def test_multisample_panel_columns_are_removed_from_blinded_vcf(
         if line and not line.startswith("#")
     )
     assert "PANEL1" not in output.read_text(encoding="utf-8")
+
+
+def test_formal_candidate_truth_only_scores_frozen_bed_universe(
+    tmp_path: Path,
+) -> None:
+    panel = tmp_path / "panel.vcf"
+    panel.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t100\tp1\tA\t<DEL>\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_1;SVTYPE=DEL;END=200;SVLEN=-100\n"
+        "chr1\t250\tp2\tA\t<INS>\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_2;SVTYPE=INS;END=250;SVLEN=80\n"
+        "chr1\t500\tp3\tA\t<DEL>\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_3;SVTYPE=DEL;END=600;SVLEN=-100\n",
+        encoding="utf-8",
+    )
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tt1\tA\t<DEL>\t.\tPASS\t"
+        "SVTYPE=DEL;END=200;SVLEN=-100\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    regions = tmp_path / "benchmark.bed"
+    regions.write_text("chr1\t0\t400\n", encoding="utf-8")
+    hidden = tmp_path / "hidden.tsv"
+
+    summary = build_challenge_panel(
+        panel_vcf=panel,
+        truth_vcf=truth,
+        benchmark_bed=regions,
+        output_vcf=tmp_path / "challenge.vcf",
+        hidden_ledger=hidden,
+        audit_json=tmp_path / "audit.json",
+        seed="fixed",
+    )
+
+    assert summary["candidate_count"] == 3
+    assert summary["truth_scorable_count"] == 2
+    assert summary["truth_unscorable_count"] == 1
+    assert summary["truth_positive_count"] == 1
+    assert summary["truth_negative_count"] == 1
+    with hidden.open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    by_allele = {row["pangenome_allele_id"]: row for row in rows}
+    assert by_allele["PGSV_1"]["truth_scorable"] == "1"
+    assert by_allele["PGSV_2"]["truth_gt"] == "0/0"
+    assert by_allele["PGSV_3"]["truth_scorable"] == "0"
+    assert by_allele["PGSV_3"]["truth_label"] == "unscorable"
+    assert by_allele["PGSV_3"]["truth_gt"] == "./."

@@ -16,6 +16,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+  "integration: tests that integrate repository contracts with external software or resources",
+  "real_tools: opt-in checks for installed production tool binaries and bounded real-region resources",
+]
 
 [tool.ruff]
 line-length = 88

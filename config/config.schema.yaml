@@ -30,7 +30,18 @@ properties:
   sample:
     type: object
     additionalProperties: false
-    required: [id, sex, technology, bam, fastq]
+    required:
+      - id
+      - sex
+      - technology
+      - library_id
+      - source_evidence_id
+      - coverage_x
+      - read_count
+      - read_bases
+      - downsampling_seed
+      - bam
+      - fastq
     properties:
       id:
         $ref: "#/$defs/identifier"
@@ -42,11 +53,43 @@ properties:
           - pacbio_hifi
           - ont
           - illumina_short_read
+      library_id:
+        $ref: "#/$defs/identifier"
+      source_evidence_id:
+        $ref: "#/$defs/identifier"
+      coverage_x:
+        oneOf:
+          - type: number
+            exclusiveMinimum: 0
+          - type: "null"
+      read_count:
+        oneOf:
+          - type: integer
+            minimum: 1
+          - type: "null"
+      read_bases:
+        oneOf:
+          - type: integer
+            minimum: 1
+          - type: "null"
+      downsampling_seed:
+        oneOf:
+          - type: integer
+            minimum: 0
+          - type: "null"
       bam:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
       fastq:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
+      fastq_r1:
+        oneOf:
+          - $ref: "#/$defs/nonEmptyPath"
+          - type: "null"
+      fastq_r2:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
@@ -112,6 +155,7 @@ properties:
         type: object
         additionalProperties: false
         required:
+          - profile
           - manifest
           - gbz
           - xg
@@ -120,6 +164,8 @@ properties:
           - sample_list
           - reference_path
         properties:
+          profile:
+            enum: [none, vg_gbz_min_dist, vg_legacy_xg]
           manifest:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
@@ -166,6 +212,7 @@ properties:
       - truthsets
       - stratifications
       - score_weights
+      - evaluator_profile
       - metric_dictionary
     properties:
       truthsets:
@@ -173,6 +220,8 @@ properties:
       stratifications:
         $ref: "#/$defs/nonEmptyPath"
       score_weights:
+        $ref: "#/$defs/nonEmptyPath"
+      evaluator_profile:
         $ref: "#/$defs/nonEmptyPath"
       metric_dictionary:
         $ref: "#/$defs/nonEmptyPath"
@@ -186,6 +235,7 @@ properties:
       - use_apptainer
       - keep_going
       - benchmark_repeats
+      - cache_policy
       - random_seed
     properties:
       tracks:
@@ -205,6 +255,8 @@ properties:
       benchmark_repeats:
         type: integer
         minimum: 1
+      cache_policy:
+        const: isolated_empty_tool_cache
       random_seed:
         type: integer
         minimum: 0
@@ -293,7 +345,6 @@ properties:
       - truth_vcf
       - benchmark_bed
       - commands
-      - vcfdist_credit_threshold
     properties:
       evaluators:
         type: array
@@ -312,10 +363,6 @@ properties:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
-      vcfdist_credit_threshold:
-        type: number
-        minimum: 0
-        maximum: 1
       commands:
         type: object
         additionalProperties: false
@@ -462,56 +509,6 @@ allOf:
               $ref: "#/$defs/nonEmptyPath"
             benchmark_bed:
               $ref: "#/$defs/nonEmptyPath"
-  - if:
-      properties:
-        development:
-          properties:
-            synthetic_mode:
-              const: false
-          required: [synthetic_mode]
-        execution:
-          properties:
-            official_score_mode:
-              const: end_to_end_from_reads
-          required: [official_score_mode]
-      required: [development, execution]
-    then:
-      properties:
-        sample:
-          properties:
-            fastq:
-              $ref: "#/$defs/nonEmptyPath"
-  - if:
-      properties:
-        development:
-          properties:
-            synthetic_mode:
-              const: false
-          required: [synthetic_mode]
-        pangenome:
-          properties:
-            build_graph_assets:
-              const: true
-          required: [build_graph_assets]
-      required: [development, pangenome]
-    then:
-      properties:
-        pangenome:
-          properties:
-            graph_assets:
-              properties:
-                manifest:
-                  $ref: "#/$defs/nonEmptyPath"
-                gbz:
-                  $ref: "#/$defs/nonEmptyPath"
-                xg:
-                  $ref: "#/$defs/nonEmptyPath"
-                min:
-                  $ref: "#/$defs/nonEmptyPath"
-                dist:
-                  $ref: "#/$defs/nonEmptyPath"
-                sample_list:
-                  $ref: "#/$defs/nonEmptyPath"
   - if:
       properties:
         development:

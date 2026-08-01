@@ -35,7 +35,7 @@ def _manifest(
     upstream_manifest_ids: list[str] | None = None,
     environment_complete: bool = True,
     run_id: str = "synthetic-run",
-    truth_profile: str = "giab_hg002_grch37_v5_0q",
+    truth_profile: str = "giab_hg002_grch38_v5_0q",
     score_profile_sha256: str = SHA_B,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -96,11 +96,25 @@ def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     atomic_write_json(path, manifest)
 
 
-def _write_companions(root: Path, manifest: dict[str, Any]) -> None:
-    log = root / "logs" / "rules" / manifest["rule_name"] / f"{manifest['job_key']}.log"
+def _write_companions(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    run_scoped: bool = False,
+) -> None:
+    scope = [manifest["run_id"]] if run_scoped else []
+    log = (
+        root
+        / "logs"
+        / Path(*scope)
+        / "rules"
+        / manifest["rule_name"]
+        / f"{manifest['job_key']}.log"
+    )
     benchmark = (
         root
         / "benchmarks"
+        / Path(*scope)
         / "rules"
         / manifest["rule_name"]
         / f"{manifest['job_key']}.jsonl"
@@ -140,7 +154,7 @@ def _metrics_payload(record: dict[str, Any]) -> dict[str, Any]:
             "sample_id": "HG002",
             "tool_id": "example_genotyper",
             "official_score_mode": "end_to_end_from_reads",
-            "primary_truth_profile": "giab_hg002_grch37_v5_0q",
+            "primary_truth_profile": "giab_hg002_grch38_v5_0q",
             "score_profile": "pgbench_v1",
         },
         "records": [record],
@@ -159,7 +173,7 @@ def _score_payload(
             "sample": "HG002",
             "tool": "example_genotyper",
             "official_score_mode": "end_to_end_from_reads",
-            "primary_truth_profile": "giab_hg002_grch37_v5_0q",
+            "primary_truth_profile": "giab_hg002_grch38_v5_0q",
         },
         "score_profile": "pgbench_v1",
         "score_profile_sha256": SHA_B,
@@ -185,6 +199,7 @@ def _seal_fixture(
     link_score_to_audit: bool = True,
     score_manifest_profile_sha256: str = SHA_B,
     audit_manifest_profile_sha256: str = SHA_B,
+    run_scoped_companions: bool = False,
 ) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = root / "artifacts"
@@ -205,7 +220,7 @@ def _seal_fixture(
     )
     ancestor_path = manifests / "ancestor.json"
     _write_manifest(ancestor_path, ancestor)
-    _write_companions(root, ancestor)
+    _write_companions(root, ancestor, run_scoped=run_scoped_companions)
 
     metric_record = _metric_record(ancestor["manifest_id"])
     metrics_payload = _metrics_payload(metric_record)
@@ -224,7 +239,7 @@ def _seal_fixture(
     )
     metrics_manifest_path = manifests / "metrics.json"
     _write_manifest(metrics_manifest_path, metrics_manifest)
-    _write_companions(root, metrics_manifest)
+    _write_companions(root, metrics_manifest, run_scoped=run_scoped_companions)
 
     pre_score_audit_payload = audit_manifests(
         [ancestor, metrics_manifest],
@@ -267,7 +282,7 @@ def _seal_fixture(
     )
     audit_manifest_path = manifests / "audit.json"
     _write_manifest(audit_manifest_path, audit_manifest)
-    _write_companions(root, audit_manifest)
+    _write_companions(root, audit_manifest, run_scoped=run_scoped_companions)
 
     score_payload = _score_payload(
         status=score_status,
@@ -298,7 +313,7 @@ def _seal_fixture(
     )
     score_manifest_path = manifests / "score.json"
     _write_manifest(score_manifest_path, score_manifest)
-    _write_companions(root, score_manifest)
+    _write_companions(root, score_manifest, run_scoped=run_scoped_companions)
 
     outputs = {
         "package": root / "published" / "package" / "score-package.json",
@@ -374,6 +389,17 @@ def test_seals_valid_score_with_complete_final_lineage(tmp_path: Path) -> None:
     assert "compute_pgbench_score" in fixture["outputs"]["lineage_tsv"].read_text(
         encoding="utf-8"
     )
+
+
+def test_seals_score_with_run_id_scoped_companions(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    fixture = _seal_fixture(root, run_scoped_companions=True)
+
+    assert _run_seal(root, fixture) == 0
+
+    audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
+    assert audit["core_provenance_valid"] is True
+    assert audit["valid_manifest_log_benchmark_count"] == 4
 
 
 def test_seals_synthetic_score_as_provisional_without_environment_lock(

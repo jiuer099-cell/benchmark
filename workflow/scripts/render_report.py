@@ -246,12 +246,18 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "evaluation_mode",
         "score_status",
         "ComparableScore",
+        "ComparableScore_CI95_lower",
+        "ComparableScore_CI95_upper",
         "ConsensusScore",
         "truth_eligible_count",
         "query_result_count",
         "comparable_precision",
         "comparable_recall",
     ]
+    analysis = score.get("formal_analysis")
+    analysis = analysis if isinstance(analysis, Mapping) else {}
+    interval = analysis.get("comparable_score_confidence_interval")
+    interval = interval if isinstance(interval, Mapping) else {}
     row = {
         **tuple_key,
         "score_profile": score["score_profile"],
@@ -259,6 +265,8 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "evaluation_mode": score["evaluation_mode"],
         "score_status": score["score_status"],
         "ComparableScore": score.get("comparable_score", score.get("pgbench_score")),
+        "ComparableScore_CI95_lower": interval.get("lower"),
+        "ComparableScore_CI95_upper": interval.get("upper"),
         "ConsensusScore": score.get("consensus_score"),
         "truth_eligible_count": score.get("truth_eligible_count"),
         "query_result_count": score.get("total_evaluated"),
@@ -304,8 +312,101 @@ def _html(score: Mapping[str, Any]) -> str:
         f"<tr><td>{escape(component)}</td><td>{float(points):.4f}</td></tr>"
         for component, points in sorted(score["point_breakdown"].items())
     )
+    analysis = score.get("formal_analysis")
+    analysis = analysis if isinstance(analysis, Mapping) else {}
+    interval = analysis.get("comparable_score_confidence_interval")
+    interval_text = "not available"
+    if isinstance(interval, Mapping):
+        interval_text = (
+            f"95% CI {float(interval['lower']):.2f}–"
+            f"{float(interval['upper']):.2f} "
+            f"({int(interval['replicates'])} bootstrap replicates)"
+        )
+    semantics = analysis.get("semantic_summary")
+    semantic_rows = ""
+    if isinstance(semantics, Mapping):
+        semantic_rows = "\n".join(
+            "<tr>"
+            f"<td>{escape(str(evaluator))}</td>"
+            f"<td>{int(values.get('detection_events', 0))}</td>"
+            f"<td>{int(values.get('detection_correct', 0))}</td>"
+            f"<td>{int(values.get('genotype_scorable', 0))}</td>"
+            f"<td>{int(values.get('genotype_correct', 0))}</td>"
+            f"<td>{int(values.get('no_call', 0))}</td>"
+            "</tr>"
+            for evaluator, values in sorted(semantics.items())
+            if isinstance(values, Mapping)
+        )
+    stratified = analysis.get("stratified_summary")
+    strata_rows = ""
+    if isinstance(stratified, Mapping):
+        strata_rows = "\n".join(
+            "<tr>"
+            f"<td>{escape(str(dimension))}</td>"
+            f"<td>{escape(str(entry.get('stratum', '')))}</td>"
+            f"<td>{int(entry.get('truth_events', 0))}</td>"
+            f"<td>{int(entry.get('query_events', 0))}</td>"
+            f"<td>{float(entry.get('comparable_score', 0.0)):.2f}</td>"
+            "</tr>"
+            for dimension, entries in sorted(stratified.items())
+            if isinstance(entries, list)
+            for entry in entries
+            if isinstance(entry, Mapping)
+        )
+    resources = analysis.get("resource_summary")
+    resource_text = "not available"
+    if isinstance(resources, Mapping):
+        median = resources.get("median")
+        median = median if isinstance(median, Mapping) else {}
+        resource_text = (
+            f"policy={escape(str(resources.get('cache_policy', '')))}, "
+            f"repeats={int(resources.get('repeat_count', 0))}, "
+            f"median wall={median.get('wall_seconds', 'n/a')} s, "
+            f"median RSS={median.get('max_rss_mb', 'n/a')} MB"
+        )
+    candidate = analysis.get("candidate_genotype_summary")
+    candidate_text = "not available"
+    if isinstance(candidate, Mapping):
+        accuracy = candidate.get("genotype_accuracy")
+        accuracy_text = (
+            "undefined" if accuracy is None else f"{float(accuracy):.4f}"
+        )
+        called_accuracy = candidate.get("called_only_genotype_accuracy")
+        called_accuracy_text = (
+            "undefined"
+            if called_accuracy is None
+            else f"{float(called_accuracy):.4f}"
+        )
+        balanced_accuracy = candidate.get("balanced_accuracy")
+        balanced_accuracy_text = (
+            "undefined"
+            if balanced_accuracy is None
+            else f"{float(balanced_accuracy):.4f}"
+        )
+        macro_f1 = candidate.get("genotype_macro_f1")
+        macro_f1_text = (
+            "undefined" if macro_f1 is None else f"{float(macro_f1):.4f}"
+        )
+        candidate_text = (
+            f"contract={escape(str(candidate.get('candidate_output_contract', '')))}; "
+            f"absence={escape(str(candidate.get('absence_semantics', '')))}; "
+            f"sites={int(candidate.get('candidate_count', 0))}; "
+            f"truth-scorable={int(candidate.get('truth_scorable', 0))}; "
+            f"observed={int(candidate.get('observed_candidates', 0))}; "
+            f"GT scorable={int(candidate.get('genotype_scorable', 0))}; "
+            f"called={int(candidate.get('called_candidates', 0))}; "
+            f"GT correct={int(candidate.get('genotype_correct', 0))}; "
+            f"GT accuracy={accuracy_text}; "
+            f"called-only accuracy={called_accuracy_text}; "
+            f"balanced accuracy={balanced_accuracy_text}; "
+            f"GT macro-F1={macro_f1_text}; "
+            f"no-call={int(candidate.get('no_call', 0))}; "
+            f"direct/linked={int(candidate.get('direct_candidate_records', 0))}/"
+            f"{int(candidate.get('linked_candidate_records', 0))}; "
+            f"link conflicts={int(candidate.get('candidate_link_conflicts', 0))}"
+        )
     return f"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <title>PGBench pangenome SV score card: {escape(str(tuple_key["tool"]))}</title>
@@ -320,8 +421,8 @@ def _html(score: Mapping[str, Any]) -> str:
 <body>
   <h1>PGBench 泛基因组结构变异工具得分卡</h1>
   <p class="notice">ComparableScore 使用相同 HG002、GRCh38、GIAB truth 和
-  benchmark BED，并同时惩罚错误结果与漏检。跨测序模态时，它比较的是完整
-  pipeline 的实际效果，不代表与测序平台无关的纯算法能力。</p>
+  benchmark BED。每个 truth 事件最多只记一次；检测、基因型与 no-call
+  分开报告。综合分只使用三套冻结评测器的检测判断，不使用资源权重，也不生成排名。</p>
   <dl>
     <dt>Run</dt><dd>{escape(str(tuple_key["run_id"]))}</dd>
     <dt>Sample</dt><dd>{escape(str(tuple_key["sample"]))}</dd>
@@ -332,9 +433,10 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
   <p class="score">ComparableScore: {comparable_value} / 100</p>
+  <p>{interval_text}</p>
   <p>ConsensusScore: {consensus_value} / 100</p>
   <p>固定 truth 数量：{score.get("truth_eligible_count", "")}；
-  工具输出数量：{score.get("total_evaluated", "")}；
+  检测事件数量：{score.get("total_evaluated", "")}；
   comparable precision：{score.get("comparable_precision", "")}；
   comparable recall：{score.get("comparable_recall", "")}。</p>
   <p>All three correct: {score.get("consensus_counts", {}).get("all_three_correct", "")}; exactly two: {score.get("consensus_counts", {}).get("exactly_two_correct", "")}; exactly one: {score.get("consensus_counts", {}).get("exactly_one_correct", "")}; none: {score.get("consensus_counts", {}).get("none_correct", "")}.</p>
@@ -343,6 +445,22 @@ def _html(score: Mapping[str, Any]) -> str:
     <thead><tr><th>Category</th><th>Count</th></tr></thead>
     <tbody>{point_rows}</tbody>
   </table>
+  <h2>Hidden candidate-site genotype diagnostics</h2>
+  <p>{candidate_text}</p>
+  <h2>检测、GT 与 no-call 分项</h2>
+  <table>
+    <thead><tr><th>Evaluator</th><th>Detection events</th><th>Detection correct</th><th>GT scorable</th><th>GT correct</th><th>No-call</th></tr></thead>
+    <tbody>{semantic_rows}</tbody>
+  </table>
+  <h2>分层结果</h2>
+  <table>
+    <thead><tr><th>Dimension</th><th>Stratum</th><th>Truth</th><th>Query</th><th>ComparableScore</th></tr></thead>
+    <tbody>{strata_rows}</tbody>
+  </table>
+  <h2>资源测量</h2>
+  <p>{resource_text}</p>
+  <p>Evaluator profile: {escape(str(analysis.get("evaluator_profile_id", "not available")))};
+  hash: <code>{escape(str(analysis.get("evaluator_profile_sha256", "not available")))}</code>.</p>
 </body>
 </html>
 """

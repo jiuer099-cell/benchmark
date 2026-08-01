@@ -59,3 +59,31 @@ def test_overlapping_records_are_rejected(tmp_path: Path) -> None:
         handle.write("chr1\t10\tv2\tA\tAG\t.\tPASS\tEND=10\tGT\t1|0\n")
     with pytest.raises(RuntimeError, match="overlaps"):
         MODULE.validate_pangenie_panel(panel)
+
+
+def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.vcf"
+    candidate.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tCAND_alpha\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t./.\n",
+        encoding="utf-8",
+    )
+    generated = tmp_path / "generated.vcf"
+    generated.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tpanel-id\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "output.vcf"
+    MODULE.remap_to_candidate_ids(generated, candidate, output)
+    records = [
+        line.rstrip("\n").split("\t")
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert records[0][2] == "CAND_alpha"
+    assert records[0][9] == "0/1"

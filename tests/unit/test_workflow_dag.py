@@ -71,7 +71,7 @@ def test_external_plugin_declared_vcf_and_helper_are_dag_inputs(
     assert completed.returncode == 0, completed.stderr
     output = completed.stdout + completed.stderr
     assert (
-        "results/HG002/end_to_end_from_reads/example_genotyper/"
+        "results/synthetic_smoke/HG002/end_to_end_from_reads/example_genotyper/"
         "custom/nested/calls.vcf.gz"
     ) in output
     assert str(helper) in output
@@ -154,7 +154,7 @@ def test_graph_directory_and_lock_manifest_reach_external_plugin(
     output = completed.stdout + completed.stderr
     assert f"graph_assets={graph_root}" in output
     assert (
-        "results/pangenome/synthetic_grch38_pg_v1/"
+        "results/synthetic_smoke/pangenome/synthetic_grch38_pg_v1/"
         "graph-assets.lock.yaml"
     ) in output
     assert str(graph_manifest) in output
@@ -244,5 +244,8 @@ def test_formal_dag_reaches_all_three_evaluators(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     output = completed.stdout + completed.stderr
     for evaluator in ("truvari", "aardvark", "vcfdist"):
-        assert f"results/evaluation/kanpig/{evaluator}/votes.tsv" in output
+        assert (
+            "results/hg002_clr_graph_panel_kanpig/evaluation/"
+            f"kanpig/{evaluator}/votes.tsv"
+        ) in output
     assert "materialize_formal_consensus_metrics.py" in output

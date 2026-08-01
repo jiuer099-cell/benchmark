@@ -131,6 +131,75 @@ def test_report_is_no_ranking_and_preserves_provisional_status(
     assert breakdown.read_text().count("\n") == 3
 
 
+def test_report_renders_ci_semantics_strata_and_resources(tmp_path: Path) -> None:
+    score = _renderable_score()
+    score["formal_analysis"] = {
+        "evaluator_profile_id": "pgbench_evaluators_grch38_v1",
+        "evaluator_profile_sha256": "b" * 64,
+        "comparable_score_confidence_interval": {
+            "lower": 41.2,
+            "upper": 58.8,
+            "replicates": 1000,
+        },
+        "semantic_summary": {
+            "truvari": {
+                "detection_events": 10,
+                "detection_correct": 8,
+                "genotype_scorable": 7,
+                "genotype_correct": 6,
+                "no_call": 1,
+            }
+        },
+        "candidate_genotype_summary": {
+            "candidate_output_contract": "all_sites",
+            "absence_semantics": "no_call",
+            "candidate_count": 20,
+            "observed_candidates": 20,
+            "genotype_scorable": 18,
+            "genotype_correct": 16,
+            "genotype_accuracy": 16 / 18,
+            "no_call": 2,
+        },
+        "stratified_summary": {
+            "svtype": [
+                {
+                    "stratum": "DEL",
+                    "truth_events": 5,
+                    "query_events": 6,
+                    "comparable_score": 72.7,
+                }
+            ]
+        },
+        "resource_summary": {
+            "cache_policy": "isolated_empty_tool_cache",
+            "repeat_count": 3,
+            "median": {"wall_seconds": 12.5, "max_rss_mb": 512},
+        },
+    }
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(score), encoding="utf-8")
+    package_path = _write_package(score_path, score)
+    manifest_path = _write_finalizer_manifest(score_path, package_path, score)
+    html = tmp_path / "index.html"
+    score_tsv = tmp_path / "score.tsv"
+    render_report(
+        score_path,
+        score_package=package_path,
+        finalizer_manifest=manifest_path,
+        html_output=html,
+        score_tsv=score_tsv,
+        point_breakdown_tsv=tmp_path / "points.tsv",
+    )
+    text = html.read_text(encoding="utf-8")
+    assert "95% CI 41.20–58.80" in text
+    assert "GT correct" in text
+    assert "Hidden candidate-site genotype diagnostics" in text
+    assert "GT accuracy=0.8889" in text
+    assert "<td>DEL</td>" in text
+    assert "repeats=3" in text
+    assert "ComparableScore_CI95_lower" in score_tsv.read_text(encoding="utf-8")
+
+
 def test_report_rejects_ranking_fields(tmp_path: Path) -> None:
     score = _renderable_score()
     score["rank"] = 1

@@ -20,6 +20,11 @@ TRACK_ALIASES = {
     "end-to-end": [END_TO_END],
     "all": [CALLER_ONLY, END_TO_END],
 }
+GRAPH_PROFILE_ASSETS = {
+    "none": (),
+    "vg_gbz_min_dist": ("manifest", "gbz", "min", "dist", "sample_list"),
+    "vg_legacy_xg": ("manifest", "gbz", "xg", "min", "dist", "sample_list"),
+}
 
 
 class ResourceCheckError(ValueError):
@@ -175,6 +180,8 @@ def build_inventory(
     fastq = _configured_path(
         _development_value(config, "canonical_fastq", sample.get("fastq"))
     )
+    fastq_r1 = _configured_path(sample.get("fastq_r1"))
+    fastq_r2 = _configured_path(sample.get("fastq_r2"))
     truth_vcf = _configured_path(
         _development_value(config, "truth_vcf", evaluation.get("truth_vcf"))
     )
@@ -273,6 +280,8 @@ def build_inventory(
     ]
 
     graph_assets = pangenome.get("graph_assets", {})
+    graph_profile = graph_assets.get("profile", "none")
+    required_graph_assets = set(GRAPH_PROFILE_ASSETS.get(graph_profile, ()))
     for asset_name in ("manifest", "gbz", "xg", "min", "dist", "sample_list"):
         assets.append(
             _inspect_file(
@@ -280,19 +289,33 @@ def build_inventory(
                 category="graph",
                 configured_path=_configured_path(graph_assets.get(asset_name)),
                 repo_root=repo_root,
-                required=graph_required,
+                required=graph_required and asset_name in required_graph_assets,
             )
         )
 
+    paired_configured = bool(fastq_r1 or fastq_r2)
     assets.append(
         _inspect_file(
             resource_id="sample.fastq",
             category="end_to_end",
             configured_path=fastq,
             repo_root=repo_root,
-            required=needs_fastq,
+            required=needs_fastq and not paired_configured,
         )
     )
+    for resource_id, configured_path in (
+        ("sample.fastq_r1", fastq_r1),
+        ("sample.fastq_r2", fastq_r2),
+    ):
+        assets.append(
+            _inspect_file(
+                resource_id=resource_id,
+                category="end_to_end",
+                configured_path=configured_path,
+                repo_root=repo_root,
+                required=needs_fastq and paired_configured,
+            )
+        )
 
     incomplete_statuses = {"unconfigured", "missing", "empty", "not_file", "unreadable"}
     missing_required = [

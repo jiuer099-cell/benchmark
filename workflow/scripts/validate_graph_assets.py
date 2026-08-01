@@ -20,6 +20,10 @@ ASSET_FILENAMES = {
     "dist": "graph.dist",
     "sample_list": "samples.txt",
 }
+PROFILE_ASSETS = {
+    "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
+    "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
+}
 
 
 class GraphAssetError(ValueError):
@@ -123,11 +127,12 @@ def lock_graph_assets(
     *,
     source_manifest: Path,
     gbz: Path,
-    xg: Path,
+    xg: Path | None,
     min_index: Path,
     dist: Path,
     sample_list: Path,
     reference_path: str,
+    profile: str = "vg_legacy_xg",
     excluded_samples: tuple[str, ...] = ("HG002", "NA24385"),
 ) -> dict[str, Any]:
     """Validate one conventional graph directory and return its lock payload."""
@@ -135,12 +140,24 @@ def lock_graph_assets(
     if not reference_path.strip() or "\n" in reference_path or "\r" in reference_path:
         raise GraphAssetError("reference_path must be a non-empty single-line value")
 
-    paths = {
+    if profile not in PROFILE_ASSETS:
+        raise GraphAssetError(f"unsupported graph asset profile: {profile}")
+    supplied_paths = {
         "gbz": gbz,
         "xg": xg,
         "min": min_index,
         "dist": dist,
         "sample_list": sample_list,
+    }
+    missing = sorted(
+        name for name in PROFILE_ASSETS[profile] if supplied_paths.get(name) is None
+    )
+    if missing:
+        raise GraphAssetError(f"graph profile {profile} is missing assets: {missing}")
+    paths = {
+        name: path
+        for name, path in supplied_paths.items()
+        if name in PROFILE_ASSETS[profile] and path is not None
     }
     _validate_regular_file(source_manifest, "source manifest")
     source = _load_manifest(source_manifest)
@@ -180,6 +197,7 @@ def lock_graph_assets(
     )
     return {
         "schema_version": 1,
+        "profile": profile,
         "asset_root": str(recorded_asset_root),
         "reference_path": reference_path,
         "excluded_samples": list(excluded_samples),
@@ -195,11 +213,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--source-manifest", required=True, type=Path)
     parser.add_argument("--gbz", required=True, type=Path)
-    parser.add_argument("--xg", required=True, type=Path)
+    parser.add_argument("--xg", type=Path)
     parser.add_argument("--min", dest="min_index", required=True, type=Path)
     parser.add_argument("--dist", required=True, type=Path)
     parser.add_argument("--sample-list", required=True, type=Path)
     parser.add_argument("--reference-path", required=True)
+    parser.add_argument(
+        "--profile",
+        required=True,
+        choices=sorted(PROFILE_ASSETS),
+    )
     parser.add_argument(
         "--exclude-sample",
         action="append",
@@ -221,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             dist=args.dist,
             sample_list=args.sample_list,
             reference_path=args.reference_path,
+            profile=args.profile,
             excluded_samples=tuple(
                 args.excluded_samples or ("HG002", "NA24385")
             ),

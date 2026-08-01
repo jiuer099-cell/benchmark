@@ -59,7 +59,7 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path, Path]:
         "obsidian:\n"
         "  vault_root: null\n"
         "  vault_root_env: PGBENCH_TEST_VAULT\n"
-        "  project_relpath: Research/hg002-grch37-pangenome-sv-benchmark\n"
+        "  project_relpath: Research/hg002-grch38-pangenome-sv-benchmark\n"
         "  canonical_note: Writing/design.md\n",
         encoding="utf-8",
     )
@@ -76,13 +76,13 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     binding = (
-        repo / ".claude" / "project-memory" / "hg002-grch37-pangenome-sv-benchmark.md"
+        repo / ".claude" / "project-memory" / "hg002-grch38-pangenome-sv-benchmark.md"
     )
     binding.write_text(
         "---\n"
-        "project_slug: hg002-grch37-pangenome-sv-benchmark\n"
+        "project_slug: hg002-grch38-pangenome-sv-benchmark\n"
         f"vault_root: {vault}\n"
-        "canonical_note: Research/hg002-grch37-pangenome-sv-benchmark/"
+        "canonical_note: Research/hg002-grch38-pangenome-sv-benchmark/"
         "Writing/design.md\n"
         "---\n\nBinding only.\n",
         encoding="utf-8",
@@ -169,7 +169,7 @@ def test_uncommitted_design_change_is_reported_stale(tmp_path: Path) -> None:
 def test_vault_root_uses_configured_project_relpath(tmp_path: Path) -> None:
     repo, project_root, binding = _workspace(tmp_path)
     vault_root = tmp_path / "memory"
-    nested_project = vault_root / "Research" / "hg002-grch37-pangenome-sv-benchmark"
+    nested_project = vault_root / "Research" / "hg002-grch38-pangenome-sv-benchmark"
     nested_project.parent.mkdir(parents=True)
     project_root.rename(nested_project)
     paths = resolve_paths(

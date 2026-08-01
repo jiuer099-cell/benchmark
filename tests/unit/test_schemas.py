@@ -360,11 +360,18 @@ def test_truth_and_stratification_profiles_are_frozen() -> None:
     assert primary["role"] == "primary"
     assert primary["truth_status"] == "draft"
     assert truthsets["reference_id"] == "grch38"
-    assert all(
-        asset["sha256"] is None
-        for profile in truthsets["truthsets"].values()
-        for asset in profile["files"].values()
-    )
+    assert {
+        name: asset["sha256"]
+        for name, asset in primary["files"].items()
+    } == {
+        "vcf": "d66b2d2496ff5418763813d3195599007dbff950514d10e5bc27b6c8b76e34b8",
+        "vcf_index": (
+            "57898d17e44ecd5c286aeb863f27e613244396a3ad4b04ca79c8add647b8a81d"
+        ),
+        "benchmark_bed": (
+            "2f75ce942e1dd9e1a443e4e04facc640104aae5e23fba24d7d3f2c1f1f9985b00"
+        ),
+    }
 
     stratifications = _load_yaml(CONFIG / "stratifications.yaml")
     required = {
@@ -479,6 +486,7 @@ def test_pangenome_manifest_accepts_content_locked_graph_assets() -> None:
         "size_bytes": 100,
     }
     manifest["graph_assets"] = {
+        "profile": "vg_legacy_xg",
         "manifest": {
             **asset,
             "path": "resources/pangenome/graph/graph-assets.lock.yaml",
@@ -487,10 +495,10 @@ def test_pangenome_manifest_accepts_content_locked_graph_assets() -> None:
             **asset,
             "path": "results/pangenome/graph-assets.lock.yaml",
         },
-            "asset_root": "resources/pangenome/graph",
-            "reference_path": "GRCh38",
-            "excluded_samples": ["HG002", "NA24385"],
-            "gbz": asset,
+        "asset_root": "resources/pangenome/graph",
+        "reference_path": "GRCh38",
+        "excluded_samples": ["HG002", "NA24385"],
+        "gbz": asset,
         "xg": {**asset, "path": "resources/pangenome/graph/graph.xg"},
         "min": {**asset, "path": "resources/pangenome/graph/graph.min"},
         "dist": {**asset, "path": "resources/pangenome/graph/graph.dist"},

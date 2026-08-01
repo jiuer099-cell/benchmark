@@ -8,9 +8,17 @@ sample:
   id: HG002
   sex: male
   technology: pacbio_clr
+  library_id: HG002_PacBio_MtSinai_NIST_CLR
+  source_evidence_id: HG002_PacBio_GRCh38_bam
+  coverage_x: null
+  read_count: null
+  read_bases: null
+  downsampling_seed: null
   bam: resources/alignments/HG002.GRCh38.bam
   # Required only by end_to_end_from_reads (for example the vg adapter).
   fastq: null
+  fastq_r1: null
+  fastq_r2: null
 
 reference:
   id: grch38
@@ -23,21 +31,22 @@ pangenome:
   backbone: grch38
   population_panel: hprc_1kg_grch38_sv
   truth_leakage_policy: exclude_hg002_truth
-  build_graph_assets: true
+  build_graph_assets: false
   allele_namespace: PGSV
   excluded_samples: [HG002, NA24385]
   # A sequence-resolved, GRCh38-coordinate population SV VCF. HG002 must not
   # occur among its samples.
   population_vcf: resources/pangenome/grch38_hprc_1kg_sv_v1/population.sv.vcf.gz
   graph_assets:
+    profile: none
     # Non-empty source YAML. If it declares reference_path or
     # assets.<name>.sha256, the lock rule verifies those declarations.
-    manifest: resources/pangenome/grch38_hprc_1kg_sv_v1/graph-assets.lock.yaml
-    gbz: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.gbz
-    xg: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.xg
-    min: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.min
-    dist: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.dist
-    sample_list: resources/pangenome/grch38_hprc_1kg_sv_v1/samples.txt
+    manifest: null
+    gbz: null
+    xg: null
+    min: null
+    dist: null
+    sample_list: null
     # Exact reference-sense path used when vg calls are projected to GRCh38.
     reference_path: GRCh38
 
@@ -49,6 +58,7 @@ catalogs:
   truthsets: config/truthsets.yaml
   stratifications: config/stratifications.yaml
   score_weights: config/consensus_scoring.yaml
+  evaluator_profile: config/evaluator_profile.yaml
   metric_dictionary: config/metric_dictionary.yaml
 
 execution:
@@ -60,7 +70,8 @@ execution:
   use_conda: true
   use_apptainer: false
   keep_going: true
-  benchmark_repeats: 1
+  benchmark_repeats: 3
+  cache_policy: isolated_empty_tool_cache
   random_seed: 20260716
   tool_threads: 16
   tool_memory_mb: 65536
@@ -90,9 +101,6 @@ evaluation:
   evaluators: [truvari, aardvark, vcfdist]
   truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
   benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
-  # vcfdist emits fractional credit. It becomes one equal binary vote only
-  # after this frozen threshold is applied.
-  vcfdist_credit_threshold: 0.7
   commands:
     bcftools: [mamba, run, -n, pgbench-bio, bcftools]
     tabix: [mamba, run, -n, pgbench-bio, tabix]

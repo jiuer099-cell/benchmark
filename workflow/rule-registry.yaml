@@ -65,19 +65,19 @@ rules:
     resource_class: local_medium
 
   - id: prepare_primary_truth
-    description: Prepare the primary GIAB v5.0q truth VCF and benchmark BED.
+    description: Materialize the frozen PASS/BED/SVTYPE/size-filtered GIAB v5.0q SV truth universe.
     phase: truth
     kind: core
     inputs: [primary_truth_source, reference_fasta]
-    outputs: [primary_truth_vcf, primary_truth_bed]
+    outputs: [primary_truth_vcf, primary_truth_tbi, primary_truth_audit]
     upstream: [prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/truth.smk
-    environment: null
+    implementation_status: implemented
+    source_path: workflow/scripts/prepare_sv_truth.py
+    environment: workflow/envs/core.yaml
     resource_class: local_medium
 
   - id: prepare_legacy_truth

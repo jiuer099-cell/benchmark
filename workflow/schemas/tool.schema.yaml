@@ -70,6 +70,7 @@ properties:
           - cram
           - long_fastq
           - short_fastq
+          - paired_short_fastq
           - haplotype_fastq
       reference:
         $ref: "#/$defs/requirement"
@@ -287,9 +288,6 @@ allOf:
           properties:
             end_to_end_from_reads:
               properties:
-                required_inputs:
-                  contains:
-                    const: canonical_fastq
                 forbidden_inputs:
                   allOf:
                     - contains:
@@ -331,13 +329,22 @@ $defs:
             - vcf
             - fasta
             - other
+      accepted_profiles:
+        type: array
+        uniqueItems: true
+        items:
+          enum: [vg_gbz_min_dist, vg_legacy_xg]
   modeInput:
     enum:
       - canonical_fastq
+      - short_fastq_r1
+      - short_fastq_r2
       - haplotype_fastq
       - original_input_bam
       - shared_alignment
+      - shared_alignment_index
       - reference
+      - reference_index
       - pangenome_manifest
       - pangenome_panel
       - candidate_panel

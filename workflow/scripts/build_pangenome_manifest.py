@@ -50,11 +50,18 @@ def load_graph_assets_lock(path: Path) -> dict:
         raise PangenomeManifestError("graph assets lock must contain a YAML mapping")
     if lock.get("schema_version") != 1:
         raise PangenomeManifestError("unsupported graph assets lock schema_version")
+    profile = lock.get("profile")
+    profile_assets = {
+        "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
+        "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
+    }
+    if profile not in profile_assets:
+        raise PangenomeManifestError("graph assets lock has unsupported profile")
     assets = lock.get("assets")
-    required_assets = {"gbz", "xg", "min", "dist", "sample_list"}
+    required_assets = profile_assets[profile]
     if not isinstance(assets, dict) or set(assets) != required_assets:
         raise PangenomeManifestError(
-            "graph assets lock must contain exactly gbz, xg, min, dist, sample_list"
+            f"graph assets lock for {profile} has an invalid asset set"
         )
     reference_path = lock.get("reference_path")
     asset_root = lock.get("asset_root")
@@ -150,13 +157,10 @@ def load_graph_assets_lock(path: Path) -> dict:
             "size_bytes": path.stat().st_size,
         },
         "asset_root": asset_root,
+        "profile": profile,
         "reference_path": reference_path,
         "excluded_samples": excluded_samples,
-        "gbz": verified["gbz"],
-        "xg": verified["xg"],
-        "min": verified["min"],
-        "dist": verified["dist"],
-        "sample_list": verified["sample_list"],
+        **verified,
         "sample_count": sample_count,
     }
 
@@ -192,7 +196,12 @@ def format_info(info: dict[str, str | bool]) -> str:
     return ";".join(fields) if fields else "."
 
 
-def infer_svtype(alt: str, info: dict[str, str | bool]) -> str:
+def infer_svtype(
+    alt: str,
+    info: dict[str, str | bool],
+    *,
+    ref: str | None = None,
+) -> str:
     declared = info.get("SVTYPE")
     if isinstance(declared, str) and declared:
         return declared.upper()
@@ -201,7 +210,32 @@ def infer_svtype(alt: str, info: dict[str, str | bool]) -> str:
         return symbolic.group(1).upper()
     if "[" in alt or "]" in alt:
         return "BND"
+    if ref is not None:
+        if len(alt) > len(ref):
+            return "INS"
+        if len(alt) < len(ref):
+            return "DEL"
+        return "OTHER"
     return "INS" if len(alt) > 1 else "OTHER"
+
+
+def default_variant_end(
+    *,
+    pos: int,
+    ref: str,
+    alt: str,
+    svtype: str,
+) -> int:
+    """Infer the inclusive VCF END only when INFO/END is absent."""
+
+    if (
+        svtype == "DEL"
+        and not (alt.startswith("<") and alt.endswith(">"))
+        and "[" not in alt
+        and "]" not in alt
+    ):
+        return pos + max(len(ref) - 1, 0)
+    return pos
 
 
 def _integer_info(info: dict[str, str | bool], key: str, *, default: int) -> int:
@@ -335,8 +369,17 @@ def assign_stable_alleles(
                     f"VCF POS must be integer, found {pos_raw!r}"
                 ) from exc
             info = parse_info(fields[7])
-            svtype = infer_svtype(alt, info)
-            end = _integer_info(info, "END", default=pos)
+            svtype = infer_svtype(alt, info, ref=ref)
+            end = _integer_info(
+                info,
+                "END",
+                default=default_variant_end(
+                    pos=pos,
+                    ref=ref,
+                    alt=alt,
+                    svtype=svtype,
+                ),
+            )
             default_svlen = len(alt) - len(ref)
             svlen = _integer_info(info, "SVLEN", default=default_svlen)
             graph_class_raw = info.get("GRAPH_COMPLEXITY", "simple_biallelic")

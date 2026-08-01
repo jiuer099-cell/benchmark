@@ -3,7 +3,7 @@ OBSIDIAN_JOB_KEY = config["project"]["id"]
 
 rule sync_obsidian_design:
     input:
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         context_rule_manifest=CONTEXT_MANIFEST,
         config=CONFIG_PATH,
         design=(
@@ -22,16 +22,16 @@ rule sync_obsidian_design:
         environment=CORE_ENV_SPEC,
         provenance_library="workflow/scripts/pgbench_provenance.py",
     output:
-        check="results/provenance/obsidian-sync.json",
+        check=RESULTS_ROOT + "/provenance/obsidian-sync.json",
         rule_manifest=(
-            "results/provenance/rules/sync_obsidian_design/"
+            RESULTS_ROOT + "/provenance/rules/sync_obsidian_design/"
             f"{OBSIDIAN_JOB_KEY}.json"
         ),
     log:
-        f"logs/rules/sync_obsidian_design/{OBSIDIAN_JOB_KEY}.log",
+        f"{LOG_ROOT}/rules/sync_obsidian_design/{OBSIDIAN_JOB_KEY}.log",
     benchmark:
         (
-            "benchmarks/rules/sync_obsidian_design/"
+            BENCHMARK_ROOT + "/rules/sync_obsidian_design/"
             f"{OBSIDIAN_JOB_KEY}.jsonl"
         ),
     conda:
@@ -87,7 +87,7 @@ rule sync_obsidian_design:
 
 rule check_obsidian_sync:
     input:
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         context_rule_manifest=CONTEXT_MANIFEST,
         config=CONFIG_PATH,
         design=(
@@ -106,16 +106,16 @@ rule check_obsidian_sync:
         environment=CORE_ENV_SPEC,
         provenance_library="workflow/scripts/pgbench_provenance.py",
     output:
-        check="results/provenance/obsidian-sync-check.json",
+        check=RESULTS_ROOT + "/provenance/obsidian-sync-check.json",
         rule_manifest=(
-            "results/provenance/rules/check_obsidian_sync/"
+            RESULTS_ROOT + "/provenance/rules/check_obsidian_sync/"
             f"{OBSIDIAN_JOB_KEY}.json"
         ),
     log:
-        f"logs/rules/check_obsidian_sync/{OBSIDIAN_JOB_KEY}.log",
+        f"{LOG_ROOT}/rules/check_obsidian_sync/{OBSIDIAN_JOB_KEY}.log",
     benchmark:
         (
-            "benchmarks/rules/check_obsidian_sync/"
+            BENCHMARK_ROOT + "/rules/check_obsidian_sync/"
             f"{OBSIDIAN_JOB_KEY}.jsonl"
         ),
     conda:

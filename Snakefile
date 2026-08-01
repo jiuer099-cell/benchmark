@@ -20,6 +20,9 @@ CONFIG_PATH = (
     else "config/config.example.yaml"
 )
 RUN_ID = config["project"]["run_id"]
+RESULTS_ROOT = f"results/{RUN_ID}"
+LOG_ROOT = f"logs/{RUN_ID}"
+BENCHMARK_ROOT = f"benchmarks/{RUN_ID}"
 SAMPLE_ID = config["sample"]["id"]
 OFFICIAL_MODE = config["execution"]["official_score_mode"]
 PANGENOME_ID = config["pangenome"]["id"]
@@ -32,25 +35,61 @@ PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
 METRICS_LIBRARY = "workflow/scripts/pgbench_metrics.py"
 SCORING_LIBRARY = "workflow/scripts/pgbench_scoring.py"
 CORE_ENV_SPEC = "workflow/envs/core.yaml"
-VALIDATE_MANIFEST = "results/provenance/rules/validate_config/config.json"
+VALIDATE_MANIFEST = RESULTS_ROOT + "/provenance/rules/validate_config/config.json"
 CONTEXT_MANIFEST = (
-    "results/provenance/rules/snapshot_run_context/context.json"
+    RESULTS_ROOT + "/provenance/rules/snapshot_run_context/context.json"
 )
 PANGENOME_RULE_MANIFEST = (
-    f"results/provenance/rules/build_pangenome_manifest/"
+    f"{RESULTS_ROOT}/provenance/rules/build_pangenome_manifest/"
     f"{PANGENOME_ID}.json"
 )
-GRAPH_ASSETS_ENABLED = bool(config["pangenome"]["build_graph_assets"])
+GRAPH_PROFILE = config["pangenome"]["graph_assets"]["profile"]
+
+
+def selected_mode_uses_graph(registration):
+    with open(registration["manifest"], encoding="utf-8") as handle:
+        manifest = yaml.safe_load(handle)
+    contract = manifest.get("supported_modes", {}).get(OFFICIAL_MODE, {})
+    return "graph_assets" in {
+        *contract.get("required_inputs", []),
+        *contract.get("optional_inputs", []),
+    }
+
+
+GRAPH_ASSETS_ENABLED = bool(
+    config["pangenome"]["build_graph_assets"]
+    and any(
+        selected_mode_uses_graph(registration)
+        for registration in config["external_plugins"]
+    )
+)
 GRAPH_ASSET_LOCK = (
-    f"results/pangenome/{PANGENOME_ID}/graph-assets.lock.yaml"
+    f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/graph-assets.lock.yaml"
 )
 GRAPH_ASSET_RULE_MANIFEST = (
-    f"results/provenance/rules/lock_graph_assets/{PANGENOME_ID}.json"
+    f"{RESULTS_ROOT}/provenance/rules/lock_graph_assets/{PANGENOME_ID}.json"
 )
 CHALLENGE_RULE_MANIFEST = (
-    f"results/provenance/rules/build_blinded_challenge_panel/"
+    f"{RESULTS_ROOT}/provenance/rules/build_blinded_challenge_panel/"
     f"{SAMPLE_ID}.json"
 )
+if SYNTHETIC_MODE:
+    PRIMARY_TRUTH_VCF = config["development"]["truth_vcf"]
+    PRIMARY_TRUTH_INDEX = None
+    PRIMARY_TRUTH_AUDIT = None
+    PRIMARY_TRUTH_RULE_MANIFEST = VALIDATE_MANIFEST
+else:
+    PRIMARY_TRUTH_VCF = (
+        f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/sv.truth.vcf.gz"
+    )
+    PRIMARY_TRUTH_INDEX = f"{PRIMARY_TRUTH_VCF}.tbi"
+    PRIMARY_TRUTH_AUDIT = (
+        f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/audit.json"
+    )
+    PRIMARY_TRUTH_RULE_MANIFEST = (
+        f"{RESULTS_ROOT}/provenance/rules/prepare_primary_truth/"
+        f"{config['truth']['primary']}.json"
+    )
 
 
 def cli_repeated(flag, values):
@@ -62,7 +101,7 @@ def cli_repeated(flag, values):
 
 
 def semantic_rule_manifest(rule_name, job_key):
-    return f"results/provenance/rules/{rule_name}/{job_key}.json"
+    return f"{RESULTS_ROOT}/provenance/rules/{rule_name}/{job_key}.json"
 
 EXTERNAL_SETTINGS = []
 for registration in config["external_plugins"]:
@@ -74,7 +113,7 @@ for registration in config["external_plugins"]:
         raise WorkflowError(
             f"external plugin ID {tool_id!r} does not match {manifest_path}"
         )
-    output_dir = f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/{tool_id}"
+    output_dir = f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{tool_id}"
     output_relative = tool_manifest["outputs"]["vcf"]
     raw_output = f"{output_dir}/{output_relative}"
     settings = {
@@ -87,9 +126,9 @@ for registration in config["external_plugins"]:
         "rule_executor": RULE_EXECUTOR,
         "config_snapshot": CONFIG_PATH,
         "score_profile": config["catalogs"]["score_weights"],
-        "run_context": "results/provenance/run-context.json",
+        "run_context": RESULTS_ROOT + "/provenance/run-context.json",
         "pangenome_manifest": (
-            f"results/pangenome/{PANGENOME_ID}/manifest.yaml"
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml"
         ),
         "graph_asset_manifest": None,
         "graph_asset_lock": None,
@@ -111,18 +150,18 @@ for registration in config["external_plugins"]:
         "resolved_inputs": f"{output_dir}/meta/resolved_inputs.json",
         "attempt_record": f"{output_dir}/meta/attempt.json",
         "tool_log": (
-            f"logs/tools/{tool_id}/{SAMPLE_ID}.{OFFICIAL_MODE}.log"
+            f"{LOG_ROOT}/tools/{tool_id}/{SAMPLE_ID}.{OFFICIAL_MODE}.log"
         ),
         "rule_manifest": semantic_rule_manifest(
             f"tool__{tool_id}__execute",
             f"{SAMPLE_ID}.{OFFICIAL_MODE}",
         ),
         "log": (
-            f"logs/rules/tool__{tool_id}__execute/"
+            f"{LOG_ROOT}/rules/tool__{tool_id}__execute/"
             f"{SAMPLE_ID}.{OFFICIAL_MODE}.log"
         ),
         "benchmark": (
-            f"benchmarks/rules/tool__{tool_id}__execute/"
+            f"{BENCHMARK_ROOT}/rules/tool__{tool_id}__execute/"
             f"{SAMPLE_ID}.{OFFICIAL_MODE}.jsonl"
         ),
         "threads": config["execution"].get("tool_threads", 1),
@@ -130,6 +169,8 @@ for registration in config["external_plugins"]:
         "timeout_seconds": config["execution"].get(
             "tool_timeout_seconds", 120
         ),
+        "benchmark_repeats": config["execution"]["benchmark_repeats"],
+        "cache_policy": config["execution"]["cache_policy"],
         "execution_purpose": (
             "development_only" if SYNTHETIC_MODE else "formal"
         ),
@@ -140,43 +181,61 @@ for registration in config["external_plugins"]:
         ),
         "inputs": {},
     }
+    mode_contract = tool_manifest["supported_modes"].get(OFFICIAL_MODE, {})
+    allowed_inputs = {
+        *mode_contract.get("required_inputs", []),
+        *mode_contract.get("optional_inputs", []),
+    }
+    input_candidates = {
+        "reference": config["reference"]["fasta"],
+        "pangenome_manifest": (
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml"
+        ),
+        "pangenome_panel": (
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/panel.vcf"
+        ),
+        "candidate_panel": (
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
+            f"{SAMPLE_ID}.blinded.vcf"
+        ),
+    }
     if OFFICIAL_MODE == "end_to_end_from_reads":
         canonical_fastq = (
             config["development"]["canonical_fastq"]
             if SYNTHETIC_MODE
             else config["sample"]["fastq"]
         )
-        settings["inputs"] = {
-            "canonical_fastq": canonical_fastq,
-            "reference": config["reference"]["fasta"],
-            "pangenome_manifest": (
-                f"results/pangenome/{PANGENOME_ID}/manifest.yaml"
-            ),
-            "pangenome_panel": (
-                f"results/pangenome/{PANGENOME_ID}/panel.vcf"
-            ),
-            "candidate_panel": (
-                f"results/pangenome/{PANGENOME_ID}/challenge/"
-                f"{SAMPLE_ID}.blinded.vcf"
-            ),
-        }
+        input_candidates.update(
+            {
+                "canonical_fastq": canonical_fastq,
+                "short_fastq_r1": config["sample"].get("fastq_r1"),
+                "short_fastq_r2": config["sample"].get("fastq_r2"),
+            }
+        )
     else:
-        shared_bam = config["caller_only"].get("shared_bam")
-        settings["inputs"] = {
-            "shared_alignment": shared_bam,
-            "reference": config["reference"]["fasta"],
-            "pangenome_manifest": (
-                f"results/pangenome/{PANGENOME_ID}/manifest.yaml"
-            ),
-            "pangenome_panel": (
-                f"results/pangenome/{PANGENOME_ID}/panel.vcf"
-            ),
-            "candidate_panel": (
-                f"results/pangenome/{PANGENOME_ID}/challenge/"
-                f"{SAMPLE_ID}.blinded.vcf"
-            ),
-        }
-    mode_contract = tool_manifest["supported_modes"].get(OFFICIAL_MODE, {})
+        shared_alignment = config["caller_only"].get("shared_bam")
+        input_candidates.update(
+            {
+                "shared_alignment": shared_alignment,
+                "shared_alignment_index": (
+                    f"{shared_alignment}.bai"
+                    if shared_alignment
+                    and config["caller_only"].get("alignment_kind") == "bam"
+                    else (
+                        f"{shared_alignment}.crai"
+                        if shared_alignment
+                        and config["caller_only"].get("alignment_kind") == "cram"
+                        else None
+                    )
+                ),
+                "reference_index": config["reference"].get("fai"),
+            }
+        )
+    settings["inputs"] = {
+        name: path
+        for name, path in input_candidates.items()
+        if name in allowed_inputs and path
+    }
     graph_allowed = "graph_assets" in {
         *mode_contract.get("required_inputs", []),
         *mode_contract.get("optional_inputs", []),
@@ -188,11 +247,16 @@ for registration in config["external_plugins"]:
         )
         settings["graph_asset_manifest"] = graph_config["manifest"]
         settings["graph_asset_lock"] = GRAPH_ASSET_LOCK
+        settings["graph_profile"] = GRAPH_PROFILE
         settings["upstream_manifests"].append(GRAPH_ASSET_RULE_MANIFEST)
     EXTERNAL_SETTINGS.append(settings)
 
 RAW_OUTPUT_BY_TOOL = {
     settings["tool_id"]: settings["raw_output"]
+    for settings in EXTERNAL_SETTINGS
+}
+TOOL_BENCHMARK_BY_TOOL = {
+    settings["tool_id"]: settings["benchmark"]
     for settings in EXTERNAL_SETTINGS
 }
 
@@ -213,19 +277,19 @@ if SYNTHETIC_MODE and len(EXTERNAL_SETTINGS) != 1:
     )
 
 REPORT_CARDS = [
-    f"results/report/tool_cards/{settings['tool_id']}.html"
+    f"{RESULTS_ROOT}/report/tool_cards/{settings['tool_id']}.html"
     for settings in EXTERNAL_SETTINGS
 ]
 SCORE_JSONS = [
-    f"results/summary/{settings['tool_id']}/score.json"
+    f"{RESULTS_ROOT}/summary/{settings['tool_id']}/score.json"
     for settings in EXTERNAL_SETTINGS
 ]
 METRICS_JSONS = [
-    f"results/summary/{settings['tool_id']}/metrics.json"
+    f"{RESULTS_ROOT}/summary/{settings['tool_id']}/metrics.json"
     for settings in EXTERNAL_SETTINGS
 ]
 FINAL_SCORE_PACKAGES = [
-    f"results/summary/{settings['tool_id']}/score-package.json"
+    f"{RESULTS_ROOT}/summary/{settings['tool_id']}/score-package.json"
     for settings in EXTERNAL_SETTINGS
 ]
 TOOL_MANIFESTS = [
@@ -234,26 +298,26 @@ TOOL_MANIFESTS = [
 ]
 if EXTERNAL_SETTINGS:
     FINAL_TARGETS = [
-        "results/report/index.html",
-        "results/summary/score.tsv",
-        "results/summary/point_breakdown.tsv",
-        "results/summary/metrics.long.tsv",
-        "results/summary/metrics.json",
+        RESULTS_ROOT + "/report/index.html",
+        RESULTS_ROOT + "/summary/score.tsv",
+        RESULTS_ROOT + "/summary/point_breakdown.tsv",
+        RESULTS_ROOT + "/summary/metrics.long.tsv",
+        RESULTS_ROOT + "/summary/metrics.json",
         *SCORE_JSONS,
         *FINAL_SCORE_PACKAGES,
         *METRICS_JSONS,
         *[
-            f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             f"{settings['tool_id']}/canonical/linked.vcf"
             for settings in EXTERNAL_SETTINGS
         ],
         *[
-            f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             f"{settings['tool_id']}/canonical/allele_links.tsv"
             for settings in EXTERNAL_SETTINGS
         ],
         *[
-            f"results/provenance/{settings['tool_id']}/{name}"
+            f"{RESULTS_ROOT}/provenance/{settings['tool_id']}/{name}"
             for settings in EXTERNAL_SETTINGS
             for name in (
                 "pre-score-audit.json",
@@ -266,7 +330,7 @@ if EXTERNAL_SETTINGS:
         ],
     ]
 else:
-    FINAL_TARGETS = ["results/provenance/config.validated.json"]
+    FINAL_TARGETS = [RESULTS_ROOT + "/provenance/config.validated.json"]
 
 
 rule all:

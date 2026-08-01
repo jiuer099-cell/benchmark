@@ -16,16 +16,16 @@ FINALIZER_RULE_MANIFESTS = [
 
 rule render_report:
     input:
-        score="results/summary/{tool}/score.json",
-        package="results/summary/{tool}/score-package.json",
+        score=RESULTS_ROOT + "/summary/{tool}/score.json",
+        package=RESULTS_ROOT + "/summary/{tool}/score-package.json",
         finalizer_rule_manifest=(
-            "results/provenance/rules/finalize_score_provenance/"
+            RESULTS_ROOT + "/provenance/rules/finalize_score_provenance/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/report.smk",
@@ -33,21 +33,21 @@ rule render_report:
         script="workflow/scripts/render_report.py",
         provenance_library=PROVENANCE_LIBRARY,
     output:
-        html="results/report/tool_cards/{tool}.html",
-        score_tsv="results/summary/{tool}/score.tsv",
-        points="results/summary/{tool}/point_breakdown.tsv",
+        html=RESULTS_ROOT + "/report/tool_cards/{tool}.html",
+        score_tsv=RESULTS_ROOT + "/summary/{tool}/score.tsv",
+        points=RESULTS_ROOT + "/summary/{tool}/point_breakdown.tsv",
         rule_manifest=(
-            "results/provenance/rules/render_report/"
+            RESULTS_ROOT + "/provenance/rules/render_report/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"logs/rules/render_report/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/render_report/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"benchmarks/rules/render_report/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/render_report/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     conda:
@@ -112,10 +112,10 @@ rule render_report_index:
         packages=FINAL_SCORE_PACKAGES,
         tool_manifests=TOOL_MANIFESTS,
         finalizer_rule_manifests=FINALIZER_RULE_MANIFESTS,
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
         rule_executor=RULE_EXECUTOR,
         rule_source="workflow/rules/report.smk",
@@ -124,18 +124,18 @@ rule render_report_index:
         aggregate_script="workflow/scripts/aggregate_run_summary.py",
         provenance_library=PROVENANCE_LIBRARY,
     output:
-        html="results/report/index.html",
-        score_tsv="results/summary/score.tsv",
-        points_tsv="results/summary/point_breakdown.tsv",
-        metrics_tsv="results/summary/metrics.long.tsv",
-        metrics_json="results/summary/metrics.json",
+        html=RESULTS_ROOT + "/report/index.html",
+        score_tsv=RESULTS_ROOT + "/summary/score.tsv",
+        points_tsv=RESULTS_ROOT + "/summary/point_breakdown.tsv",
+        metrics_tsv=RESULTS_ROOT + "/summary/metrics.long.tsv",
+        metrics_json=RESULTS_ROOT + "/summary/metrics.json",
         rule_manifest=(
-            "results/provenance/rules/render_report_index/index.json"
+            RESULTS_ROOT + "/provenance/rules/render_report_index/index.json"
         ),
     log:
-        "logs/rules/render_report_index/index.log",
+        LOG_ROOT + "/rules/render_report_index/index.log",
     benchmark:
-        "benchmarks/rules/render_report_index/index.jsonl",
+        BENCHMARK_ROOT + "/rules/render_report_index/index.jsonl",
     params:
         card_args=cli_repeated("--card", REPORT_CARDS),
         score_args=cli_repeated("--score-json", SCORE_JSONS),
@@ -157,10 +157,10 @@ rule render_report_index:
                 *FINAL_SCORE_PACKAGES,
                 *TOOL_MANIFESTS,
                 *FINALIZER_RULE_MANIFESTS,
-                "results/provenance/run-context.json",
+                RESULTS_ROOT + "/provenance/run-context.json",
                 CONFIG_PATH,
                 config["catalogs"]["score_weights"],
-                f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+                f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
                 config["reference"]["fasta"],
                 RULE_EXECUTOR,
                 "workflow/rules/report.smk",

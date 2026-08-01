@@ -14,9 +14,11 @@ from workflow.scripts.pgbench_exec import (
     ToolContractError,
     ToolExecutionError,
     ToolTimeoutError,
+    _sandbox_command,
     build_tool_environment,
     execute_tool,
     load_tool_manifest,
+    validate_read_evidence,
     validate_mode_inputs,
 )
 from workflow.scripts.validate_tool_output import (
@@ -160,6 +162,48 @@ def test_mode_contract_exposes_only_required_or_optional_inputs(
         )
 
 
+def test_paired_fastq_validation_records_counts_and_bases(tmp_path: Path) -> None:
+    r1 = tmp_path / "R1.fastq.gz"
+    r2 = tmp_path / "R2.fastq.gz"
+    with gzip.open(r1, "wt", encoding="utf-8") as handle:
+        handle.write("@read-a/1\nAC\n+\n!!\n@read-b 1:N:0\nG\n+\n!\n")
+    with gzip.open(r2, "wt", encoding="utf-8") as handle:
+        handle.write("@read-a/2\nTG\n+\n!!\n@read-b 2:N:0\nC\n+\n!\n")
+    result = validate_read_evidence(
+        {"short_fastq_r1": r1, "short_fastq_r2": r2}
+    )
+    assert result["paired_fastq"] == {
+        "read_pairs": 2,
+        "read_count": 4,
+        "read_bases": 6,
+        "mate_names_match": True,
+    }
+
+
+def test_paired_fastq_validation_rejects_name_or_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    r1 = tmp_path / "R1.fastq"
+    r2 = tmp_path / "R2.fastq"
+    r1.write_text("@left/1\nA\n+\n!\n", encoding="utf-8")
+    r2.write_text("@right/2\nT\n+\n!\n", encoding="utf-8")
+    with pytest.raises(ToolContractError, match="read-name mismatch"):
+        validate_read_evidence({"short_fastq_r1": r1, "short_fastq_r2": r2})
+
+    r2.write_text("", encoding="utf-8")
+    with pytest.raises(ToolContractError, match="different record counts"):
+        validate_read_evidence({"short_fastq_r1": r1, "short_fastq_r2": r2})
+
+
+def test_fastq_validation_rejects_truncation_and_single_mate(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.fastq"
+    bad.write_text("@read\nAC\n+\n", encoding="utf-8")
+    with pytest.raises(ToolContractError, match="truncated FASTQ"):
+        validate_read_evidence({"canonical_fastq": bad})
+    with pytest.raises(ToolContractError, match="must supply both"):
+        validate_read_evidence({"short_fastq_r1": bad})
+
+
 def test_runner_executes_example_and_records_resolved_inputs(
     tmp_path: Path,
 ) -> None:
@@ -243,11 +287,13 @@ def test_parent_pgbench_environment_is_scrubbed(tmp_path: Path) -> None:
         memory_mb=512,
         alignment_kind=None,
         attempt_work_dir=tmp_path / "attempt",
+        random_seed=12345,
     )
     assert environment["PATH"] == "/usr/bin"
     assert "PGBENCH_TRUTH_VCF" not in environment
     assert "PGBENCH_INPUT_FASTQ" not in environment
     assert environment["PGBENCH_CANDIDATE_VCF"] == "/inputs/challenge.vcf"
+    assert environment["PGBENCH_RANDOM_SEED"] == "12345"
     assert {key for key in environment if key.startswith("PGBENCH_")} <= {
         "PGBENCH_RUN_ID",
         "PGBENCH_SAMPLE_ID",
@@ -256,8 +302,10 @@ def test_parent_pgbench_environment_is_scrubbed(tmp_path: Path) -> None:
         "PGBENCH_OUTPUT_VCF",
         "PGBENCH_THREADS",
         "PGBENCH_MEMORY_MB",
-        "PGBENCH_ALLELE_NAMESPACE",
-        "PGBENCH_CANDIDATE_VCF",
+            "PGBENCH_ALLELE_NAMESPACE",
+            "PGBENCH_CACHE_POLICY",
+            "PGBENCH_RANDOM_SEED",
+            "PGBENCH_CANDIDATE_VCF",
     }
 
 
@@ -575,6 +623,47 @@ def test_formal_execution_refuses_unsandboxed_external_tool(
         )
 
 
+def test_bwrap_mounts_active_conda_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conda_prefix = tmp_path / "conda-env"
+    plugin_root = tmp_path / "plugin"
+    work = tmp_path / "work"
+    input_path = tmp_path / "input.vcf"
+    for directory in (conda_prefix, plugin_root, work):
+        directory.mkdir()
+    input_path.write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    monkeypatch.setenv("CONDA_PREFIX", str(conda_prefix))
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/bwrap")
+    resolved = ResolvedInput(
+        name="candidate_panel",
+        contract_name="candidate_panel",
+        path=str(input_path),
+        sha256="a" * 64,
+        size_bytes=input_path.stat().st_size,
+        mtime_ns=input_path.stat().st_mtime_ns,
+        path_type="file",
+        read_only=True,
+        environment_variable="PGBENCH_CANDIDATE_VCF",
+    )
+    command = _sandbox_command(
+        tool_command=("python", "runner.py"),
+        backend="bwrap",
+        manifest={},
+        plugin_root=plugin_root,
+        resolved_inputs=(resolved,),
+        attempt_work_dir=work,
+        additional_read_only_paths=(),
+    )
+    bindings = list(zip(command, command[1:], command[2:]))
+    assert (
+        "--ro-bind",
+        str(conda_prefix),
+        str(conda_prefix),
+    ) in bindings
+
+
 def test_timeout_terminates_runner_and_records_failure(tmp_path: Path) -> None:
     plugin = tmp_path / "plugin"
     shutil.copytree(EXAMPLE_PLUGIN, plugin)
@@ -669,6 +758,117 @@ def test_output_validator_enforces_all_sites_candidate_coverage(
             sample_id="HG002",
             candidate_output_contract="all_sites",
             candidate_vcf=candidate,
+        )
+
+
+def test_variant_sites_output_accepts_sample_free_detection_vcf(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    output = output_dir / "calls.vcf"
+    output.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t100\tDISCOVERY_1\tN\t<DEL>\t.\tPASS\t"
+        "SVTYPE=DEL;END=199\n",
+        encoding="utf-8",
+    )
+    validation = validate_tool_output(
+        output_vcf=output,
+        output_dir=output_dir,
+        started_at_ns=0,
+        sample_id="HG002",
+        candidate_output_contract="variant_sites",
+    )
+    assert validation.record_count == 1
+    assert validation.candidate_count is None
+    assert validation.represented_candidate_count is None
+
+
+def test_variant_sites_output_accepts_sample_without_gt(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    output = output_dir / "calls.vcf"
+    output.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "1\t100\tDISCOVERY_1\tN\t<DEL>\t.\tPASS\t"
+        "SVTYPE=DEL;END=199\tDP\t21\n",
+        encoding="utf-8",
+    )
+    validation = validate_tool_output(
+        output_vcf=output,
+        output_dir=output_dir,
+        started_at_ns=0,
+        sample_id="HG002",
+        candidate_output_contract="variant_sites",
+    )
+    assert validation.record_count == 1
+
+
+@pytest.mark.parametrize(
+    ("header", "record", "message"),
+    [
+        (
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+            "1\t100\tCAND_alpha\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL\n",
+            "all-sites tool VCF must contain FORMAT",
+        ),
+        (
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n",
+            "1\t100\tCAND_alpha\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL\tDP\t21\n",
+            "has no GT FORMAT field",
+        ),
+    ],
+)
+def test_all_sites_output_still_requires_sample_gt(
+    tmp_path: Path,
+    header: str,
+    record: str,
+    message: str,
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    candidate = tmp_path / "candidate.vcf"
+    _write_candidate_vcf(candidate)
+    output = output_dir / "calls.vcf"
+    output.write_text(
+        "##fileformat=VCFv4.2\n" + header + record,
+        encoding="utf-8",
+    )
+    with pytest.raises(ToolOutputValidationError, match=message):
+        validate_tool_output(
+            output_vcf=output,
+            output_dir=output_dir,
+            started_at_ns=0,
+            sample_id="HG002",
+            candidate_output_contract="all_sites",
+            candidate_vcf=candidate,
+        )
+
+
+def test_variant_sites_with_sample_still_requires_designated_sample(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    output = output_dir / "calls.vcf"
+    output.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tOTHER\n"
+        "1\t100\tDISCOVERY_1\tN\t<DEL>\t.\tPASS\tSVTYPE=DEL\tDP\t21\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ToolOutputValidationError, match="exactly one sample"):
+        validate_tool_output(
+            output_vcf=output,
+            output_dir=output_dir,
+            started_at_ns=0,
+            sample_id="HG002",
+            candidate_output_contract="variant_sites",
         )
 
 

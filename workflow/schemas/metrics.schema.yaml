@@ -43,6 +43,8 @@ properties:
     minItems: 1
     items:
       $ref: "#/$defs/metricRecord"
+  analysis:
+    $ref: "#/$defs/formalAnalysis"
 
 $defs:
   identifier:
@@ -118,6 +120,497 @@ $defs:
         const: stratified_variant_cluster_bootstrap
       bootstrap_unit:
         const: truth_variant_cluster
+  scoreConfidenceInterval:
+    type: object
+    additionalProperties: false
+    required:
+      - lower
+      - upper
+      - level
+      - method
+      - bootstrap_unit
+      - replicates
+      - seed_sha256
+      - block_size_bp
+      - block_count
+    properties:
+      lower:
+        type: number
+        minimum: 0
+        maximum: 100
+      upper:
+        type: number
+        minimum: 0
+        maximum: 100
+      level:
+        const: 0.95
+      method:
+        const: paired_genomic_block_bootstrap
+      bootstrap_unit:
+        const: fixed_genomic_block
+      block_size_bp:
+        type: integer
+        minimum: 1000000
+      block_count:
+        type: integer
+        minimum: 1
+      replicates:
+        type: integer
+        minimum: 100
+      seed_sha256:
+        type: string
+        pattern: "^[0-9a-f]{64}$"
+  formalAnalysis:
+    type: object
+    additionalProperties: false
+    required:
+      - contract_version
+      - evaluator_profile_id
+      - evaluator_profile_sha256
+      - evaluator_bundle_sha256
+      - evaluator_versions
+      - asset_hashes
+      - evidence_profile
+      - universe
+      - matching
+      - comparable_score
+      - comparable_score_confidence_interval
+      - semantic_summary
+      - candidate_genotype_summary
+      - stratified_summary
+      - resource_summary
+    properties:
+      contract_version:
+        const: formal_detection_consensus_v3
+      evaluator_profile_id:
+        $ref: "#/$defs/identifier"
+      evaluator_profile_sha256:
+        type: string
+        pattern: "^[0-9a-f]{64}$"
+      evaluator_bundle_sha256:
+        type: string
+        pattern: "^[0-9a-f]{64}$"
+      evaluator_versions:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required: [output, sha256]
+          properties:
+            output:
+              type: string
+              minLength: 1
+            sha256:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+      asset_hashes:
+        type: object
+        additionalProperties: false
+        required:
+          - reference
+          - truth_vcf
+          - benchmark_bed
+          - pangenome_manifest
+          - challenge_hidden_ledger
+          - graph_asset_lock
+        properties:
+          reference:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          truth_vcf:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          benchmark_bed:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          pangenome_manifest:
+            description: >-
+              Stable semantic content hash with volatile path and generation
+              metadata removed; graph attachments are represented separately
+              by graph_asset_lock, while all common panel checksums remain
+              covered.
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          challenge_hidden_ledger:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          graph_asset_lock:
+            description: >-
+              Stable semantic graph-lock hash when this plugin consumes graph
+              assets; null for plugins that do not.
+            oneOf:
+              - type: string
+                pattern: "^[0-9a-f]{64}$"
+              - type: "null"
+      evidence_profile:
+        type: object
+        additionalProperties: false
+        required:
+          - contract
+          - actual_technology
+          - library_id
+          - source_evidence_id
+          - evidence_kind
+          - official_score_mode
+          - alignment_kind
+          - input_assets
+          - resolved_inputs_sha256
+          - coverage_x
+          - read_count
+          - read_bases
+          - downsampling_seed
+          - quantitative_metadata_complete
+        properties:
+          contract:
+            const: pgbench_evidence_v1
+          actual_technology:
+            enum: [pacbio_clr, pacbio_hifi, ont, illumina_short_read]
+          library_id:
+            $ref: "#/$defs/identifier"
+          source_evidence_id:
+            $ref: "#/$defs/identifier"
+          evidence_kind:
+            enum: [paired_fastq, single_fastq, shared_alignment]
+          official_score_mode:
+            enum: [caller_only_shared_alignment, end_to_end_from_reads]
+          alignment_kind:
+            oneOf:
+              - type: string
+                minLength: 1
+              - type: "null"
+          input_assets:
+            type: object
+            minProperties: 1
+            additionalProperties:
+              type: object
+              additionalProperties: false
+              required: [sha256, size_bytes, path_type]
+              properties:
+                sha256:
+                  type: string
+                  pattern: "^[0-9a-f]{64}$"
+                size_bytes: {type: integer, minimum: 1}
+                path_type: {enum: [file, directory]}
+          resolved_inputs_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          coverage_x:
+            oneOf:
+              - type: number
+                exclusiveMinimum: 0
+              - type: "null"
+          read_count:
+            oneOf:
+              - type: integer
+                minimum: 1
+              - type: "null"
+          read_bases:
+            oneOf:
+              - type: integer
+                minimum: 1
+              - type: "null"
+          downsampling_seed:
+            oneOf:
+              - type: integer
+                minimum: 0
+              - type: "null"
+          quantitative_metadata_complete:
+            type: boolean
+      universe:
+        type: object
+        additionalProperties: false
+        required:
+          - truth_filter_policy
+          - query_filter_policy
+          - minimum_sv_size
+          - maximum_sv_size
+          - allowed_svtypes
+          - biallelic_only
+          - multiallelic_policy
+          - region_policy
+        properties:
+          truth_filter_policy:
+            const: pass_only
+          query_filter_policy:
+            const: pass_or_unfiltered
+          minimum_sv_size:
+            type: integer
+            minimum: 1
+          maximum_sv_size:
+            type: integer
+            minimum: 1
+          allowed_svtypes:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items:
+              enum: [DEL, INS]
+          biallelic_only:
+            const: true
+          multiallelic_policy:
+            const: exclude
+          region_policy:
+            const: fully_contained
+      matching:
+        type: object
+        additionalProperties: false
+        required: [algorithm, unique_truth_accounting, credited_truth_events]
+        properties:
+          algorithm:
+            const: deterministic_max_cardinality_max_weight_one_to_one_v1
+          unique_truth_accounting:
+            type: boolean
+          credited_truth_events:
+            type: integer
+            minimum: 0
+      comparable_score:
+        type: number
+        minimum: 0
+        maximum: 100
+      comparable_score_confidence_interval:
+        oneOf:
+          - $ref: "#/$defs/scoreConfidenceInterval"
+          - type: "null"
+      semantic_summary:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required:
+            - query_rows
+            - scope_eligible
+            - scope_excluded
+            - detection_events
+            - detection_correct
+            - genotype_scorable
+            - genotype_correct
+            - no_call
+          properties:
+            query_rows: {type: integer, minimum: 0}
+            scope_eligible: {type: integer, minimum: 0}
+            scope_excluded: {type: integer, minimum: 0}
+            detection_events: {type: integer, minimum: 0}
+            detection_correct: {type: integer, minimum: 0}
+            genotype_scorable: {type: integer, minimum: 0}
+            genotype_correct: {type: integer, minimum: 0}
+            no_call: {type: integer, minimum: 0}
+      candidate_genotype_summary:
+        oneOf:
+          - type: "null"
+          - type: object
+            additionalProperties: false
+            required:
+              - contract
+              - candidate_output_contract
+              - absence_semantics
+              - no_call_is_incorrect
+              - query_record_count
+              - unmapped_query_records
+              - direct_candidate_records
+              - linked_candidate_records
+              - candidate_link_conflicts
+              - rejected_link_records
+              - candidate_count
+              - truth_scorable
+              - truth_positive
+              - truth_negative
+              - truth_unscorable
+              - observed_candidates
+              - observed_truth_scorable_candidates
+              - inferred_absent_candidates
+              - inferred_absent_truth_scorable_candidates
+              - genotype_scorable
+              - called_candidates
+              - genotype_correct
+              - genotype_accuracy
+              - called_only_genotype_accuracy
+              - genotype_confusion_matrix
+              - genotype_class_metrics
+              - genotype_macro_f1
+              - binary_nonref_confusion
+              - nonref_precision
+              - nonref_sensitivity
+              - specificity
+              - balanced_accuracy
+              - nonref_f1
+              - no_call_by_truth_class
+              - no_call
+              - hom_ref
+              - variant
+            properties:
+              contract:
+                const: hidden_candidate_genotype_v3
+              candidate_output_contract:
+                enum: [all_sites, variant_sites]
+              absence_semantics:
+                enum: [hom_ref, no_call]
+              no_call_is_incorrect:
+                type: boolean
+              query_record_count: {type: integer, minimum: 0}
+              unmapped_query_records: {type: integer, minimum: 0}
+              direct_candidate_records: {type: integer, minimum: 0}
+              linked_candidate_records: {type: integer, minimum: 0}
+              candidate_link_conflicts: {type: integer, minimum: 0}
+              rejected_link_records: {type: integer, minimum: 0}
+              candidate_count: {type: integer, minimum: 1}
+              truth_scorable: {type: integer, minimum: 0}
+              truth_positive: {type: integer, minimum: 0}
+              truth_negative: {type: integer, minimum: 0}
+              truth_unscorable: {type: integer, minimum: 0}
+              observed_candidates: {type: integer, minimum: 0}
+              observed_truth_scorable_candidates:
+                {type: integer, minimum: 0}
+              inferred_absent_candidates: {type: integer, minimum: 0}
+              inferred_absent_truth_scorable_candidates:
+                {type: integer, minimum: 0}
+              genotype_scorable: {type: integer, minimum: 0}
+              called_candidates: {type: integer, minimum: 0}
+              genotype_correct: {type: integer, minimum: 0}
+              genotype_accuracy:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              called_only_genotype_accuracy:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              genotype_confusion_matrix:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                    minimum: 0
+              genotype_class_metrics:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties: false
+                  required: [truth_count, predicted_count, precision, recall, f1]
+                  properties:
+                    truth_count: {type: integer, minimum: 0}
+                    predicted_count: {type: integer, minimum: 0}
+                    precision:
+                      oneOf:
+                        - type: number
+                          minimum: 0
+                          maximum: 1
+                        - type: "null"
+                    recall:
+                      oneOf:
+                        - type: number
+                          minimum: 0
+                          maximum: 1
+                        - type: "null"
+                    f1: {type: number, minimum: 0, maximum: 1}
+              genotype_macro_f1:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              binary_nonref_confusion:
+                type: object
+                additionalProperties: false
+                required:
+                  - true_positive
+                  - false_positive
+                  - true_negative
+                  - false_negative
+                  - no_call_truth_positive
+                  - no_call_truth_negative
+                properties:
+                  true_positive: {type: integer, minimum: 0}
+                  false_positive: {type: integer, minimum: 0}
+                  true_negative: {type: integer, minimum: 0}
+                  false_negative: {type: integer, minimum: 0}
+                  no_call_truth_positive: {type: integer, minimum: 0}
+                  no_call_truth_negative: {type: integer, minimum: 0}
+              nonref_precision:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              nonref_sensitivity:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              specificity:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              balanced_accuracy:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              nonref_f1:
+                type: number
+                minimum: 0
+                maximum: 1
+              no_call_by_truth_class:
+                type: object
+                additionalProperties:
+                  type: integer
+                  minimum: 0
+              no_call: {type: integer, minimum: 0}
+              hom_ref: {type: integer, minimum: 0}
+              variant: {type: integer, minimum: 0}
+      stratified_summary:
+        type: object
+        additionalProperties:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - stratum
+              - truth_events
+              - query_events
+              - soft_true_positive_count
+              - comparable_score
+              - all_three_correct
+              - exactly_two_correct
+              - exactly_one_correct
+              - none_correct
+            properties:
+              stratum: {type: string, minLength: 1}
+              truth_events: {type: integer, minimum: 0}
+              query_events: {type: integer, minimum: 0}
+              soft_true_positive_count: {type: number, minimum: 0}
+              comparable_score: {type: number, minimum: 0, maximum: 100}
+              all_three_correct: {type: integer, minimum: 0}
+              exactly_two_correct: {type: integer, minimum: 0}
+              exactly_one_correct: {type: integer, minimum: 0}
+              none_correct: {type: integer, minimum: 0}
+      resource_summary:
+        type: object
+        additionalProperties: false
+        required: [cache_policy, measurement_file, repeat_count, median, iqr]
+        properties:
+          cache_policy:
+            const: isolated_empty_tool_cache
+          measurement_file:
+            oneOf:
+              - type: string
+              - type: "null"
+          repeat_count: {type: integer, minimum: 0}
+          median:
+            type: object
+            additionalProperties: {type: number, minimum: 0}
+          iqr:
+            type: object
+            additionalProperties: {type: number, minimum: 0}
   metricRecord:
     type: object
     additionalProperties: false

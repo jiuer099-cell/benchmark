@@ -11,7 +11,12 @@ import sys
 from pathlib import Path
 from typing import TextIO, cast
 
-from build_pangenome_manifest import format_info, infer_svtype, parse_info
+from build_pangenome_manifest import (
+    default_variant_end,
+    format_info,
+    infer_svtype,
+    parse_info,
+)
 
 
 class VcfNormalizationError(ValueError):
@@ -139,9 +144,28 @@ def normalize_vcf(
                 raise VcfNormalizationError(f"invalid POS {pos_raw!r}") from exc
             info = parse_info(fields[7])
             original_svtype = str(info.get("SVTYPE", "."))
-            svtype = infer_svtype(alt, info)
-            end = _parse_integer(info, "END", default=pos)
-            svlen = _parse_integer(info, "SVLEN", default=len(alt) - len(ref))
+            svtype = infer_svtype(alt, info, ref=ref)
+            end = _parse_integer(
+                info,
+                "END",
+                default=default_variant_end(
+                    pos=pos,
+                    ref=ref,
+                    alt=alt,
+                    svtype=svtype,
+                ),
+            )
+            default_svlen = len(alt) - len(ref)
+            if alt.startswith("<") and alt.endswith(">"):
+                span = max(0, end - pos)
+                if svtype == "DEL":
+                    default_svlen = -span
+                elif svtype in {"DUP", "INV"}:
+                    default_svlen = span
+                else:
+                    # Symbolic INS size cannot be inferred from END alone.
+                    default_svlen = 0
+            svlen = _parse_integer(info, "SVLEN", default=default_svlen)
             info["SVTYPE"] = svtype
             info["END"] = str(end)
             info["SVLEN"] = str(svlen)

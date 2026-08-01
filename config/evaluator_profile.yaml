@@ -1,0 +1,71 @@
+schema_version: 1
+
+profile:
+  id: pgbench_evaluators_grch38_v1
+  description: Frozen evaluator, event-matching, genotype, and bootstrap contract.
+
+universe:
+  truth_filter_policy: pass_only
+  query_filter_policy: pass_or_unfiltered
+  minimum_sv_size: 50
+  maximum_sv_size: 10000
+  allowed_svtypes: [DEL, INS]
+  biallelic_only: true
+  multiallelic_policy: exclude
+  region_policy: fully_contained
+
+sv_match:
+  require_same_svtype: true
+  max_breakpoint_distance: 500
+  min_size_similarity: 0.70
+  min_sequence_similarity: 0.70
+  sequence_required_for_resolved_insertions: true
+  one_to_one: true
+
+semantics:
+  primary_vote: detection
+  genotype:
+    require_exact: true
+    require_phase: false
+  no_call_is_incorrect: true
+
+evaluators:
+  truvari:
+    # Truvari is a subcommand CLI; a top-level --version is rejected by
+    # supported 4.x releases. The frozen bench help text is used as the
+    # executable/interface fingerprint and is compared across formal runs.
+    version_args: [bench, --help]
+    extra_args:
+      - --refdist
+      - "500"
+      - --pctsize
+      - "0.70"
+      - --pctseq
+      - "0.70"
+      - --sizemax
+      - "10000"
+  aardvark:
+    version_args: [--version]
+    # Pacific Biosciences recommends a wider clustering gap for SV comparison.
+    extra_args: [--min-variant-gap, "1000"]
+  vcfdist:
+    version_args: [--version]
+    # vcfdist 2.x names the filter --largest-variant. For SV workloads its
+    # own documentation recommends size clustering; the supercluster ceiling
+    # is kept above the frozen 10 kb event envelope.
+    extra_args:
+      - --largest-variant
+      - "10000"
+      - --cluster
+      - size
+      - "100"
+      - --max-supercluster-size
+      - "20000"
+    credit_threshold: 0.70
+
+bootstrap:
+  replicates: 1000
+  confidence_level: 0.95
+  unit: fixed_genomic_block
+  method: paired_genomic_block_bootstrap
+  block_size_bp: 10000000

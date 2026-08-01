@@ -68,10 +68,10 @@ properties:
           - manifest
           - lock_manifest
           - asset_root
+          - profile
           - reference_path
           - excluded_samples
           - gbz
-          - xg
           - min
           - dist
           - sample_list
@@ -83,6 +83,8 @@ properties:
             $ref: "#/$defs/sizedAsset"
           asset_root:
             $ref: "#/$defs/nonEmptyPath"
+          profile:
+            enum: [vg_gbz_min_dist, vg_legacy_xg]
           reference_path:
             type: string
             minLength: 1

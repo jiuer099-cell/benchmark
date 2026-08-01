@@ -39,6 +39,7 @@ def capture_run_context(
     *,
     repo_root: Path,
     score_profile: Path,
+    evaluator_profile: Path | None = None,
     random_seed: int,
     snakemake_version: str,
     execution_profile: str,
@@ -98,7 +99,7 @@ def capture_run_context(
     hardware_bytes = json.dumps(hardware, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
-    return {
+    payload = {
         "schema_version": 1,
         "git_head": git_head,
         "git_dirty": bool(status_bytes),
@@ -115,6 +116,12 @@ def capture_run_context(
         "hardware": hardware,
         "hardware_fingerprint_sha256": _sha256(hardware_bytes),
     }
+    if evaluator_profile is not None:
+        payload["evaluator_profile_path"] = str(evaluator_profile)
+        payload["evaluator_profile_sha256"] = _sha256(
+            evaluator_profile.read_bytes()
+        )
+    return payload
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -131,6 +138,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Snapshot PGBench run context.")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--score-profile", required=True, type=Path)
+    parser.add_argument("--evaluator-profile", type=Path)
     parser.add_argument("--random-seed", required=True, type=int)
     parser.add_argument("--snakemake-version", required=True)
     parser.add_argument("--execution-profile", required=True)
@@ -144,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = capture_run_context(
             repo_root=args.repo_root.resolve(),
             score_profile=args.score_profile,
+            evaluator_profile=args.evaluator_profile,
             random_seed=args.random_seed,
             snakemake_version=args.snakemake_version,
             execution_profile=args.execution_profile,

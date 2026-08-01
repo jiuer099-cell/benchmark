@@ -2,13 +2,13 @@ rule canonicalize_vcf:
     input:
         raw=external_raw_vcf,
         tool_rule_manifest=(
-            "results/provenance/rules/tool__{tool}__execute/"
+            RESULTS_ROOT + "/provenance/rules/tool__{tool}__execute/"
             f"{SAMPLE_ID}.{OFFICIAL_MODE}.json"
         ),
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         reference=config["reference"]["fasta"],
         rule_source="workflow/rules/normalization.smk",
         rule_executor=RULE_EXECUTOR,
@@ -17,21 +17,21 @@ rule canonicalize_vcf:
         provenance_library="workflow/scripts/pgbench_provenance.py",
     output:
         vcf=(
-            f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             "{tool}/canonical/calls.vcf"
         ),
         rule_manifest=(
-            "results/provenance/rules/canonicalize_vcf/"
+            RESULTS_ROOT + "/provenance/rules/canonicalize_vcf/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"logs/rules/canonicalize_vcf/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/canonicalize_vcf/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"benchmarks/rules/canonicalize_vcf/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/canonicalize_vcf/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     conda:
@@ -86,17 +86,17 @@ rule canonicalize_vcf:
 rule link_pangenome_alleles:
     input:
         canonical=(
-            f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             "{tool}/canonical/calls.vcf"
         ),
         canonical_rule_manifest=(
-            "results/provenance/rules/canonicalize_vcf/"
+            RESULTS_ROOT + "/provenance/rules/canonicalize_vcf/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
-        ledger=f"results/pangenome/{PANGENOME_ID}/allele-ledger.tsv",
-        pangenome_manifest=f"results/pangenome/{PANGENOME_ID}/manifest.yaml",
+        ledger=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/allele-ledger.tsv",
+        pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         pangenome_rule_manifest=PANGENOME_RULE_MANIFEST,
-        context="results/provenance/run-context.json",
+        context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
         reference=config["reference"]["fasta"],
@@ -107,25 +107,25 @@ rule link_pangenome_alleles:
         provenance_library="workflow/scripts/pgbench_provenance.py",
     output:
         vcf=(
-            f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             "{tool}/canonical/linked.vcf"
         ),
         links=(
-            f"results/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
             "{tool}/canonical/allele_links.tsv"
         ),
         rule_manifest=(
-            "results/provenance/rules/link_pangenome_alleles/"
+            RESULTS_ROOT + "/provenance/rules/link_pangenome_alleles/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"logs/rules/link_pangenome_alleles/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/link_pangenome_alleles/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"benchmarks/rules/link_pangenome_alleles/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/link_pangenome_alleles/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     conda:

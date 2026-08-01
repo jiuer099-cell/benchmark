@@ -8,8 +8,16 @@ sample:
   id: HG002
   sex: male
   technology: pacbio_clr
+  library_id: synthetic_pacbio
+  source_evidence_id: synthetic_reads
+  coverage_x: 1.0
+  read_count: 1
+  read_bases: 10
+  downsampling_seed: 20260716
   bam: tests/fixtures/synthetic/missing-development-only.bam
   fastq: null
+  fastq_r1: null
+  fastq_r2: null
 
 reference:
   id: grch38
@@ -25,6 +33,7 @@ pangenome:
   excluded_samples: [HG002, NA24385]
   population_vcf: null
   graph_assets:
+    profile: none
     manifest: null
     gbz: null
     xg: null
@@ -41,6 +50,7 @@ catalogs:
   truthsets: config/truthsets.yaml
   stratifications: config/stratifications.yaml
   score_weights: config/consensus_scoring.yaml
+  evaluator_profile: config/evaluator_profile.yaml
   metric_dictionary: config/metric_dictionary.yaml
 
 execution:
@@ -51,6 +61,7 @@ execution:
   use_apptainer: false
   keep_going: true
   benchmark_repeats: 1
+  cache_policy: isolated_empty_tool_cache
   random_seed: 20260717
 
 development:
@@ -71,7 +82,6 @@ evaluation:
   evaluators: [truvari, aardvark, vcfdist]
   truth_vcf: null
   benchmark_bed: null
-  vcfdist_credit_threshold: 0.7
   commands:
     bcftools: [bcftools]
     tabix: [tabix]

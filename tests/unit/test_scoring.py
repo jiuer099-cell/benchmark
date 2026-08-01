@@ -80,14 +80,29 @@ def test_synthetic_result_is_provisional() -> None:
     assert _calculate(_payload(), "synthetic_smoke").score_status == "provisional"
 
 
-def test_counts_must_be_nonnegative_integers_and_nonempty() -> None:
+def test_counts_must_be_nonnegative_integers_and_empty_callsets_score_zero() -> None:
     payload = _payload()
     payload["consensus"]["all_three_correct"] = 1.5
     with pytest.raises(ScoreInputError, match="non-negative integer"):
         _calculate(payload)
     payload = _payload()
     payload["consensus"] = {name: 0 for name in payload["consensus"]}
-    with pytest.raises(ScoreInputError, match="at least one"):
+    result = _calculate(payload)
+    assert result.comparable_score == 0.0
+    assert result.consensus_score == 0.0
+    assert result.total_evaluated == 0
+
+
+def test_soft_true_positive_credit_cannot_exceed_truth_universe() -> None:
+    payload = _payload()
+    payload["truth_eligible_count"] = 10
+    payload["consensus"] = {
+        "all_three_correct": 11,
+        "exactly_two_correct": 0,
+        "exactly_one_correct": 0,
+        "none_correct": 0,
+    }
+    with pytest.raises(ScoreInputError, match="exceeds.*truth universe"):
         _calculate(payload)
 
 

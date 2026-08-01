@@ -5,10 +5,13 @@ It indexes the benchmark-owned phased, sequence-resolved pangenome panel VCF
 with `PanGenie-index`, genotypes one diploid sample with `PanGenie`, and returns
 an all-sites VCF to the common normalization and evaluation stages.
 
-PanGenie does **not** accept PacBio CLR reads. Use an HG002 Illumina paired-end
-dataset combined into one FASTQ stream. Gzip inputs are decompressed into the
-attempt-local temporary directory because PanGenie 4.2.1 requires uncompressed
-FASTA/FASTQ and VCF inputs.
+PanGenie does **not** accept PacBio CLR reads. The formal adapter requires the
+HG002 Illumina R1 and R2 FASTQ files as an explicit, complete pair. It validates
+the pair at the plugin boundary, then combines and decompresses them only inside
+the sandboxed attempt directory because PanGenie 4.2.1 consumes one
+uncompressed k-mer stream.
+
+Formal attempts run without network access in the configured `bwrap` sandbox.
 
 The population VCF must be PanGenie-ready: fully phased from chromosome start
 to end, multi-sample, non-overlapping/multi-allelic where necessary, and

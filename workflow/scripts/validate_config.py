@@ -29,6 +29,12 @@ TASK_TO_STAGE = {
     "genotyping": "genotype",
     "postprocess": "postprocess",
 }
+READ_INPUTS = {"canonical_fastq", "short_fastq_r1", "short_fastq_r2"}
+GRAPH_PROFILE_ASSETS = {
+    "none": set(),
+    "vg_gbz_min_dist": {"manifest", "gbz", "min", "dist", "sample_list"},
+    "vg_legacy_xg": {"manifest", "gbz", "xg", "min", "dist", "sample_list"},
+}
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -83,17 +89,32 @@ def _mode_semantics(tool: Mapping[str, Any]) -> None:
                 raise ConfigValidationError(
                     f"tool {tool['id']} caller-only mode must forbid original_input_bam"
                 )
+            declares_paired_contract = bool(
+                {"short_fastq_r1", "short_fastq_r2"}
+                & (required | optional | forbidden)
+            )
             if (
                 not inputs.get("read_sequences_auxiliary", False)
-                and "canonical_fastq" not in forbidden
+                and declares_paired_contract
+                and not READ_INPUTS.issubset(forbidden)
             ):
                 raise ConfigValidationError(
-                    f"tool {tool['id']} caller-only mode must forbid canonical_fastq"
+                    f"tool {tool['id']} caller-only mode must forbid all FASTQ inputs"
                 )
         if mode == "end_to_end_from_reads":
-            if "canonical_fastq" not in required:
+            has_single = "canonical_fastq" in required
+            has_pair = {"short_fastq_r1", "short_fastq_r2"}.issubset(required)
+            has_partial_pair = bool(
+                {"short_fastq_r1", "short_fastq_r2"} & required
+            ) and not has_pair
+            if not has_single and not has_pair:
                 raise ConfigValidationError(
-                    f"tool {tool['id']} end-to-end mode requires canonical_fastq"
+                    f"tool {tool['id']} end-to-end mode requires canonical_fastq "
+                    "or the complete short_fastq_r1/short_fastq_r2 pair"
+                )
+            if has_partial_pair:
+                raise ConfigValidationError(
+                    f"tool {tool['id']} must require both paired FASTQ inputs"
                 )
             for forbidden_input in ("original_input_bam", "shared_alignment"):
                 if forbidden_input not in forbidden:
@@ -154,6 +175,86 @@ def validate_external_plugins(
     return loaded
 
 
+def _validate_graph_profile(config: Mapping[str, Any]) -> None:
+    pangenome = config["pangenome"]
+    graph = pangenome["graph_assets"]
+    profile = graph["profile"]
+    if profile not in GRAPH_PROFILE_ASSETS:
+        raise ConfigValidationError(f"unsupported graph asset profile {profile!r}")
+    enabled = bool(pangenome["build_graph_assets"])
+    if enabled and profile == "none":
+        raise ConfigValidationError(
+            "build_graph_assets=true requires a non-none graph profile"
+        )
+    if not enabled and profile != "none":
+        raise ConfigValidationError(
+            "build_graph_assets=false requires graph_assets.profile=none"
+        )
+    missing = sorted(
+        name
+        for name in GRAPH_PROFILE_ASSETS[profile]
+        if not isinstance(graph.get(name), str) or not graph[name]
+    )
+    if missing:
+        raise ConfigValidationError(
+            f"graph profile {profile} is missing required assets: {missing}"
+        )
+
+
+def _validate_plugin_compatibility(
+    config: Mapping[str, Any],
+    plugins: Mapping[str, Mapping[str, Any]],
+) -> None:
+    technology = config["sample"]["technology"]
+    mode = config["execution"]["official_score_mode"]
+    synthetic = bool(config.get("development", {}).get("synthetic_mode", False))
+    graph_profile = config["pangenome"]["graph_assets"]["profile"]
+    for plugin_id, manifest in plugins.items():
+        supported_technologies = set(manifest["capabilities"]["technology"])
+        if technology not in supported_technologies:
+            raise ConfigValidationError(
+                f"tool {plugin_id} does not support sample technology {technology}; "
+                f"supported={sorted(supported_technologies)}"
+            )
+        contract = manifest["supported_modes"].get(mode)
+        if not isinstance(contract, Mapping):
+            raise ConfigValidationError(
+                f"tool {plugin_id} does not support official mode {mode}"
+            )
+        required = set(contract["required_inputs"])
+        if mode == "end_to_end_from_reads":
+            canonical = (
+                config["development"].get("canonical_fastq")
+                if synthetic
+                else config["sample"].get("fastq")
+            )
+            if "canonical_fastq" in required and not canonical:
+                raise ConfigValidationError(
+                    f"tool {plugin_id} requires sample.fastq"
+                )
+            for field, contract_name in (
+                ("fastq_r1", "short_fastq_r1"),
+                ("fastq_r2", "short_fastq_r2"),
+            ):
+                if contract_name in required and not config["sample"].get(field):
+                    raise ConfigValidationError(
+                        f"tool {plugin_id} requires sample.{field}"
+                    )
+        if "graph_assets" in required:
+            if graph_profile == "none":
+                raise ConfigValidationError(
+                    f"tool {plugin_id} requires graph assets"
+                )
+            accepted = set(
+                manifest["inputs"]["graph_assets"].get("accepted_profiles", [])
+            )
+            if accepted and graph_profile not in accepted:
+                raise ConfigValidationError(
+                    f"tool {plugin_id} rejects graph profile {graph_profile}; "
+                    f"accepted={sorted(accepted)}"
+                )
+
+
 def validate_configuration(
     config_path: Path,
     *,
@@ -168,6 +269,13 @@ def validate_configuration(
         repo_root=repo_root,
         tool_schema_path=tool_schema_path,
     )
+    _validate_graph_profile(config)
+    _validate_plugin_compatibility(config, plugins)
+    evaluator_profile = (repo_root / config["catalogs"]["evaluator_profile"]).resolve()
+    if not evaluator_profile.is_file():
+        raise ConfigValidationError(
+            f"evaluator profile does not exist: {evaluator_profile}"
+        )
     development = config.get("development", {})
     needs_bam = (
         config["execution"]["official_score_mode"]

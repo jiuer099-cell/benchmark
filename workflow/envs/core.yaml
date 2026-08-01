@@ -4,3 +4,5 @@ dependencies:
   - python=3.12
   - pyyaml>=6,<7
   - jsonschema>=4.23,<5
+  - bcftools=1.24
+  - htslib=1.24

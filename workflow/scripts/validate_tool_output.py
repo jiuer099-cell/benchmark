@@ -149,6 +149,7 @@ def _validate_vcf_records(
     sample_id: str,
     required_candidate_ids: set[str] | None,
 ) -> tuple[int, set[str]]:
+    require_sample_gt = required_candidate_ids is not None
     saw_fileformat = False
     saw_header = False
     sample_index: int | None = None
@@ -165,27 +166,45 @@ def _validate_vcf_records(
                     continue
                 if line.startswith("#CHROM"):
                     fields = line.rstrip("\n").split("\t")
-                    if len(fields) < 10:
+                    if require_sample_gt and len(fields) < 10:
                         raise ToolOutputValidationError(
-                            "tool VCF must contain FORMAT and a sample column"
+                            "all-sites tool VCF must contain FORMAT and a sample "
+                            "column"
                         )
-                    samples = fields[9:]
-                    if samples != [sample_id]:
+                    if len(fields) == 8:
+                        sample_index = None
+                    elif len(fields) == 9:
                         raise ToolOutputValidationError(
-                            "tool VCF must contain exactly one sample named "
-                            f"{sample_id!r}"
+                            "tool VCF cannot declare FORMAT without a sample column"
                         )
-                    sample_index = 9
+                    else:
+                        samples = fields[9:]
+                        if samples != [sample_id]:
+                            raise ToolOutputValidationError(
+                                "tool VCF must contain exactly one sample named "
+                                f"{sample_id!r}"
+                            )
+                        sample_index = 9
                     saw_header = True
                     continue
                 if not line.strip() or line.startswith("#"):
                     continue
-                if not saw_header or sample_index is None:
+                if not saw_header:
                     raise ToolOutputValidationError(
                         "tool VCF record occurs before the #CHROM header"
                     )
                 fields = line.rstrip("\n").split("\t")
-                if len(fields) <= sample_index or len(fields) < 10:
+                if len(fields) < 8:
+                    raise ToolOutputValidationError(
+                        "tool VCF record contains fewer than 8 columns"
+                    )
+                if sample_index is None and len(fields) != 8:
+                    raise ToolOutputValidationError(
+                        "sample-free tool VCF records must contain exactly 8 columns"
+                    )
+                if sample_index is not None and (
+                    len(fields) <= sample_index or len(fields) < 10
+                ):
                     raise ToolOutputValidationError(
                         "tool VCF record does not contain the declared sample"
                     )
@@ -200,22 +219,26 @@ def _validate_vcf_records(
                     raise ToolOutputValidationError(
                         f"duplicate record ID in tool VCF: {record_id}"
                     )
-                format_keys = fields[8].split(":")
-                if "GT" not in format_keys:
-                    raise ToolOutputValidationError(
-                        f"tool VCF record {record_id} has no GT FORMAT field"
-                    )
-                gt_index = format_keys.index("GT")
-                sample_values = fields[sample_index].split(":")
-                if gt_index >= len(sample_values):
-                    raise ToolOutputValidationError(
-                        f"tool VCF record {record_id} has no GT sample value"
-                    )
-                genotype = sample_values[gt_index]
-                if not _GT_RE.fullmatch(genotype):
-                    raise ToolOutputValidationError(
-                        f"tool VCF record {record_id} has invalid GT {genotype!r}"
-                    )
+                if sample_index is not None:
+                    format_keys = fields[8].split(":")
+                    if "GT" not in format_keys:
+                        if require_sample_gt:
+                            raise ToolOutputValidationError(
+                                f"tool VCF record {record_id} has no GT FORMAT field"
+                            )
+                    else:
+                        gt_index = format_keys.index("GT")
+                        sample_values = fields[sample_index].split(":")
+                        if gt_index >= len(sample_values):
+                            raise ToolOutputValidationError(
+                                f"tool VCF record {record_id} has no GT sample value"
+                            )
+                        genotype = sample_values[gt_index]
+                        if not _GT_RE.fullmatch(genotype):
+                            raise ToolOutputValidationError(
+                                f"tool VCF record {record_id} has invalid GT "
+                                f"{genotype!r}"
+                            )
                 record_ids.add(record_id)
                 record_count += 1
     except (OSError, EOFError, UnicodeError, gzip.BadGzipFile) as exc:

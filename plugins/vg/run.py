@@ -30,11 +30,11 @@ def main() -> int:
     output_vcf = Path(required("PGBENCH_OUTPUT_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
     threads = required("PGBENCH_THREADS")
+    reference_path = required("PGBENCH_GRAPH_REFERENCE_PATH")
 
     gbz = graph_dir / "graph.gbz"
     for path in (
         gbz,
-        graph_dir / "graph.xg",
         graph_dir / "graph.min",
         graph_dir / "graph.dist",
     ):
@@ -103,6 +103,8 @@ def main() -> int:
             "-s",
             sample,
             "-z",
+            "--ref-sample",
+            reference_path,
         ],
         stdout=output_vcf,
     )

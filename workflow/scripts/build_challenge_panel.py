@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""Build a blinded genotyping challenge panel.
-
-Phase 1 uses an exact canonical matcher for synthetic fixtures. The matcher
-profile is recorded so these artifacts cannot be mistaken for the formal
-multi-representation HG002 panel.
-"""
+"""Build a truth-blinded challenge panel with frozen tolerant SV matching."""
 
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import gzip
 import hashlib
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import TextIO, cast
 
-from build_pangenome_manifest import format_info, infer_svtype, parse_info
+from build_pangenome_manifest import format_info, parse_info
+from sv_matching import (
+    SvMatchError,
+    genotypes_equal,
+    load_evaluator_profile,
+    load_vcf,
+    one_to_one_match,
+    query_record_in_universe,
+    record_from_fields,
+)
 
 
 class ChallengePanelError(ValueError):
@@ -30,62 +36,65 @@ def _open_text(path: Path, mode: str) -> TextIO:
     return cast(TextIO, path.open(mode, encoding="utf-8"))
 
 
-def _integer_info(info: dict[str, str | bool], key: str, default: int) -> int:
-    value = info.get(key)
-    if value is None or value is True:
-        return default
-    try:
-        return int(str(value).split(",", 1)[0])
-    except ValueError as exc:
-        raise ChallengePanelError(f"{key} must be integer, found {value!r}") from exc
-
-
-def canonical_key(fields: list[str]) -> tuple[str, int, str, str, str, int]:
-    if len(fields) < 8:
-        raise ChallengePanelError("VCF record must contain at least 8 columns")
-    chrom, pos_raw, _, ref, alt = fields[:5]
-    try:
-        pos = int(pos_raw)
-    except ValueError as exc:
-        raise ChallengePanelError(f"invalid POS {pos_raw!r}") from exc
-    info = parse_info(fields[7])
-    svtype = infer_svtype(alt, info)
-    end = _integer_info(info, "END", pos)
-    return chrom, pos, ref, alt, svtype, end
-
-
-def _truth_gt(fields: list[str]) -> str:
-    if len(fields) < 10:
-        return "0/1"
-    format_keys = fields[8].split(":")
-    sample_values = fields[9].split(":")
-    if "GT" not in format_keys:
-        return "0/1"
-    index = format_keys.index("GT")
-    if index >= len(sample_values):
-        return "./."
-    return sample_values[index]
-
-
-def load_truth(path: Path) -> dict[tuple[str, int, str, str, str, int], str]:
-    truth: dict[tuple[str, int, str, str, str, int], str] = {}
-    with _open_text(path, "rt") as handle:
-        for line in handle:
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            key = canonical_key(fields)
-            if key in truth:
-                raise ChallengePanelError(f"duplicate truth key: {key!r}")
-            truth[key] = _truth_gt(fields)
-    if not truth:
-        raise ChallengePanelError("truth VCF contains no records")
-    return truth
-
-
 def _candidate_id(pangenome_allele_id: str, seed: str) -> str:
     digest = hashlib.sha256(f"{seed}\0{pangenome_allele_id}".encode()).hexdigest()
     return f"CAND_{digest[:16]}"
+
+
+def _load_benchmark_regions(
+    path: Path,
+) -> dict[str, tuple[list[int], list[int]]]:
+    raw: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip() or line.startswith(("#", "track", "browser")):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 3:
+                raise ChallengePanelError(
+                    f"malformed BED record at {path}:{line_number}"
+                )
+            try:
+                start, end = int(fields[1]), int(fields[2])
+            except ValueError as exc:
+                raise ChallengePanelError(
+                    f"invalid BED coordinates at {path}:{line_number}"
+                ) from exc
+            if start < 0 or end <= start:
+                raise ChallengePanelError(
+                    f"invalid BED interval at {path}:{line_number}"
+                )
+            raw[fields[0]].append((start, end))
+    if not raw:
+        raise ChallengePanelError(f"benchmark BED contains no regions: {path}")
+    merged: dict[str, tuple[list[int], list[int]]] = {}
+    for contig, intervals in raw.items():
+        compact: list[list[int]] = []
+        for start, end in sorted(intervals):
+            if compact and start <= compact[-1][1]:
+                compact[-1][1] = max(compact[-1][1], end)
+            else:
+                compact.append([start, end])
+        merged[contig] = (
+            [interval[0] for interval in compact],
+            [interval[1] for interval in compact],
+        )
+    return merged
+
+
+def _fully_contained(
+    regions: dict[str, tuple[list[int], list[int]]],
+    *,
+    contig: str,
+    start: int,
+    end: int,
+) -> bool:
+    indexed = regions.get(contig)
+    if indexed is None:
+        return False
+    starts, ends = indexed
+    interval_index = bisect.bisect_right(starts, start) - 1
+    return interval_index >= 0 and ends[interval_index] >= end
 
 
 def build_challenge_panel(
@@ -96,22 +105,80 @@ def build_challenge_panel(
     hidden_ledger: Path,
     audit_json: Path,
     seed: str,
+    evaluator_profile: Path | None = None,
+    benchmark_bed: Path | None = None,
 ) -> dict[str, int | str]:
-    truth = load_truth(truth_vcf)
+    profile_path = evaluator_profile or (
+        Path(__file__).resolve().parents[2] / "config" / "evaluator_profile.yaml"
+    )
+    profile = load_evaluator_profile(profile_path)
+    truth = load_vcf(truth_vcf, prefix="TRUTH")
     output_vcf.parent.mkdir(parents=True, exist_ok=True)
     hidden_ledger.parent.mkdir(parents=True, exist_ok=True)
     audit_json.parent.mkdir(parents=True, exist_ok=True)
 
+    panel_lines: list[str] = []
+    panel_fields: list[list[str]] = []
+    panel_records = []
+    with _open_text(panel_vcf, "rt") as source:
+        for line in source:
+            panel_lines.append(line)
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            panel_fields.append(fields)
+            panel_records.append(
+                record_from_fields(
+                    fields,
+                    prefix="PANEL",
+                    index=len(panel_records),
+                )
+            )
+    if not panel_records:
+        raise ChallengePanelError("panel contains no candidates")
+    if benchmark_bed is None:
+        # Kept for direct library callers and legacy unit fixtures. The
+        # Snakemake/CLI path always supplies the frozen benchmark BED.
+        truth_scorable = [True] * len(panel_records)
+    else:
+        regions = _load_benchmark_regions(benchmark_bed)
+        truth_scorable = [
+            query_record_in_universe(record, profile)
+            and _fully_contained(
+                regions,
+                contig=record.chrom,
+                start=record.pos - 1,
+                end=max(record.pos, record.end),
+            )
+            for record in panel_records
+        ]
+    scoped_indices = [
+        index for index, scorable in enumerate(truth_scorable) if scorable
+    ]
+    scoped_assignments = one_to_one_match(
+        [panel_records[index] for index in scoped_indices],
+        truth,
+        profile,
+    )
+    assignments = {
+        scoped_indices[scoped_index]: match
+        for scoped_index, match in scoped_assignments.items()
+    }
+
     counts = {
         "candidate_count": 0,
+        "truth_scorable_count": 0,
+        "truth_unscorable_count": 0,
         "truth_positive_count": 0,
         "truth_negative_count": 0,
+        "truth_event_match_count": len(assignments),
+        "genotype_exact_count": 0,
     }
     seen_candidate_ids: set[str] = set()
     saw_column_header = False
+    record_index = 0
 
     with (
-        _open_text(panel_vcf, "rt") as source,
         _open_text(output_vcf, "wt") as output,
         hidden_ledger.open("w", encoding="utf-8", newline="") as ledger_handle,
     ):
@@ -122,14 +189,22 @@ def build_challenge_panel(
                 "pangenome_allele_id",
                 "truth_gt",
                 "truth_label",
+                "truth_scorable",
+                "truth_event_id",
                 "match_method",
+                "match_score",
+                "start_distance",
+                "end_distance",
+                "size_similarity",
+                "sequence_similarity",
+                "gt_exact",
             ],
             delimiter="\t",
             lineterminator="\n",
         )
         ledger.writeheader()
 
-        for line in source:
+        for line in panel_lines:
             if line.startswith("##"):
                 if "TRUTH" in line.upper():
                     continue
@@ -151,7 +226,9 @@ def build_challenge_panel(
             if not saw_column_header:
                 raise ChallengePanelError("panel VCF is missing #CHROM header")
 
-            fields = line.rstrip("\n").split("\t")
+            fields = panel_fields[record_index]
+            match = assignments.get(record_index)
+            record_index += 1
             fields = fields[:8]
             info = parse_info(fields[7])
             allele_id = info.get("PANGENOME_ALLELE_ID")
@@ -162,13 +239,47 @@ def build_challenge_panel(
                 raise ChallengePanelError(f"candidate ID collision: {candidate_id}")
             seen_candidate_ids.add(candidate_id)
 
-            key = canonical_key(fields)
-            truth_gt = truth.get(key, "0/0")
-            positive = truth_gt not in {"0/0", "0|0", "./.", ".|."}
-            truth_label = "positive" if positive else "negative"
-            match_method = "synthetic_exact" if key in truth else "no_exact_match"
+            matched_truth = truth[match.truth_index] if match is not None else None
+            candidate_scorable = truth_scorable[record_index - 1]
+            truth_gt = (
+                matched_truth.gt
+                if matched_truth is not None
+                else ("0/0" if candidate_scorable else "./.")
+            )
+            positive = (
+                candidate_scorable
+                and truth_gt not in {"0/0", "0|0", "./.", ".|."}
+            )
+            truth_label = (
+                ("positive" if positive else "negative")
+                if candidate_scorable
+                else "unscorable"
+            )
+            match_method = (
+                "tolerant_one_to_one" if matched_truth is not None else "no_match"
+            )
+            gt_exact = (
+                genotypes_equal(
+                    panel_records[record_index - 1].gt,
+                    truth_gt,
+                    require_phase=bool(
+                        profile["semantics"]["genotype"]["require_phase"]
+                    ),
+                )
+                if matched_truth is not None
+                else False
+            )
             counts["candidate_count"] += 1
-            counts["truth_positive_count" if positive else "truth_negative_count"] += 1
+            counts[
+                "truth_scorable_count"
+                if candidate_scorable
+                else "truth_unscorable_count"
+            ] += 1
+            if candidate_scorable:
+                counts[
+                    "truth_positive_count" if positive else "truth_negative_count"
+                ] += 1
+            counts["genotype_exact_count"] += int(gt_exact)
 
             for leaked_key in list(info):
                 if leaked_key.upper().startswith("TRUTH"):
@@ -182,7 +293,27 @@ def build_challenge_panel(
                     "pangenome_allele_id": allele_id,
                     "truth_gt": truth_gt,
                     "truth_label": truth_label,
+                    "truth_scorable": int(candidate_scorable),
+                    "truth_event_id": (
+                        matched_truth.record_id if matched_truth is not None else ""
+                    ),
                     "match_method": match_method,
+                    "match_score": f"{match.score:.8f}" if match is not None else "",
+                    "start_distance": (
+                        str(match.start_distance) if match is not None else ""
+                    ),
+                    "end_distance": (
+                        str(match.end_distance) if match is not None else ""
+                    ),
+                    "size_similarity": (
+                        f"{match.size_similarity:.8f}" if match is not None else ""
+                    ),
+                    "sequence_similarity": (
+                        ""
+                        if match is None or match.sequence_similarity is None
+                        else f"{match.sequence_similarity:.8f}"
+                    ),
+                    "gt_exact": int(gt_exact),
                 }
             )
 
@@ -195,9 +326,11 @@ def build_challenge_panel(
 
     audit: dict[str, int | str] = {
         **counts,
-        "matcher_profile": "synthetic_exact_v1",
+        "matcher_profile": str(profile["profile"]["id"]),
+        "evaluator_profile_sha256": str(profile["_sha256"]),
         "seed_sha256": hashlib.sha256(seed.encode("utf-8")).hexdigest(),
         "truth_labels_exposed_to_tool": 0,
+        "truth_assignments_one_to_one": 1,
     }
     temporary = audit_json.with_name(f".{audit_json.name}.tmp")
     temporary.write_text(
@@ -214,10 +347,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--panel-vcf", required=True, type=Path)
     parser.add_argument("--truth-vcf", required=True, type=Path)
+    parser.add_argument("--benchmark-bed", required=True, type=Path)
     parser.add_argument("--output-vcf", required=True, type=Path)
     parser.add_argument("--hidden-ledger", required=True, type=Path)
     parser.add_argument("--audit-json", required=True, type=Path)
     parser.add_argument("--seed", required=True)
+    parser.add_argument(
+        "--evaluator-profile",
+        type=Path,
+        default=Path("config/evaluator_profile.yaml"),
+    )
     return parser.parse_args(argv)
 
 
@@ -227,12 +366,14 @@ def main(argv: list[str] | None = None) -> int:
         build_challenge_panel(
             panel_vcf=args.panel_vcf,
             truth_vcf=args.truth_vcf,
+            benchmark_bed=args.benchmark_bed,
             output_vcf=args.output_vcf,
             hidden_ledger=args.hidden_ledger,
             audit_json=args.audit_json,
             seed=args.seed,
+            evaluator_profile=args.evaluator_profile,
         )
-    except (OSError, ChallengePanelError) as exc:
+    except (OSError, ChallengePanelError, SvMatchError) as exc:
         print(f"build_challenge_panel: {exc}", file=sys.stderr)
         return 2
     return 0

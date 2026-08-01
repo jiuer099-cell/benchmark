@@ -1,0 +1,37 @@
+schema_version: 1
+
+region:
+  id: hg002_chr20_smoke
+  sample_id: HG002
+  reference_id: grch38
+  contig: chr20
+  start: 10000000
+  end: 10999999
+
+# Copy this file to <PGBENCH_REAL_REGION_DIR>/region.yaml and materialize every
+# path below from the same genomic interval. These are contract names, not
+# downloadable fixture data.
+resources:
+  reference_fasta: reference/region.fa
+  reference_fai: reference/region.fa.fai
+  reference_dict: reference/region.dict
+  truth_vcf: truth/HG002.truth.vcf.gz
+  truth_vcf_tbi: truth/HG002.truth.vcf.gz.tbi
+  benchmark_bed: truth/benchmark.bed
+  population_vcf: pangenome/population.vcf.gz
+  population_vcf_tbi: pangenome/population.vcf.gz.tbi
+  candidate_vcf: pangenome/candidates.vcf
+  pangenome_manifest: pangenome/manifest.yaml
+  shared_bam: alignments/HG002.region.bam
+  shared_bai: alignments/HG002.region.bam.bai
+  long_fastq: reads/HG002.long.fastq.gz
+  short_fastq_r1: reads/HG002.short.R1.fastq.gz
+  short_fastq_r2: reads/HG002.short.R2.fastq.gz
+  pangenie_panel_vcf: pangenome/pangenie.panel.vcf.gz
+  pangenie_panel_vcf_tbi: pangenome/pangenie.panel.vcf.gz.tbi
+  graph_manifest: graph/graph-assets.lock.yaml
+  graph_gbz: graph/graph.gbz
+  graph_xg: graph/graph.xg
+  graph_min: graph/graph.min
+  graph_dist: graph/graph.dist
+  graph_samples: graph/samples.txt

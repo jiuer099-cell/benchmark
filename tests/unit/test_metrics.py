@@ -72,7 +72,7 @@ def _record(metric_id: str) -> dict:
 
 def _metrics_document() -> dict:
     expected = _expected_tuple()
-    return {
+    document = {
         "schema_version": 1,
         "dictionary_id": "pgbench_metrics_v1",
         "tuple": {
@@ -85,6 +85,15 @@ def _metrics_document() -> dict:
         },
         "records": [_record(metric_id) for metric_id in sorted(_required_metric_ids())],
     }
+    truth = next(
+        record
+        for record in document["records"]
+        if record["metric_id"] == "benchmark.truth.eligible.count"
+    )
+    truth["value"] = 2
+    truth["numerator"] = 2.0
+    truth["eligible_count"] = 2
+    return document
 
 
 def _build(document: dict) -> dict:
@@ -169,7 +178,7 @@ def test_standard_metrics_are_mapped_by_profile_metric_ids() -> None:
         "exactly_one_correct": 1,
         "none_correct": 1,
     }
-    assert payload["truth_eligible_count"] == 1
+    assert payload["truth_eligible_count"] == 2
     assert "traceability" not in payload
 
 
@@ -196,7 +205,12 @@ def test_metric_evaluator_must_match_dictionary_source() -> None:
 
 def test_metric_value_type_must_match_dictionary() -> None:
     document = _metrics_document()
-    document["records"][0]["value_type"] = "ratio"
+    record = next(
+        item
+        for item in document["records"]
+        if item["metric_id"] == "consensus.all_three_correct.count"
+    )
+    record["value_type"] = "ratio"
     with pytest.raises(MetricContractError, match="value_type"):
         _build(document)
 
