@@ -63,6 +63,11 @@ def test_materializes_one_frozen_sv_only_universe(tmp_path: Path) -> None:
     ]
     assert len(records) == 2
     assert records[0][2].startswith("TRUTH_")
+    assert records[0][6] == "PASS"
+    assert records[1][6] == "PASS"
+    assert "##pgbench_truth_universe=PASS," in output.read_text(
+        encoding="utf-8"
+    )
     assert counts == {
         "source_records": 8,
         "excluded_non_pass": 1,

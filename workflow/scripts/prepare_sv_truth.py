@@ -300,7 +300,7 @@ def materialize_plain_truth(
                 continue
             if line.startswith("#CHROM"):
                 output.write(
-                    "##pgbench_truth_universe=PASS_OR_UNFILTERED,"
+                    "##pgbench_truth_universe=PASS,"
                     "FULLY_CONTAINED_BED,SVTYPE,"
                     f"{contract['minimum_sv_size']}<=SVLEN<="
                     f"{contract['maximum_sv_size']}\n"
@@ -320,11 +320,16 @@ def materialize_plain_truth(
                 )
             counts["source_records"] += 1
             # VCF permits both PASS and "." for records without a failing
-            # filter. GIAB assembly-based draft truth uses "." for its
-            # unflagged records and named FILTER values for exclusions.
+            # filter. GIAB assembly-based draft truth uses "." for some
+            # unflagged records. Accept those source records, but normalize
+            # them to PASS in the materialized truth so every downstream
+            # evaluator observes the frozen truth_filter_policy: pass_only
+            # contract literally and reproducibly.
             if contract["pass_only"] and fields[6] not in {"PASS", "."}:
                 counts["excluded_non_pass"] += 1
                 continue
+            if contract["pass_only"] and fields[6] == ".":
+                fields[6] = "PASS"
             info = parse_info(fields[7])
             svtype = infer_svtype(fields[4], info, ref=fields[3])
             if svtype not in allowed:
