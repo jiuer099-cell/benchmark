@@ -51,7 +51,7 @@ pangenome:
     reference_path: GRCh38
 
 truth:
-  primary: giab_hg002_grch38_v5_0q
+  primary: giab_hg002_grch38_t2tq100_v0_9_sv
   secondary: []
 
 catalogs:
@@ -99,8 +99,8 @@ score:
 
 evaluation:
   evaluators: [truvari, aardvark, vcfdist]
-  truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
-  benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
+  truth_vcf: resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz
+  benchmark_bed: resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.benchmark.bed
   commands:
     bcftools: [mamba, run, -n, pgbench-bio, bcftools]
     tabix: [mamba, run, -n, pgbench-bio, tabix]

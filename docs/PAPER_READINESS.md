@@ -15,8 +15,10 @@ benchmark and is not replaced by another dataset.
 - plugin-specific graph-resource profiles and dependency resolution;
 - formal network-isolated execution through `bwrap` or an immutable Apptainer
   container;
-- a frozen biallelic DEL/INS 50-to-10,000-bp universe, with PASS truth, submitted
-  PASS/unfiltered query calls, and full containment in the benchmark BED;
+- a frozen biallelic DEL/INS 50-to-10,000-bp universe from the GIAB HG002
+  GRCh38 T2T-Q100 v0.9 whole-genome draft SV benchmark, with PASS/unfiltered
+  truth and query calls, deterministic duplicate-truth removal, and full
+  containment in the paired benchmark BED;
 - deterministic global one-to-one tolerant matching, so one truth event cannot
   earn duplicate credit;
 - separate detection and hidden candidate-site genotype/no-call semantics,

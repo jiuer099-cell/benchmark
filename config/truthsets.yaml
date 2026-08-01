@@ -3,6 +3,36 @@ reference_id: grch38
 sample_id: HG002
 
 truthsets:
+  giab_hg002_grch38_t2tq100_v0_9_sv:
+    role: primary
+    truth_status: draft
+    release: T2TQ100-V0.9
+    reference_id: grch38
+    sample_id: HG002
+    source_page: https://ftp.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/analysis/NIST_HG002_DraftBenchmark_defrabbV0.011-20230725/
+    files:
+      vcf:
+        name: GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz
+        local_path: resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz
+        sha256: a122d35853f96ec17888f3bcb0b0775b392b7d71a2897f14cdee971ec01dbc5b
+      vcf_index:
+        name: GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz.tbi
+        local_path: resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz.tbi
+        sha256: f2edc5d0c742c96392010cda1d7a6870d8ff4ef9d0be58983d6d8571ef6323e8
+      benchmark_bed:
+        name: GRCh38_HG002-T2TQ100-V0.9_stvar.benchmark.bed
+        local_path: resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.benchmark.bed
+        sha256: e0848252b88890da48a137274aaeec19aae2720b0d45c2564711b80316ebc923
+    filters:
+      pass_only: true
+      inside_benchmark_bed: true
+      region_policy: fully_contained
+      minimum_sv_size: 50
+      allowed_svtypes: [DEL, INS]
+      reject_multiallelic_sv: true
+      multiallelic_policy: exclude
+    required_sha256_before_execution: true
+
   giab_hg002_grch38_v5_0q:
     role: primary
     truth_status: draft
@@ -22,7 +52,7 @@ truthsets:
       benchmark_bed:
         name: HG002_GRCh38_v5.0q_stvar.benchmark.bed
         local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
-        sha256: 2f75ce942e1dd9e1a443e4e04facc640104aae5e23fba24d7d3f2c1f1f9985b00
+        sha256: 2f75ce942e1dd9e1a443e4e04fac640104aae5e23fba24d7d3f2c1f1f9985b00
     filters:
       pass_only: true
       inside_benchmark_bed: true

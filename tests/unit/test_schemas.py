@@ -356,7 +356,7 @@ def test_sample_table_has_the_canonical_hg002_bam() -> None:
 
 def test_truth_and_stratification_profiles_are_frozen() -> None:
     truthsets = _load_yaml(CONFIG / "truthsets.yaml")
-    primary = truthsets["truthsets"]["giab_hg002_grch38_v5_0q"]
+    primary = truthsets["truthsets"]["giab_hg002_grch38_t2tq100_v0_9_sv"]
     assert primary["role"] == "primary"
     assert primary["truth_status"] == "draft"
     assert truthsets["reference_id"] == "grch38"
@@ -364,12 +364,12 @@ def test_truth_and_stratification_profiles_are_frozen() -> None:
         name: asset["sha256"]
         for name, asset in primary["files"].items()
     } == {
-        "vcf": "d66b2d2496ff5418763813d3195599007dbff950514d10e5bc27b6c8b76e34b8",
+        "vcf": "a122d35853f96ec17888f3bcb0b0775b392b7d71a2897f14cdee971ec01dbc5b",
         "vcf_index": (
-            "57898d17e44ecd5c286aeb863f27e613244396a3ad4b04ca79c8add647b8a81d"
+            "f2edc5d0c742c96392010cda1d7a6870d8ff4ef9d0be58983d6d8571ef6323e8"
         ),
         "benchmark_bed": (
-            "2f75ce942e1dd9e1a443e4e04facc640104aae5e23fba24d7d3f2c1f1f9985b00"
+            "e0848252b88890da48a137274aaeec19aae2720b0d45c2564711b80316ebc923"
         ),
     }
 

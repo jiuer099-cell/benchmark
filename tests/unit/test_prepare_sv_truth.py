@@ -37,6 +37,7 @@ def test_materializes_one_frozen_sv_only_universe(tmp_path: Path) -> None:
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
         "chr1\t100\t.\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=200;SVLEN=-100\tGT\t0/1\n"
+        "chr1\t210\tunflagged\tA\t<DEL>\t.\t.\tSVTYPE=DEL;END=310;SVLEN=-100\tGT\t0/1\n"
         "chr1\t250\tbad_filter\tA\t<DEL>\t.\tq10\tSVTYPE=DEL;END=350;SVLEN=-100\tGT\t0/1\n"
         "chr1\t400\tsmall\tA\t<INS>\t.\tPASS\tSVTYPE=INS;SVLEN=20\tGT\t0/1\n"
         "chr1\t450\ttoo_large\tA\t<INS>\t.\tPASS\t"
@@ -60,17 +61,18 @@ def test_materializes_one_frozen_sv_only_universe(tmp_path: Path) -> None:
         for line in output.read_text(encoding="utf-8").splitlines()
         if line and not line.startswith("#")
     ]
-    assert len(records) == 1
+    assert len(records) == 2
     assert records[0][2].startswith("TRUTH_")
     assert counts == {
-        "source_records": 7,
+        "source_records": 8,
         "excluded_non_pass": 1,
         "excluded_outside_bed": 2,
         "excluded_below_minimum_size": 1,
         "excluded_above_maximum_size": 1,
         "excluded_svtype": 1,
         "excluded_multiallelic": 0,
-        "eligible_records": 1,
+        "excluded_duplicate": 0,
+        "eligible_records": 2,
     }
 
 
@@ -99,6 +101,32 @@ def test_excludes_eligible_multiallelic_sv_under_frozen_policy(
     assert counts["excluded_multiallelic"] == 1
     assert counts["eligible_records"] == 1
     assert "\tbiallelic\t" in output.read_text(encoding="utf-8")
+
+
+def test_deduplicates_identical_truth_events(tmp_path: Path) -> None:
+    source = tmp_path / "duplicates.vcf"
+    record = (
+        "chr1\t100\t.\tA\t<DEL>\t.\tPASS\t"
+        "SVTYPE=DEL;END=200;SVLEN=-100\n"
+    )
+    source.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        + record
+        + record,
+        encoding="utf-8",
+    )
+    regions = tmp_path / "benchmark.bed"
+    regions.write_text("chr1\t0\t1000\n", encoding="utf-8")
+    output = tmp_path / "truth.vcf"
+    counts = materialize_plain_truth(
+        source_vcf=source,
+        benchmark_bed=regions,
+        output_vcf=output,
+        contract=CONTRACT,
+    )
+    assert counts["eligible_records"] == 1
+    assert counts["excluded_duplicate"] == 1
 
 
 def _sha(path: Path) -> str:

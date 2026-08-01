@@ -199,7 +199,7 @@ properties:
     required: [primary, secondary]
     properties:
       primary:
-        const: giab_hg002_grch38_v5_0q
+        $ref: "#/$defs/identifier"
       secondary:
         type: array
         uniqueItems: true

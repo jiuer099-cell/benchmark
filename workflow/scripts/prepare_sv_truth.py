@@ -285,6 +285,7 @@ def materialize_plain_truth(
         "excluded_above_maximum_size": 0,
         "excluded_svtype": 0,
         "excluded_multiallelic": 0,
+        "excluded_duplicate": 0,
         "eligible_records": 0,
     }
     saw_header = False
@@ -299,7 +300,8 @@ def materialize_plain_truth(
                 continue
             if line.startswith("#CHROM"):
                 output.write(
-                    "##pgbench_truth_universe=PASS,FULLY_CONTAINED_BED,SVTYPE,"
+                    "##pgbench_truth_universe=PASS_OR_UNFILTERED,"
+                    "FULLY_CONTAINED_BED,SVTYPE,"
                     f"{contract['minimum_sv_size']}<=SVLEN<="
                     f"{contract['maximum_sv_size']}\n"
                 )
@@ -317,7 +319,10 @@ def materialize_plain_truth(
                     f"malformed VCF record at {source_vcf}:{line_number}"
                 )
             counts["source_records"] += 1
-            if contract["pass_only"] and fields[6] != "PASS":
+            # VCF permits both PASS and "." for records without a failing
+            # filter. GIAB assembly-based draft truth uses "." for its
+            # unflagged records and named FILTER values for exclusions.
+            if contract["pass_only"] and fields[6] not in {"PASS", "."}:
                 counts["excluded_non_pass"] += 1
                 continue
             info = parse_info(fields[7])
@@ -358,9 +363,8 @@ def materialize_plain_truth(
             if fields[2] in {"", "."}:
                 fields[2] = _stable_truth_id(fields)
             if fields[2] in seen_ids:
-                raise TruthPreparationError(
-                    f"duplicate eligible truth ID: {fields[2]}"
-                )
+                counts["excluded_duplicate"] += 1
+                continue
             seen_ids.add(fields[2])
             output.write("\t".join(fields) + "\n")
             counts["eligible_records"] += 1
