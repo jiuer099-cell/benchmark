@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,9 +10,27 @@ sys.path.insert(0, str(SCRIPTS))
 from snapshot_run_context import capture_run_context  # noqa: E402
 
 
-def test_run_context_records_dirty_state_and_profile_hash() -> None:
-    root = Path(__file__).resolve().parents[2]
-    profile = root / "config" / "consensus_scoring.yaml"
+def test_run_context_records_dirty_state_and_profile_hash(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    profile = root / "consensus_scoring.yaml"
+    profile.write_text("schema_version: 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "pgbench@example.invalid"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "PGBench Test"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(["git", "add", profile.name], cwd=root, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "fixture"], cwd=root, check=True
+    )
+    profile.write_text("schema_version: 1\nchanged: true\n", encoding="utf-8")
     context = capture_run_context(
         repo_root=root,
         score_profile=profile,
