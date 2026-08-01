@@ -183,6 +183,13 @@ counted, so every evaluator and the final truth denominator consume the same
 unique generated artifact. This GIAB release is a draft and must be described
 as such in publications.
 
+The blinded candidate VCF is restricted to that same frozen DEL/INS, size,
+FILTER, biallelic, and fully-contained BED universe before any genotyper sees
+it. Its hidden ledger contains exactly one row per emitted candidate, while the
+challenge audit records the original panel count and mutually exclusive
+exclusion counts. This prevents unsupported small or multiallelic records from
+changing tool runtime or being silently omitted from scoring.
+
 PanGenie does not need GBZ/XG/min/dist files, but it needs a stricter
 PanGenie-ready VCF graph: multi-sample, fully phased, non-overlapping,
 sequence-resolved, and with HG002/NA24385 removed. That panel is a separate
@@ -408,6 +415,8 @@ snakemake --snakefile Snakefile \
 
 The graph adapter environment installs `graphaligner` and `vg>=1.63`; the
 KanPIG adapter pins KanPIG 2.0.2, and the PanGenie adapter pins PanGenie 4.2.1.
+KanPIG receives the workflow's declared thread allocation through its native
+`--threads` option.
 `pigz` is needed only for the optional BAM to FASTQ command above. Snakemake
 does not download biological resources.
 

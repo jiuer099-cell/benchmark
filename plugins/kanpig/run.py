@@ -20,6 +20,7 @@ def main() -> int:
     alignment = Path(required("PGBENCH_SHARED_ALIGNMENT"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
     output = Path(required("PGBENCH_OUTPUT_VCF"))
+    threads = required("PGBENCH_THREADS")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     command = [
@@ -33,6 +34,8 @@ def main() -> int:
         str(reference),
         "--out",
         str(output),
+        "--threads",
+        threads,
     ]
     completed = subprocess.run(command, check=False)
     return completed.returncode

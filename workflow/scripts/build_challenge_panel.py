@@ -16,12 +16,12 @@ from typing import TextIO, cast
 
 from build_pangenome_manifest import format_info, parse_info
 from sv_matching import (
+    SvRecord,
     SvMatchError,
     genotypes_equal,
     load_evaluator_profile,
     load_vcf,
     one_to_one_match,
-    query_record_in_universe,
     record_from_fields,
 )
 
@@ -97,6 +97,37 @@ def _fully_contained(
     return interval_index >= 0 and ends[interval_index] >= end
 
 
+def _candidate_exclusion_reason(
+    record: SvRecord,
+    profile: dict[str, object],
+    regions: dict[str, tuple[list[int], list[int]]] | None,
+) -> str | None:
+    """Return one exclusive reason why a panel record is outside the universe."""
+
+    universe = profile["universe"]
+    if "," in record.alt:
+        return "multiallelic"
+    if record.svtype not in set(universe["allowed_svtypes"]):
+        return "svtype"
+    size = abs(record.svlen)
+    if not (
+        int(universe["minimum_sv_size"])
+        <= size
+        <= int(universe["maximum_sv_size"])
+    ):
+        return "size"
+    if record.filter_status not in {"PASS", "."}:
+        return "filter"
+    if regions is not None and not _fully_contained(
+        regions,
+        contig=record.chrom,
+        start=record.pos - 1,
+        end=max(record.pos, record.end),
+    ):
+        return "region"
+    return None
+
+
 def build_challenge_panel(
     *,
     panel_vcf: Path,
@@ -117,53 +148,47 @@ def build_challenge_panel(
     hidden_ledger.parent.mkdir(parents=True, exist_ok=True)
     audit_json.parent.mkdir(parents=True, exist_ok=True)
 
-    panel_lines: list[str] = []
+    panel_headers: list[str] = []
     panel_fields: list[list[str]] = []
     panel_records = []
+    regions = (
+        _load_benchmark_regions(benchmark_bed)
+        if benchmark_bed is not None
+        else None
+    )
+    exclusions = {
+        "excluded_multiallelic_count": 0,
+        "excluded_svtype_count": 0,
+        "excluded_size_count": 0,
+        "excluded_filter_count": 0,
+        "excluded_region_count": 0,
+    }
+    source_candidate_count = 0
     with _open_text(panel_vcf, "rt") as source:
         for line in source:
-            panel_lines.append(line)
-            if not line.strip() or line.startswith("#"):
+            if line.startswith("#"):
+                panel_headers.append(line)
+                continue
+            if not line.strip():
                 continue
             fields = line.rstrip("\n").split("\t")
+            source_candidate_count += 1
+            record = record_from_fields(
+                fields,
+                prefix="PANEL",
+                index=source_candidate_count - 1,
+            )
+            reason = _candidate_exclusion_reason(record, profile, regions)
+            if reason is not None:
+                exclusions[f"excluded_{reason}_count"] += 1
+                continue
             panel_fields.append(fields)
-            panel_records.append(
-                record_from_fields(
-                    fields,
-                    prefix="PANEL",
-                    index=len(panel_records),
-                )
-            )
+            panel_records.append(record)
     if not panel_records:
-        raise ChallengePanelError("panel contains no candidates")
-    if benchmark_bed is None:
-        # Kept for direct library callers and legacy unit fixtures. The
-        # Snakemake/CLI path always supplies the frozen benchmark BED.
-        truth_scorable = [True] * len(panel_records)
-    else:
-        regions = _load_benchmark_regions(benchmark_bed)
-        truth_scorable = [
-            query_record_in_universe(record, profile)
-            and _fully_contained(
-                regions,
-                contig=record.chrom,
-                start=record.pos - 1,
-                end=max(record.pos, record.end),
-            )
-            for record in panel_records
-        ]
-    scoped_indices = [
-        index for index, scorable in enumerate(truth_scorable) if scorable
-    ]
-    scoped_assignments = one_to_one_match(
-        [panel_records[index] for index in scoped_indices],
-        truth,
-        profile,
-    )
-    assignments = {
-        scoped_indices[scoped_index]: match
-        for scoped_index, match in scoped_assignments.items()
-    }
+        raise ChallengePanelError(
+            "panel contains no candidates in the frozen universe"
+        )
+    assignments = one_to_one_match(panel_records, truth, profile)
 
     counts = {
         "candidate_count": 0,
@@ -173,6 +198,8 @@ def build_challenge_panel(
         "truth_negative_count": 0,
         "truth_event_match_count": len(assignments),
         "genotype_exact_count": 0,
+        "source_candidate_count": source_candidate_count,
+        **exclusions,
     }
     seen_candidate_ids: set[str] = set()
     saw_column_header = False
@@ -204,7 +231,7 @@ def build_challenge_panel(
         )
         ledger.writeheader()
 
-        for line in panel_lines:
+        for line in panel_headers:
             if line.startswith("##"):
                 if "TRUTH" in line.upper():
                     continue
@@ -221,15 +248,13 @@ def build_challenge_panel(
                 )
                 saw_column_header = True
                 continue
-            if not line.strip():
-                continue
-            if not saw_column_header:
-                raise ChallengePanelError("panel VCF is missing #CHROM header")
+        if not saw_column_header:
+            raise ChallengePanelError("panel VCF is missing #CHROM header")
 
-            fields = panel_fields[record_index]
+        for original_fields in panel_fields:
+            fields = original_fields[:8]
             match = assignments.get(record_index)
             record_index += 1
-            fields = fields[:8]
             info = parse_info(fields[7])
             allele_id = info.get("PANGENOME_ALLELE_ID")
             if not isinstance(allele_id, str) or not allele_id:
@@ -240,21 +265,13 @@ def build_challenge_panel(
             seen_candidate_ids.add(candidate_id)
 
             matched_truth = truth[match.truth_index] if match is not None else None
-            candidate_scorable = truth_scorable[record_index - 1]
             truth_gt = (
                 matched_truth.gt
                 if matched_truth is not None
-                else ("0/0" if candidate_scorable else "./.")
+                else "0/0"
             )
-            positive = (
-                candidate_scorable
-                and truth_gt not in {"0/0", "0|0", "./.", ".|."}
-            )
-            truth_label = (
-                ("positive" if positive else "negative")
-                if candidate_scorable
-                else "unscorable"
-            )
+            positive = truth_gt not in {"0/0", "0|0", "./.", ".|."}
+            truth_label = "positive" if positive else "negative"
             match_method = (
                 "tolerant_one_to_one" if matched_truth is not None else "no_match"
             )
@@ -270,15 +287,10 @@ def build_challenge_panel(
                 else False
             )
             counts["candidate_count"] += 1
+            counts["truth_scorable_count"] += 1
             counts[
-                "truth_scorable_count"
-                if candidate_scorable
-                else "truth_unscorable_count"
+                "truth_positive_count" if positive else "truth_negative_count"
             ] += 1
-            if candidate_scorable:
-                counts[
-                    "truth_positive_count" if positive else "truth_negative_count"
-                ] += 1
             counts["genotype_exact_count"] += int(gt_exact)
 
             for leaked_key in list(info):
@@ -293,7 +305,7 @@ def build_challenge_panel(
                     "pangenome_allele_id": allele_id,
                     "truth_gt": truth_gt,
                     "truth_label": truth_label,
-                    "truth_scorable": int(candidate_scorable),
+                    "truth_scorable": 1,
                     "truth_event_id": (
                         matched_truth.record_id if matched_truth is not None else ""
                     ),
@@ -331,6 +343,8 @@ def build_challenge_panel(
         "seed_sha256": hashlib.sha256(seed.encode("utf-8")).hexdigest(),
         "truth_labels_exposed_to_tool": 0,
         "truth_assignments_one_to_one": 1,
+        "candidate_ledger_matches_emitted_vcf": 1,
+        "excluded_counts_are_mutually_exclusive": 1,
     }
     temporary = audit_json.with_name(f".{audit_json.name}.tmp")
     temporary.write_text(
