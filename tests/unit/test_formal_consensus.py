@@ -28,6 +28,7 @@ from run_formal_evaluator import (  # noqa: E402
     command_prefix,
     parse_aardvark,
     parse_vcfdist,
+    write_variant_query,
 )
 from sv_matching import SvRecord, load_evaluator_profile  # noqa: E402
 
@@ -65,6 +66,31 @@ def write_query(path: Path) -> None:
         "chr1\t20\tCANON_B\tAT\tA\t.\tPASS\tSVTYPE=DEL\tGT\t0/1\n",
         encoding="utf-8",
     )
+
+
+def test_evaluator_query_has_canonical_sv_and_ft_headers(tmp_path: Path) -> None:
+    source = tmp_path / "source.vcf"
+    destination = tmp_path / "query.vcf"
+    source.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##FORMAT=<ID=FT,Number=1,Type=Integer,Description="bad upstream type">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tKEEP\tA\t<INS>\t.\tPASS\tSVTYPE=INS;END=10;SVLEN=50\tGT:FT\t0/1:PASS\n"
+        "chr1\t20\tDROP\tAT\tA\t.\tPASS\tSVTYPE=DEL;END=21;SVLEN=-1\tGT:FT\t0/1:PASS\n",
+        encoding="utf-8",
+    )
+
+    write_variant_query(source, destination, {"KEEP"})
+
+    text = destination.read_text(encoding="utf-8")
+    assert text.count("##INFO=<ID=SVTYPE,") == 1
+    assert text.count("##INFO=<ID=END,") == 1
+    assert text.count("##INFO=<ID=SVLEN,") == 1
+    assert text.count("##FORMAT=<ID=FT,") == 1
+    assert "##FORMAT=<ID=FT,Number=1,Type=String," in text
+    assert "bad upstream type" not in text
+    assert "\tKEEP\t" in text
+    assert "\tDROP\t" not in text
 
 
 def write_votes(path: Path, evaluator: str, votes: list[tuple[str, int]]) -> None:

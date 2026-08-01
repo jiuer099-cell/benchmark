@@ -60,6 +60,26 @@ LEDGER_FIELDS = [
 ]
 
 
+CANONICAL_VCF_HEADER_LINES = {
+    "INFO:SVTYPE": (
+        '##INFO=<ID=SVTYPE,Number=1,Type=String,'
+        'Description="Type of structural variant">\n'
+    ),
+    "INFO:END": (
+        '##INFO=<ID=END,Number=1,Type=Integer,'
+        'Description="End position of the structural variant">\n'
+    ),
+    "INFO:SVLEN": (
+        '##INFO=<ID=SVLEN,Number=.,Type=Integer,'
+        'Description="Difference in length between REF and ALT alleles">\n'
+    ),
+    "FORMAT:FT": (
+        '##FORMAT=<ID=FT,Number=1,Type=String,'
+        'Description="Sample-level genotype filter">\n'
+    ),
+}
+
+
 def open_text(path: Path) -> TextIO:
     if path.suffix == ".gz":
         return gzip.open(path, "rt", encoding="utf-8")
@@ -257,8 +277,39 @@ def fully_contained(
 
 
 def write_variant_query(source: Path, destination: Path, allowed_ids: set[str]) -> None:
+    """Write evaluator input with canonical definitions for fields we emit.
+
+    Upstream callers sometimes omit INFO declarations or declare FORMAT/FT as
+    an integer flag.  htslib may tolerate those records while formal
+    evaluators reject them, so the benchmark owns and freezes these four
+    definitions in its evaluator-facing VCF.
+    """
+
+    replaced = set(CANONICAL_VCF_HEADER_LINES)
     with open_text(source) as reader, destination.open("w", encoding="utf-8") as writer:
         for line in reader:
+            if line.startswith("##INFO=<ID=SVTYPE,"):
+                replaced.discard("INFO:SVTYPE")
+                writer.write(CANONICAL_VCF_HEADER_LINES["INFO:SVTYPE"])
+                continue
+            if line.startswith("##INFO=<ID=END,"):
+                replaced.discard("INFO:END")
+                writer.write(CANONICAL_VCF_HEADER_LINES["INFO:END"])
+                continue
+            if line.startswith("##INFO=<ID=SVLEN,"):
+                replaced.discard("INFO:SVLEN")
+                writer.write(CANONICAL_VCF_HEADER_LINES["INFO:SVLEN"])
+                continue
+            if line.startswith("##FORMAT=<ID=FT,"):
+                replaced.discard("FORMAT:FT")
+                writer.write(CANONICAL_VCF_HEADER_LINES["FORMAT:FT"])
+                continue
+            if line.startswith("#CHROM"):
+                for key in sorted(replaced):
+                    writer.write(CANONICAL_VCF_HEADER_LINES[key])
+                replaced.clear()
+                writer.write(line)
+                continue
             if line.startswith("#"):
                 writer.write(line)
                 continue
@@ -606,13 +657,24 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 threads=args.threads,
             )
             with (work / "evaluator.log").open("w", encoding="utf-8") as log:
-                subprocess.run(
-                    command,
-                    check=True,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
+                try:
+                    subprocess.run(
+                        command,
+                        check=True,
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                except subprocess.CalledProcessError as error:
+                    log.flush()
+                    evaluator_log = (work / "evaluator.log").read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    tail = "\n".join(evaluator_log.splitlines()[-80:])
+                    raise FormalEvaluatorError(
+                        f"{args.evaluator} exited with status {error.returncode}. "
+                        f"Evaluator log tail:\n{tail or '<empty>'}"
+                    ) from error
             if args.evaluator == "truvari":
                 _, evaluator_votes = parse_truvari(prepared, artifacts)
             elif args.evaluator == "aardvark":
