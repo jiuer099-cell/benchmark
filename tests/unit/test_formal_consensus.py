@@ -25,10 +25,36 @@ from materialize_formal_consensus_metrics import (  # noqa: E402
 )
 from run_formal_evaluator import (  # noqa: E402
     build_command,
+    command_prefix,
     parse_aardvark,
     parse_vcfdist,
 )
 from sv_matching import SvRecord, load_evaluator_profile  # noqa: E402
+
+
+def test_named_mamba_evaluator_resolves_to_concurrency_safe_binary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "mamba"
+    executable = root / "envs" / "eval-truvari" / "bin" / "truvari"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("fixture\n", encoding="utf-8")
+    monkeypatch.setenv("MAMBA_ROOT_PREFIX", str(root))
+    config = {
+        "evaluation": {
+            "commands": {
+                "truvari": [
+                    "mamba",
+                    "run",
+                    "-n",
+                    "eval-truvari",
+                    "truvari",
+                ]
+            }
+        }
+    }
+    assert command_prefix(config, "truvari") == [str(executable.resolve())]
 
 
 def write_query(path: Path) -> None:

@@ -273,7 +273,23 @@ def command_prefix(config: dict[str, Any], evaluator: str) -> list[str]:
         isinstance(item, str) and item for item in value
     ):
         raise FormalEvaluatorError(f"invalid command prefix for {evaluator}")
-    return list(value)
+    command = list(value)
+    # `mamba run -n ...` may contend on shared wrapper/lock state when the
+    # three formal evaluators launch concurrently. Resolve the conventional
+    # named-environment form to its immutable executable whenever available.
+    if len(command) >= 5 and command[:3] == ["mamba", "run", "-n"]:
+        environment_name = command[3]
+        executable = command[4]
+        roots = []
+        configured_root = os.environ.get("MAMBA_ROOT_PREFIX")
+        if configured_root:
+            roots.append(Path(configured_root))
+        roots.append(Path.home() / ".local" / "share" / "mamba")
+        for root in roots:
+            candidate = root / "envs" / environment_name / "bin" / executable
+            if candidate.is_file():
+                return [str(candidate.resolve()), *command[5:]]
+    return command
 
 
 def build_command(
