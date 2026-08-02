@@ -131,6 +131,47 @@ def aardvark_record_key(fields: list[str]) -> tuple[str, int, str, str]:
     return chrom, pos, ref, alt
 
 
+def vcfdist_record_key(fields: list[str]) -> tuple[str, int, str, str]:
+    """Mirror vcfdist's internal variant representation used in query.tsv.
+
+    vcfdist writes zero-based positions.  For length-changing alleles it trims
+    their common prefix and suffix and advances the position by the prefix
+    length; either emitted allele may consequently be empty.
+    """
+    chrom, vcf_pos, ref, alt = record_key(fields)
+    if "," in alt:
+        raise FormalEvaluatorError(
+            "vcfdist formal query must be biallelic, but encountered "
+            f"{chrom}:{vcf_pos} {ref}>{alt}"
+        )
+    position = vcf_pos - 1
+    ref_length = len(ref)
+    alt_length = len(alt)
+    if alt_length != ref_length:
+        prefix_limit = min(ref_length, alt_length)
+        prefix = 0
+        while prefix < prefix_limit and ref[prefix] == alt[prefix]:
+            prefix += 1
+
+        ref_end = ref_length
+        alt_end = alt_length
+        while (
+            ref_end > prefix
+            and alt_end > prefix
+            and ref[ref_end - 1] == alt[alt_end - 1]
+        ):
+            ref_end -= 1
+            alt_end -= 1
+
+        position += prefix
+        ref = ref[prefix:ref_end]
+        alt = alt[prefix:alt_end]
+    elif ref_length > 1 and ref[1:] == alt[1:]:
+        ref = ref[0]
+        alt = alt[0]
+    return chrom, position, ref, alt
+
+
 def query_universe(
     path: Path,
     *,
@@ -247,7 +288,7 @@ def parse_vcfdist(
         for row in reader:
             key = (
                 row["CONTIG"],
-                int(row["POS"]) + 1,
+                int(row["POS"]),
                 row["REF"],
                 row["ALT"],
             )
@@ -256,7 +297,7 @@ def parse_vcfdist(
         key: [sum(values) / len(values) >= credit_threshold]
         for key, values in credits.items()
     }
-    return _resolve_votes(query, {}, decisions)
+    return _resolve_votes(query, {}, decisions, key_fn=vcfdist_record_key)
 
 
 def load_regions(path: Path) -> dict[str, tuple[list[int], list[int]]]:

@@ -206,8 +206,8 @@ def test_aardvark_and_vcfdist_are_mapped_to_same_query_universe(
     vcfdist.mkdir()
     (vcfdist / "query.tsv").write_text(
         "CONTIG\tPOS\tHAP\tREF\tALT\tCREDIT\n"
-        "chr1\t9\t0\tA\tAT\t1.0\n"
-        "chr1\t19\t0\tAT\tA\t0.3\n",
+        "chr1\t10\t0\t\tT\t1.0\n"
+        "chr1\t20\t0\tT\t\t0.3\n",
         encoding="utf-8",
     )
     order, votes = parse_vcfdist(query, vcfdist, credit_threshold=0.7)
