@@ -131,12 +131,13 @@ def aardvark_record_key(fields: list[str]) -> tuple[str, int, str, str]:
     return chrom, pos, ref, alt
 
 
-def vcfdist_record_key(fields: list[str]) -> tuple[str, int, str, str]:
+def vcfdist_record_keys(fields: list[str]) -> list[tuple[str, int, str, str]]:
     """Mirror vcfdist's internal variant representation used in query.tsv.
 
     vcfdist writes zero-based positions.  For length-changing alleles it trims
     their common prefix and suffix and advances the position by the prefix
-    length; either emitted allele may consequently be empty.
+    length; either emitted allele may consequently be empty.  Remaining
+    complex alleles are emitted as separate insertion and deletion components.
     """
     chrom, vcf_pos, ref, alt = record_key(fields)
     if "," in alt:
@@ -147,6 +148,7 @@ def vcfdist_record_key(fields: list[str]) -> tuple[str, int, str, str]:
     position = vcf_pos - 1
     ref_length = len(ref)
     alt_length = len(alt)
+    complex_variant = False
     if alt_length != ref_length:
         prefix_limit = min(ref_length, alt_length)
         prefix = 0
@@ -166,10 +168,19 @@ def vcfdist_record_key(fields: list[str]) -> tuple[str, int, str, str]:
         position += prefix
         ref = ref[prefix:ref_end]
         alt = alt[prefix:alt_end]
+        complex_variant = bool(ref and alt)
     elif ref_length > 1 and ref[1:] == alt[1:]:
         ref = ref[0]
         alt = alt[0]
-    return chrom, position, ref, alt
+    elif ref_length > 1:
+        complex_variant = True
+
+    if complex_variant:
+        return [
+            (chrom, position, "", alt),
+            (chrom, position, ref, ""),
+        ]
+    return [(chrom, position, ref, alt)]
 
 
 def query_universe(
@@ -293,11 +304,37 @@ def parse_vcfdist(
                 row["ALT"],
             )
             credits[key].append(float(row["CREDIT"]))
-    decisions = {
-        key: [sum(values) / len(values) >= credit_threshold]
-        for key, values in credits.items()
-    }
-    return _resolve_votes(query, {}, decisions, key_fn=vcfdist_record_key)
+    order: list[str] = []
+    votes: dict[str, bool] = {}
+    key_owners: dict[tuple[str, int, str, str], str] = {}
+    for fields in vcf_records(query):
+        result_id = fields[2]
+        if not result_id or result_id == ".":
+            raise FormalEvaluatorError("canonical query VCF contains an empty ID")
+        if result_id in votes:
+            raise FormalEvaluatorError(f"duplicate canonical query ID: {result_id}")
+
+        component_values: list[float] = []
+        for key in vcfdist_record_keys(fields):
+            owner = key_owners.setdefault(key, result_id)
+            if owner != result_id:
+                raise FormalEvaluatorError(
+                    "vcfdist normalization ambiguously maps query results "
+                    f"{owner} and {result_id} to {key}"
+                )
+            values = credits.get(key, [])
+            if not values:
+                raise FormalEvaluatorError(
+                    f"evaluator did not classify query result {result_id} "
+                    f"component {key}"
+                )
+            component_values.extend(values)
+
+        order.append(result_id)
+        votes[result_id] = (
+            sum(component_values) / len(component_values) >= credit_threshold
+        )
+    return order, votes
 
 
 def load_regions(path: Path) -> dict[str, tuple[list[int], list[int]]]:
@@ -821,7 +858,18 @@ def run_evaluator(args: argparse.Namespace) -> None:
             raise
         shutil.rmtree(backup, ignore_errors=True)
     except BaseException:
-        shutil.rmtree(work, ignore_errors=True)
+        # Preserve the newest failed evaluator workspace for diagnosis.  Formal
+        # evaluators can run for hours, and deleting query.tsv/evaluator.log on
+        # failure makes a reproducible parser or tool incompatibility needlessly
+        # expensive to investigate.  The hidden sibling is replaced atomically
+        # by the next failure and is never treated as a completed result.
+        failed = args.output_dir.with_name(f".{args.output_dir.name}.failed")
+        shutil.rmtree(failed, ignore_errors=True)
+        if work.exists():
+            try:
+                work.replace(failed)
+            except OSError:
+                shutil.rmtree(work, ignore_errors=True)
         raise
 
 

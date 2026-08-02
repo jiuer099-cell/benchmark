@@ -240,6 +240,32 @@ def test_aardvark_output_suffix_trimming_and_missing_ids_are_mapped(
     assert votes == {"CANON_TRIMMED": True}
 
 
+def test_vcfdist_complex_and_homozygous_components_map_to_one_event(
+    tmp_path: Path,
+) -> None:
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tCANON_COMPLEX\tGAAA\tGCC\t.\tPASS\tSVTYPE=DEL\tGT\t1|1\n",
+        encoding="utf-8",
+    )
+    vcfdist = tmp_path / "vcfdist"
+    vcfdist.mkdir()
+    (vcfdist / "query.tsv").write_text(
+        "CONTIG\tPOS\tHAP\tREF\tALT\tCREDIT\n"
+        "chr1\t100\t0\t\tCC\t1.0\n"
+        "chr1\t100\t1\t\tCC\t0.8\n"
+        "chr1\t100\t0\tAAA\t\t0.9\n"
+        "chr1\t100\t1\tAAA\t\t0.7\n",
+        encoding="utf-8",
+    )
+
+    order, votes = parse_vcfdist(query, vcfdist, credit_threshold=0.7)
+    assert order == ["CANON_COMPLEX"]
+    assert votes == {"CANON_COMPLEX": True}
+
+
 def test_evaluator_commands_freeze_the_common_maximum_size(
     tmp_path: Path,
 ) -> None:
