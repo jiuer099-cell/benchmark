@@ -135,6 +135,62 @@ def validate_pangenie_panel(path: Path) -> None:
         raise RuntimeError("PanGenie panel contains no variant records")
 
 
+def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
+    """Drop records that cannot be indexed without inventing panel genotypes.
+
+    PanGenie requires every population-panel genotype to be complete and phased.
+    Population releases can contain a small number of missing or unphased calls.
+    Imputing those calls would leak an unsupported assumption into the benchmark,
+    so the formal adapter excludes the affected record from the private index and
+    later emits an explicit no-call for its blinded candidate.
+    """
+
+    samples: list[str] | None = None
+    kept = 0
+    dropped = 0
+    with source.open("r", encoding="utf-8") as input_handle, destination.open(
+        "w", encoding="utf-8"
+    ) as output_handle:
+        for line_number, raw_line in enumerate(input_handle, start=1):
+            if raw_line.startswith("##") or not raw_line.strip():
+                output_handle.write(raw_line)
+                continue
+            fields = raw_line.rstrip("\n").split("\t")
+            if raw_line.startswith("#CHROM"):
+                samples = fields[9:]
+                output_handle.write(raw_line)
+                continue
+            if samples is None:
+                raise RuntimeError("PanGenie panel has no #CHROM header")
+            if len(fields) != 9 + len(samples):
+                raise RuntimeError(
+                    f"PanGenie panel line {line_number} has inconsistent sample columns"
+                )
+            format_fields = fields[8].split(":")
+            if "GT" not in format_fields:
+                raise RuntimeError(
+                    f"PanGenie panel line {line_number} has no GT field"
+                )
+            gt_index = format_fields.index("GT")
+            usable = True
+            for sample_value in fields[9:]:
+                values = sample_value.split(":")
+                genotype = values[gt_index] if gt_index < len(values) else ""
+                if "|" not in genotype or "." in genotype:
+                    usable = False
+                    break
+            if usable:
+                output_handle.write(raw_line)
+                kept += 1
+            else:
+                dropped += 1
+    if kept == 0:
+        raise RuntimeError(
+            "PanGenie panel has no records with complete phased genotypes"
+        )
+    return kept, dropped
+
+
 def open_text(path: Path, mode: str) -> TextIO:
     if path.suffix.casefold() == ".gz":
         return gzip.open(path, mode, encoding="utf-8")
@@ -180,13 +236,13 @@ def remap_to_candidate_ids(
     if not by_record:
         raise RuntimeError("candidate VCF contains no records")
 
-    observed: set[str] = set()
-    with generated.open("r", encoding="utf-8") as source, destination.open(
-        "w", encoding="utf-8"
-    ) as output:
+    generated_headers: list[str] = []
+    generated_by_candidate: dict[str, list[str]] = {}
+    with generated.open("r", encoding="utf-8") as source:
         for line_number, line in enumerate(source, start=1):
             if not line.strip() or line.startswith("#"):
-                output.write(line)
+                if line.strip():
+                    generated_headers.append(line)
                 continue
             fields = line.rstrip("\n").split("\t")
             if len(fields) < 8:
@@ -204,17 +260,36 @@ def remap_to_candidate_ids(
                     "PanGenie output contains a record outside the blinded "
                     f"candidate universe at line {line_number}"
                 )
-            if candidate_id in observed:
+            if candidate_id in generated_by_candidate:
                 raise RuntimeError(
                     f"PanGenie output duplicates candidate {candidate_id}"
                 )
-            observed.add(candidate_id)
             fields[2] = candidate_id
-            output.write("\t".join(fields) + "\n")
-    missing = sorted(set(by_record.values()) - observed)
-    if missing:
+            generated_by_candidate[candidate_id] = fields
+
+    with destination.open("w", encoding="utf-8") as output:
+        output.writelines(generated_headers)
+        with open_text(candidate_vcf, "rt") as candidates:
+            for line_number, line in enumerate(candidates, start=1):
+                if not line.strip() or line.startswith("#"):
+                    continue
+                candidate_fields = line.rstrip("\n").split("\t")
+                candidate_id = candidate_fields[2]
+                generated_fields = generated_by_candidate.pop(candidate_id, None)
+                if generated_fields is not None:
+                    output.write("\t".join(generated_fields) + "\n")
+                    continue
+                if len(candidate_fields) < 8:
+                    raise RuntimeError(
+                        f"candidate VCF line {line_number} is malformed"
+                    )
+                # Preserve the blinded candidate and explicitly represent the
+                # genotype as unavailable instead of guessing a reference call.
+                output.write("\t".join(candidate_fields[:8] + ["GT", "./."]) + "\n")
+    if generated_by_candidate:
         raise RuntimeError(
-            f"PanGenie output omitted {len(missing)} blinded candidate records"
+            "PanGenie output contains candidates absent from the blinded panel: "
+            + ", ".join(sorted(generated_by_candidate)[:5])
         )
 
 
@@ -239,7 +314,19 @@ def main() -> int:
             read2,
             temporary / "reads.fastq",
         )
-        staged_panel = stage_uncompressed(panel, temporary / "panel.vcf")
+        staged_panel_source = stage_uncompressed(
+            panel, temporary / "panel.source.vcf"
+        )
+        staged_panel = temporary / "panel.vcf"
+        kept_records, dropped_records = filter_pangenie_panel(
+            staged_panel_source,
+            staged_panel,
+        )
+        print(
+            "PanGenie panel genotype filter: "
+            f"kept={kept_records} dropped_to_no_call={dropped_records}",
+            flush=True,
+        )
         staged_reference = stage_uncompressed(reference, temporary / "reference.fa")
         validate_pangenie_panel(staged_panel)
         index_prefix = temporary / "panel-index"

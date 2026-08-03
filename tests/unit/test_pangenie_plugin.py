@@ -61,6 +61,22 @@ def test_overlapping_records_are_rejected(tmp_path: Path) -> None:
         MODULE.validate_pangenie_panel(panel)
 
 
+def test_unphased_panel_records_are_filtered_without_imputation(
+    tmp_path: Path,
+) -> None:
+    source = write_panel(tmp_path / "source.vcf")
+    with source.open("a", encoding="utf-8") as handle:
+        handle.write("chr1\t20\tv2\tA\tAG\t.\tPASS\tEND=20\tGT\t./.\n")
+    filtered = tmp_path / "filtered.vcf"
+
+    kept, dropped = MODULE.filter_pangenie_panel(source, filtered)
+
+    assert (kept, dropped) == (1, 1)
+    assert "\tv1\t" in filtered.read_text(encoding="utf-8")
+    assert "\tv2\t" not in filtered.read_text(encoding="utf-8")
+    MODULE.validate_pangenie_panel(filtered)
+
+
 def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.vcf"
     candidate.write_text(
@@ -87,3 +103,37 @@ def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:
     ]
     assert records[0][2] == "CAND_alpha"
     assert records[0][9] == "0/1"
+
+
+def test_filtered_candidate_is_preserved_as_explicit_no_call(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.vcf"
+    candidate.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tCAND_alpha\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t./.\n"
+        "chr1\t20\tCAND_beta\tA\tAG\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_beta\tGT\t./.\n",
+        encoding="utf-8",
+    )
+    generated = tmp_path / "generated.vcf"
+    generated.write_text(
+        "##fileformat=VCFv4.2\n"
+        "##FORMAT=<ID=GT,Number=1,Type=String,Description=Genotype>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tpanel-id\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "output.vcf"
+
+    MODULE.remap_to_candidate_ids(generated, candidate, output)
+
+    records = [
+        line.split("\t")
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert [record[2] for record in records] == ["CAND_alpha", "CAND_beta"]
+    assert records[0][9] == "0/1"
+    assert records[1][9] == "./."

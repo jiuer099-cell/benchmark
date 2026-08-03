@@ -16,3 +16,8 @@ Formal attempts run without network access in the configured `bwrap` sandbox.
 The population VCF must be PanGenie-ready: fully phased from chromosome start
 to end, multi-sample, non-overlapping/multi-allelic where necessary, and
 sequence-resolved. HG002/NA24385 must not be a panel sample.
+
+Population-release records containing any missing or unphased panel genotype
+are excluded from PanGenie's private index rather than imputed. Their blinded
+candidate records remain in the all-sites output with an explicit `./.` no-call,
+so detection, genotype correctness, and no-call accounting remain distinct.
