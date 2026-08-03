@@ -1,7 +1,7 @@
 def pre_score_manifest_paths(wildcards):
     tool_job = f"{SAMPLE_ID}.{OFFICIAL_MODE}"
     core_job = f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}"
-    return [
+    manifests = [
         VALIDATE_MANIFEST,
         CONTEXT_MANIFEST,
         PANGENOME_RULE_MANIFEST,
@@ -14,12 +14,30 @@ def pre_score_manifest_paths(wildcards):
         semantic_rule_manifest("link_pangenome_alleles", core_job),
         semantic_rule_manifest("fuse_evaluator_metrics", core_job),
     ]
+    if not SYNTHETIC_MODE:
+        # Formal evaluator manifests depend on the prepared truth manifest,
+        # and the fused metrics manifest depends on every evaluator manifest.
+        # Include the complete ancestry so lineage validation does not mistake
+        # these deliberately generated upstream records for missing nodes.
+        manifests.extend(
+            [
+                PRIMARY_TRUTH_RULE_MANIFEST,
+                *[
+                    semantic_rule_manifest(
+                        f"evaluate_{evaluator}",
+                        core_job,
+                    )
+                    for evaluator in FORMAL_EVALUATORS
+                ],
+            ]
+        )
+    return manifests
 
 
 def expected_pre_score_jobs(wildcards):
     tool_job = f"{SAMPLE_ID}.{OFFICIAL_MODE}"
     core_job = f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}"
-    return [
+    jobs = [
         "validate_config=config",
         "snapshot_run_context=context",
         f"build_pangenome_manifest={PANGENOME_ID}",
@@ -29,6 +47,17 @@ def expected_pre_score_jobs(wildcards):
         f"link_pangenome_alleles={core_job}",
         f"fuse_evaluator_metrics={core_job}",
     ]
+    if not SYNTHETIC_MODE:
+        jobs.extend(
+            [
+                f"prepare_primary_truth={config['truth']['primary']}",
+                *[
+                    f"evaluate_{evaluator}={core_job}"
+                    for evaluator in FORMAL_EVALUATORS
+                ],
+            ]
+        )
+    return jobs
 
 
 def pre_score_artifact_paths(wildcards):
