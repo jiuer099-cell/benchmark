@@ -643,7 +643,11 @@ def _replay_pre_score_audit(
         target_manifest_ids=target_ids,
         workspace_root=workspace_root,
         require_companions=True,
-        verify_paths=True,
+        # seal_score_package has already verified every supplied manifest and
+        # all of its declared input/output hashes in this same process.  This
+        # replay checks that the stored audit is structurally reproducible;
+        # re-reading multi-gigabyte biological inputs here adds no new gate.
+        verify_paths=False,
     )
     mismatches = [
         field
@@ -942,7 +946,12 @@ def finalize_score_provenance(
         target_manifest_ids=[score_manifest_id],
         workspace_root=root,
         require_companions=True,
-        verify_paths=True,
+        # The strict validation loop above has already verified all paths for
+        # these exact manifest objects.  The final audit extends the graph with
+        # audit/score manifests and therefore only needs structural, companion,
+        # context, and hash-edge checks.  Avoid hashing the same 93 GB BAM (and
+        # other immutable inputs) a second and third time per seal invocation.
+        verify_paths=False,
     )
     core_gates = {
         "core_provenance_valid": bool(final_audit["core_provenance_valid"]),
