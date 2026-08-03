@@ -359,6 +359,45 @@ def test_lineage_links_shared_hashes_and_has_stable_tsv(tmp_path: Path) -> None:
     assert "true" in tsv
 
 
+def test_lineage_accepts_hashed_upstream_manifest_attestation(tmp_path: Path) -> None:
+    upstream_output = tmp_path / "calls.vcf"
+    upstream_output.write_text("calls\n", encoding="utf-8")
+    upstream = _prepared_manifest(
+        rule_name="evaluate_truvari",
+        job_key="hg002",
+        attempt_id="attempt-1",
+        inputs=[],
+        outputs=[upstream_output],
+    )
+    upstream_manifest = tmp_path / "evaluate_truvari.json"
+    atomic_write_json(upstream_manifest, upstream)
+    downstream_output = tmp_path / "lineage.json"
+    downstream_output.write_text("{}\n", encoding="utf-8")
+    downstream = _prepared_manifest(
+        rule_name="build_rule_lineage",
+        job_key="hg002",
+        attempt_id="attempt-1",
+        inputs=[upstream_manifest],
+        outputs=[downstream_output],
+        upstream_manifest_ids=[upstream["manifest_id"]],
+    )
+
+    lineage = build_lineage(
+        [upstream, downstream],
+        target_manifest_ids=[downstream["manifest_id"]],
+    )
+
+    assert lineage["hash_lineage_complete"] is True
+    shared = lineage["edges"][0]["shared_artifacts"]
+    assert shared == [
+        {
+            "sha256": sha256_path(upstream_manifest),
+            "upstream_output_path": f"manifest:{upstream['manifest_id']}",
+            "downstream_input_path": str(upstream_manifest),
+        }
+    ]
+
+
 def test_lineage_reports_missing_upstream_and_cycle(tmp_path: Path) -> None:
     output_a = tmp_path / "a"
     output_b = tmp_path / "b"

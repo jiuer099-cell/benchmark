@@ -915,6 +915,48 @@ def _shared_artifacts(
     )
 
 
+def _manifest_attestations(
+    upstream: Mapping[str, Any], downstream: Mapping[str, Any]
+) -> list[dict[str, str]]:
+    """Find cryptographic edges created by consuming an upstream manifest.
+
+    Formal orchestration rules such as lineage builders and auditors consume
+    the manifest document itself rather than one of the rule's biological
+    outputs.  That is a valid hash link when the downstream input fingerprint
+    equals the deterministic on-disk serialization of the supplied upstream
+    manifest.  Requiring the exact digest prevents a bare
+    ``upstream_manifest_ids`` declaration from being treated as evidence.
+    """
+
+    input_hashes = downstream.get("input_sha256")
+    manifest_id = upstream.get("manifest_id")
+    if not isinstance(input_hashes, Mapping) or not isinstance(manifest_id, str):
+        return []
+    try:
+        serialized = json.dumps(
+            upstream,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=2,
+            sort_keys=True,
+        )
+    except (TypeError, ValueError):
+        return []
+    digest = sha256_bytes(f"{serialized}\n".encode("utf-8"))
+    return sorted(
+        [
+            {
+                "sha256": digest,
+                "upstream_output_path": f"manifest:{manifest_id}",
+                "downstream_input_path": input_path,
+            }
+            for input_path, input_digest in input_hashes.items()
+            if isinstance(input_path, str) and input_digest == digest
+        ],
+        key=lambda item: item["downstream_input_path"],
+    )
+
+
 def build_lineage(
     manifests: Sequence[Mapping[str, Any]],
     *,
@@ -982,6 +1024,17 @@ def build_lineage(
             children[upstream_id].add(downstream_id)
             indegree[downstream_id] += 1
             shared = _shared_artifacts(index[upstream_id], index[downstream_id])
+            shared.extend(
+                _manifest_attestations(index[upstream_id], index[downstream_id])
+            )
+            shared = sorted(
+                shared,
+                key=lambda item: (
+                    item["sha256"],
+                    item["upstream_output_path"],
+                    item["downstream_input_path"],
+                ),
+            )
             edges.append(
                 {
                     "upstream_manifest_id": upstream_id,
