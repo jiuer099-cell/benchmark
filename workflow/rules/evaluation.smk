@@ -137,8 +137,8 @@ if not SYNTHETIC_MODE:
             ),
         benchmark:
             (
-                f"{BENCHMARK_ROOT}/rules/evaluate_formal/{SAMPLE_ID}."
-                "{tool}.{evaluator}." + OFFICIAL_MODE + ".jsonl"
+                f"{BENCHMARK_ROOT}/rules/evaluate_" + "{evaluator}/"
+                f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".jsonl"
             ),
         wildcard_constraints:
             evaluator="truvari|aardvark|vcfdist"
