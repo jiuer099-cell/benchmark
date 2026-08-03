@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    import pgbench_provenance as _provenance_module
     from pgbench_provenance import (
         ProvenanceError,
         atomic_write_text,
@@ -28,6 +29,7 @@ try:
         validate_manifest,
     )
 except ModuleNotFoundError:  # pragma: no cover - package-style invocation
+    from . import pgbench_provenance as _provenance_module
     from .pgbench_provenance import (
         ProvenanceError,
         atomic_write_text,
@@ -39,6 +41,56 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
         sha256_bytes,
         sha256_path,
         validate_manifest,
+    )
+
+
+# Historical runs can be sealed from a worktree frozen at their original Git
+# snapshot.  Install the strict manifest-document attestation rule when that
+# snapshot predates native support in pgbench_provenance.  The finalizer itself
+# is an explicitly fingerprinted input of the sealing job, so this compatibility
+# path remains fully recorded rather than silently weakening verification.
+if not hasattr(_provenance_module, "_manifest_attestations"):
+    _original_shared_artifacts = _provenance_module._shared_artifacts
+
+    def _shared_artifacts_with_manifest_attestation(
+        upstream: Mapping[str, Any], downstream: Mapping[str, Any]
+    ) -> list[dict[str, str]]:
+        shared = list(_original_shared_artifacts(upstream, downstream))
+        input_hashes = downstream.get("input_sha256")
+        manifest_id = upstream.get("manifest_id")
+        if not isinstance(input_hashes, Mapping) or not isinstance(manifest_id, str):
+            return shared
+        try:
+            serialized = json.dumps(
+                upstream,
+                ensure_ascii=False,
+                allow_nan=False,
+                indent=2,
+                sort_keys=True,
+            )
+        except (TypeError, ValueError):
+            return shared
+        digest = sha256_bytes(f"{serialized}\n".encode("utf-8"))
+        shared.extend(
+            {
+                "sha256": digest,
+                "upstream_output_path": f"manifest:{manifest_id}",
+                "downstream_input_path": input_path,
+            }
+            for input_path, input_digest in input_hashes.items()
+            if isinstance(input_path, str) and input_digest == digest
+        )
+        return sorted(
+            shared,
+            key=lambda item: (
+                item["sha256"],
+                item["upstream_output_path"],
+                item["downstream_input_path"],
+            ),
+        )
+
+    _provenance_module._shared_artifacts = (
+        _shared_artifacts_with_manifest_attestation
     )
 
 PACKAGE_SCHEMA_VERSION = "pgbench.final_score_package.v1"
