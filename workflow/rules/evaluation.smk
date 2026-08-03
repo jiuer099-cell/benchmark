@@ -132,8 +132,8 @@ if not SYNTHETIC_MODE:
             ),
         log:
             (
-                f"{LOG_ROOT}/rules/evaluate_formal/{SAMPLE_ID}."
-                "{tool}.{evaluator}." + OFFICIAL_MODE + ".log"
+                f"{LOG_ROOT}/rules/evaluate_" + "{evaluator}/"
+                f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".log"
             ),
         benchmark:
             (
