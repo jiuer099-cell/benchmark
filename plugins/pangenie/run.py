@@ -208,8 +208,15 @@ def remap_to_candidate_ids(
     generated: Path,
     candidate_vcf: Path,
     destination: Path,
-) -> None:
-    """Restore the blinded CAND_* namespace required by the benchmark."""
+) -> tuple[int, int, int]:
+    """Restore the blinded CAND_* namespace required by the benchmark.
+
+    PanGenie genotypes the complete population panel, whereas the blinded
+    challenge is deliberately restricted to the benchmark universe.  Records
+    outside that universe are filtered at this boundary and never enter the
+    scored VCF.  Candidate records not emitted by PanGenie remain explicit
+    no-calls rather than being imputed as reference.
+    """
 
     by_allele: dict[str, str] = {}
     by_record: dict[tuple[str, str, str, str], str] = {}
@@ -238,6 +245,7 @@ def remap_to_candidate_ids(
 
     generated_headers: list[str] = []
     generated_by_candidate: dict[str, list[str]] = {}
+    outside_candidate_count = 0
     with generated.open("r", encoding="utf-8") as source:
         for line_number, line in enumerate(source, start=1):
             if not line.strip() or line.startswith("#"):
@@ -256,10 +264,8 @@ def remap_to_candidate_ids(
                     (fields[0], fields[1], fields[3], fields[4])
                 )
             if candidate_id is None:
-                raise RuntimeError(
-                    "PanGenie output contains a record outside the blinded "
-                    f"candidate universe at line {line_number}"
-                )
+                outside_candidate_count += 1
+                continue
             if candidate_id in generated_by_candidate:
                 raise RuntimeError(
                     f"PanGenie output duplicates candidate {candidate_id}"
@@ -267,6 +273,8 @@ def remap_to_candidate_ids(
             fields[2] = candidate_id
             generated_by_candidate[candidate_id] = fields
 
+    matched_count = len(generated_by_candidate)
+    no_call_count = 0
     with destination.open("w", encoding="utf-8") as output:
         output.writelines(generated_headers)
         with open_text(candidate_vcf, "rt") as candidates:
@@ -286,11 +294,13 @@ def remap_to_candidate_ids(
                 # Preserve the blinded candidate and explicitly represent the
                 # genotype as unavailable instead of guessing a reference call.
                 output.write("\t".join(candidate_fields[:8] + ["GT", "./."]) + "\n")
+                no_call_count += 1
     if generated_by_candidate:
         raise RuntimeError(
             "PanGenie output contains candidates absent from the blinded panel: "
             + ", ".join(sorted(generated_by_candidate)[:5])
         )
+    return matched_count, outside_candidate_count, no_call_count
 
 
 def main() -> int:
@@ -367,7 +377,14 @@ def main() -> int:
         if not generated.is_file():
             raise RuntimeError(f"PanGenie did not create expected VCF: {generated}")
         remapped = temporary / "candidate-genotypes.vcf"
-        remap_to_candidate_ids(generated, candidate, remapped)
+        matched, outside, no_call = remap_to_candidate_ids(
+            generated, candidate, remapped
+        )
+        print(
+            "PanGenie candidate projection: "
+            f"matched={matched} filtered_outside={outside} no_call={no_call}",
+            flush=True,
+        )
         os.replace(remapped, output)
     return 0
 

@@ -137,3 +137,39 @@ def test_filtered_candidate_is_preserved_as_explicit_no_call(tmp_path: Path) -> 
     assert [record[2] for record in records] == ["CAND_alpha", "CAND_beta"]
     assert records[0][9] == "0/1"
     assert records[1][9] == "./."
+
+
+def test_full_panel_records_outside_blinded_universe_are_filtered(
+    tmp_path: Path,
+) -> None:
+    candidate = tmp_path / "candidate.vcf"
+    candidate.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tCAND_alpha\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t./.\n",
+        encoding="utf-8",
+    )
+    generated = tmp_path / "generated.vcf"
+    generated.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t5\tpanel-extra\tA\tG\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_extra\tGT\t0/1\n"
+        "chr1\t10\tpanel-id\tA\tAT\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t1/1\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "output.vcf"
+
+    counts = MODULE.remap_to_candidate_ids(generated, candidate, output)
+
+    records = [
+        line.split("\t")
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert counts == (1, 1, 0)
+    assert len(records) == 1
+    assert records[0][2] == "CAND_alpha"
+    assert records[0][9] == "1/1"
