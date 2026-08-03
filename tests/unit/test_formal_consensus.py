@@ -713,3 +713,45 @@ def test_candidate_gt_and_no_call_use_hidden_site_semantics(tmp_path: Path) -> N
         "hom_alt": 0,
         "hom_ref": 1,
     }
+
+
+def test_partial_truth_gt_is_detection_scorable_but_not_genotype_scorable(
+    tmp_path: Path,
+) -> None:
+    hidden = tmp_path / "hidden.tsv"
+    hidden.write_text(
+        "candidate_id\tpangenome_allele_id\ttruth_gt\ttruth_label\t"
+        "truth_scorable\ttruth_event_id\n"
+        "CAND_PARTIAL\tPG_PARTIAL\t.|1\tpositive\t1\tTRUTH_X\n",
+        encoding="utf-8",
+    )
+    query = tmp_path / "linked.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chrX\t10\tCANON_X\tA\t<INS>\t.\tPASS\t"
+        "ORIG_ID=CAND_PARTIAL;SVTYPE=INS;SVLEN=100\tGT\t0|1\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "tool.yaml"
+    manifest.write_text(
+        "outputs:\n"
+        "  candidate_output_contract: all_sites\n"
+        "  absence_semantics: no_call\n",
+        encoding="utf-8",
+    )
+
+    summary = candidate_genotype_summary(
+        query_vcf=query,
+        hidden_truth_ledger=hidden,
+        tool_manifest=manifest,
+        require_phase=True,
+    )
+
+    assert summary["truth_scorable"] == 1
+    assert summary["truth_positive"] == 1
+    assert summary["genotype_scorable"] == 0
+    assert summary["called_candidates"] == 0
+    assert summary["genotype_correct"] == 0
+    assert summary["genotype_accuracy"] is None
+    assert summary["binary_nonref_confusion"]["true_positive"] == 1

@@ -604,10 +604,6 @@ def candidate_genotype_summary(
                     raise ConsensusMetricError(
                         f"scorable candidate {candidate_id} has invalid truth label"
                     )
-                if gt_state(row["truth_gt"]) == "no_call":
-                    raise ConsensusMetricError(
-                        f"scorable candidate {candidate_id} has no-call truth GT"
-                    )
             elif row["truth_label"] != "unscorable":
                 raise ConsensusMetricError(
                     f"unscorable candidate {candidate_id} has invalid truth label"
@@ -723,7 +719,6 @@ def candidate_genotype_summary(
             counts["truth_unscorable"] += 1
             continue
         counts["truth_scorable"] += 1
-        counts["genotype_scorable"] += 1
         counts["observed_truth_scorable_candidates"] += int(
             candidate_id in observed
         )
@@ -732,18 +727,14 @@ def candidate_genotype_summary(
         )
         truth_gt = truth_row["truth_gt"]
         truth_state = gt_state(truth_gt)
-        if truth_state == "hom_ref":
-            counts["truth_negative"] += 1
-        else:
+        truth_nonref = truth_row["truth_label"] == "positive"
+        if truth_nonref:
             counts["truth_positive"] += 1
+        else:
+            counts["truth_negative"] += 1
         query_gt = observed.get(candidate_id, inferred_gt)
         query_state = gt_state(query_gt)
         counts[query_state] += 1
-        truth_class = _genotype_class(truth_gt)
-        query_class = _genotype_class(query_gt)
-        confusion[truth_class][query_class] += 1
-        no_call_by_truth_class[truth_class] += int(query_class == "no_call")
-        truth_nonref = truth_state == "variant"
         query_nonref = query_state == "variant"
         if truth_nonref and query_nonref:
             binary_confusion["true_positive"] += 1
@@ -758,6 +749,18 @@ def candidate_genotype_summary(
             binary_confusion["true_negative"] += 1
         else:
             binary_confusion["no_call_truth_negative"] += 1
+
+        # Detection truth and genotype truth are separate contracts.  A
+        # partially missing truth GT (for example .|1 on chrX) still provides
+        # a valid positive/negative candidate label, but it cannot support an
+        # exact genotype comparison or enter genotype denominators.
+        if truth_state == "no_call":
+            continue
+        counts["genotype_scorable"] += 1
+        truth_class = _genotype_class(truth_gt)
+        query_class = _genotype_class(query_gt)
+        confusion[truth_class][query_class] += 1
+        no_call_by_truth_class[truth_class] += int(query_class == "no_call")
         called = query_state != "no_call"
         counts["called_candidates"] += int(called)
         counts["genotype_correct"] += int(
