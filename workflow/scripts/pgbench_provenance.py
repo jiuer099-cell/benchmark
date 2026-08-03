@@ -1024,9 +1024,14 @@ def build_lineage(
             children[upstream_id].add(downstream_id)
             indegree[downstream_id] += 1
             shared = _shared_artifacts(index[upstream_id], index[downstream_id])
-            shared.extend(
-                _manifest_attestations(index[upstream_id], index[downstream_id])
-            )
+            # Prefer the biological/intermediate artifact link already used by
+            # historical audits.  A manifest-document attestation is a strict
+            # fallback for orchestration-only edges, not an additional edge
+            # representation that would rewrite otherwise identical lineage.
+            if not shared:
+                shared = _manifest_attestations(
+                    index[upstream_id], index[downstream_id]
+                )
             shared = sorted(
                 shared,
                 key=lambda item: (

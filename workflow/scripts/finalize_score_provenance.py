@@ -56,6 +56,8 @@ if not hasattr(_provenance_module, "_manifest_attestations"):
         upstream: Mapping[str, Any], downstream: Mapping[str, Any]
     ) -> list[dict[str, str]]:
         shared = list(_original_shared_artifacts(upstream, downstream))
+        if shared:
+            return shared
         input_hashes = downstream.get("input_sha256")
         manifest_id = upstream.get("manifest_id")
         if not isinstance(input_hashes, Mapping) or not isinstance(manifest_id, str):
