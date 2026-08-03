@@ -313,6 +313,21 @@ def _validate_metrics_records(
     records = metrics.get("records")
     if not isinstance(records, list) or not records:
         raise FinalScoreSealError("metrics records must be a non-empty list")
+    allowed_provenance_ids = set(pre_score_ids)
+    analysis = metrics.get("analysis")
+    if isinstance(analysis, Mapping):
+        evaluator_bundle_id = analysis.get("evaluator_bundle_sha256")
+        if (
+            isinstance(evaluator_bundle_id, str)
+            and _SHA256_RE.fullmatch(evaluator_bundle_id)
+        ):
+            # Formal consensus records are derived jointly from all evaluator
+            # manifests and completion records, so their direct provenance is
+            # a content-addressed evaluator bundle rather than one arbitrary
+            # evaluator manifest.  The enclosing fuse_evaluator_metrics
+            # manifest (validated by _locate_and_validate_metrics) binds this
+            # metrics artifact and every bundle input into the audited lineage.
+            allowed_provenance_ids.add(evaluator_bundle_id)
     aggregates: dict[str, Mapping[str, Any]] = {}
     for index, record in enumerate(records):
         if not isinstance(record, Mapping):
@@ -327,10 +342,10 @@ def _validate_metrics_records(
             raise FinalScoreSealError(
                 f"metrics record {metric_id} has an invalid provenance manifest ID"
             )
-        if manifest_id not in pre_score_ids:
+        if manifest_id not in allowed_provenance_ids:
             raise FinalScoreSealError(
-                f"metrics record {metric_id} references a manifest outside "
-                "the pre-score lineage"
+                f"metrics record {metric_id} references provenance outside "
+                "the audited pre-score lineage"
             )
         if record.get("strata") == {}:
             if metric_id in aggregates:

@@ -550,6 +550,19 @@ def test_rejects_metric_provenance_outside_pre_score_lineage(
     _assert_no_outputs(fixture)
 
 
+def test_accepts_attested_evaluator_bundle_provenance(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    bundle_id = "f" * 64
+
+    def attach_bundle(metrics: dict[str, Any]) -> None:
+        metrics["analysis"] = {"evaluator_bundle_sha256": bundle_id}
+        metrics["records"][0]["provenance_manifest_id"] = bundle_id
+
+    fixture = _seal_fixture(root, metrics_mutator=attach_bundle)
+
+    assert _run_seal(root, fixture) == 0
+
+
 def test_rejects_required_f1_record_not_equal_to_metrics_aggregate(
     tmp_path: Path,
 ) -> None:
