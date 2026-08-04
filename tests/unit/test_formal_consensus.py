@@ -93,6 +93,31 @@ def test_evaluator_query_has_canonical_sv_and_ft_headers(tmp_path: Path) -> None
     assert "\tDROP\t" not in text
 
 
+def test_evaluator_query_rebuilds_vcfdist_contig_headers(tmp_path: Path) -> None:
+    source = tmp_path / "source.vcf"
+    destination = tmp_path / "query.vcf"
+    reference = tmp_path / "reference.fa"
+    reference.write_text(">chr1\nA\n>chr2\nAA\n", encoding="utf-8")
+    Path(f"{reference}.fai").write_text(
+        "chr1\t1\t6\t1\t2\nchr2\t2\t13\t2\t3\n",
+        encoding="utf-8",
+    )
+    source.write_text(
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=chr1>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t1\tKEEP\tA\tAT\t.\tPASS\tSVTYPE=INS\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    write_variant_query(source, destination, {"KEEP"}, reference=reference)
+
+    text = destination.read_text(encoding="utf-8")
+    assert "##contig=<ID=chr1,length=1,IDX=0>\n" in text
+    assert "##contig=<ID=chr2,length=2,IDX=1>\n" in text
+    assert "##contig=<ID=chr1>\n" not in text
+
+
 def write_votes(path: Path, evaluator: str, votes: list[tuple[str, int]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")

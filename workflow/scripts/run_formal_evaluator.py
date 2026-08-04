@@ -380,7 +380,52 @@ def fully_contained(
     return index >= 0 and ends[index] >= end
 
 
-def write_variant_query(source: Path, destination: Path, allowed_ids: set[str]) -> None:
+def reference_contig_headers(reference: Path) -> list[str]:
+    """Return vcfdist-compatible contig declarations from a FASTA index."""
+
+    fai = Path(f"{reference}.fai")
+    if not fai.is_file():
+        raise FormalEvaluatorError(
+            f"reference FASTA index is required for evaluator input: {fai}"
+        )
+    headers: list[str] = []
+    seen: set[str] = set()
+    with fai.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle):
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 2 or not fields[0]:
+                raise FormalEvaluatorError(f"malformed reference FASTA index: {fai}")
+            contig = fields[0]
+            if contig in seen:
+                raise FormalEvaluatorError(
+                    f"duplicate contig {contig!r} in reference FASTA index: {fai}"
+                )
+            seen.add(contig)
+            try:
+                length = int(fields[1])
+            except ValueError as error:
+                raise FormalEvaluatorError(
+                    f"invalid length for contig {contig!r} in {fai}"
+                ) from error
+            if length <= 0:
+                raise FormalEvaluatorError(
+                    f"non-positive length for contig {contig!r} in {fai}"
+                )
+            headers.append(
+                f"##contig=<ID={contig},length={length},IDX={index}>\n"
+            )
+    if not headers:
+        raise FormalEvaluatorError(f"reference FASTA index contains no contigs: {fai}")
+    return headers
+
+
+def write_variant_query(
+    source: Path,
+    destination: Path,
+    allowed_ids: set[str],
+    *,
+    reference: Path | None = None,
+) -> None:
     """Write evaluator input with canonical definitions for fields we emit.
 
     Upstream callers sometimes omit INFO declarations or declare FORMAT/FT as
@@ -390,8 +435,13 @@ def write_variant_query(source: Path, destination: Path, allowed_ids: set[str]) 
     """
 
     replaced = set(CANONICAL_VCF_HEADER_LINES)
+    contig_headers = reference_contig_headers(reference) if reference else []
     with open_text(source) as reader, destination.open("w", encoding="utf-8") as writer:
         for line in reader:
+            if contig_headers and line.startswith("##contig=<"):
+                # Rebuild all contig declarations from the exact reference used
+                # by the evaluator. vcfdist requires both length and IDX.
+                continue
             if line.startswith("##INFO=<ID=SVTYPE,"):
                 replaced.discard("INFO:SVTYPE")
                 writer.write(CANONICAL_VCF_HEADER_LINES["INFO:SVTYPE"])
@@ -412,6 +462,8 @@ def write_variant_query(source: Path, destination: Path, allowed_ids: set[str]) 
                 for key in sorted(replaced):
                     writer.write(CANONICAL_VCF_HEADER_LINES[key])
                 replaced.clear()
+                for header in contig_headers:
+                    writer.write(header)
                 writer.write(line)
                 continue
             if line.startswith("#"):
@@ -739,7 +791,12 @@ def run_evaluator(args: argparse.Namespace) -> None:
         if event_ids:
             plain = work / "input" / "query.events.vcf"
             plain.parent.mkdir(parents=True)
-            write_variant_query(args.query, plain, event_ids)
+            write_variant_query(
+                args.query,
+                plain,
+                event_ids,
+                reference=args.reference,
+            )
             prepared = work / "input" / "query.events.vcf.gz"
             bcftools = command_prefix(config, "bcftools")
             tabix = command_prefix(config, "tabix")
