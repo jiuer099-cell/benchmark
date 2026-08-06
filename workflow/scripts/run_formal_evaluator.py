@@ -324,11 +324,16 @@ def parse_vcfdist(
                 )
             values = credits.get(key, [])
             if not values:
-                raise FormalEvaluatorError(
-                    f"evaluator did not classify query result {result_id} "
-                    f"component {key}"
-                )
-            component_values.extend(values)
+                # vcfdist may omit a normalized component when its complex
+                # representation is absorbed into a supercluster.  That is
+                # an evaluator non-match, not a malformed benchmark result:
+                # retain the event and assign the absent component zero
+                # credit.  This keeps every blinded candidate in the common
+                # voting universe and prevents one omitted component from
+                # aborting a full evaluation run.
+                component_values.append(0.0)
+            else:
+                component_values.extend(values)
 
         order.append(result_id)
         votes[result_id] = (

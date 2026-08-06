@@ -291,6 +291,32 @@ def test_vcfdist_complex_and_homozygous_components_map_to_one_event(
     assert votes == {"CANON_COMPLEX": True}
 
 
+def test_vcfdist_missing_complex_component_is_recorded_as_no_credit(
+    tmp_path: Path,
+) -> None:
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tCANON_COMPLEX\tGAAA\tGCC\t.\tPASS\tSVTYPE=DEL\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    vcfdist = tmp_path / "vcfdist"
+    vcfdist.mkdir()
+    # vcfdist reports only the insertion component; the missing deletion
+    # component must make the candidate fail rather than abort parsing.
+    (vcfdist / "query.tsv").write_text(
+        "CONTIG\tPOS\tHAP\tREF\tALT\tCREDIT\n"
+        "chr1\t100\t0\t\tCC\t1.0\n",
+        encoding="utf-8",
+    )
+
+    order, votes = parse_vcfdist(query, vcfdist, credit_threshold=0.7)
+
+    assert order == ["CANON_COMPLEX"]
+    assert votes == {"CANON_COMPLEX": False}
+
+
 def test_evaluator_commands_freeze_the_common_maximum_size(
     tmp_path: Path,
 ) -> None:
