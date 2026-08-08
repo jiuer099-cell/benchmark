@@ -381,6 +381,14 @@ def aggregate(
                 "score_profile_sha256": score.get("score_profile_sha256"),
                 "evaluation_mode": score.get("evaluation_mode"),
                 "score_status": score.get("score_status"),
+                "PangenomeGenotypingScore": score.get(
+                    "pangenome_genotyping_score"
+                ),
+                "NonReferenceF1": score.get("non_reference_f1_score"),
+                "PanelCoverage": score.get("panel_coverage"),
+                "GlobalEndToEndSVRecoveryScore": score.get(
+                    "global_end_to_end_sv_recovery_score"
+                ),
                 "ComparableScore": score.get(
                     "comparable_score", score.get("pgbench_score")
                 ),
@@ -425,6 +433,10 @@ def aggregate(
             "score_profile_sha256",
             "evaluation_mode",
             "score_status",
+            "PangenomeGenotypingScore",
+            "NonReferenceF1",
+            "PanelCoverage",
+            "GlobalEndToEndSVRecoveryScore",
             "ComparableScore",
             "ConsensusScore",
             "total_evaluated",

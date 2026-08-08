@@ -80,7 +80,10 @@ def render_index(
             f"<td>{escape(str(manifest.get('paradigm', 'unknown')))}</td>"
             f"<td>{escape(', '.join(map(str, technologies)))}</td>"
             f"<td>{escape(str(tuple_key.get('official_score_mode', '')))}</td>"
-            f"<td>{_score_value(score, 'comparable_score')}</td>"
+            f"<td>{_score_value(score, 'pangenome_genotyping_score')}</td>"
+            f"<td>{_score_value(score, 'non_reference_f1_score')}</td>"
+            f"<td>{_score_value(score, 'panel_coverage')}</td>"
+            f"<td>{_score_value(score, 'global_end_to_end_sv_recovery_score')}</td>"
             f"<td>{_score_value(score, 'consensus_score')}</td>"
             f"<td>{escape(str(score.get('truth_eligible_count', '')))}</td>"
             f"<td>{escape(str(score.get('total_evaluated', '')))}</td>"
@@ -103,7 +106,9 @@ th { background: #eef2ff; }
 同一测序轨道内的比较才代表更严格的算法公平性。资源消耗不参与得分。</p>
 <table><thead><tr>
 <th>工具</th><th>范式</th><th>测序技术</th><th>运行轨道</th>
-<th>ComparableScore</th><th>ConsensusScore</th>
+<th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
+<th>Panel coverage (fraction)</th><th>Global End-to-End SV Recovery</th>
+<th>ConsensusScore</th>
 <th>Truth 数量</th><th>输出数量</th><th>状态</th>
 </tr></thead><tbody>""" + "".join(rows) + """</tbody></table>
 </body></html>

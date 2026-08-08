@@ -333,7 +333,10 @@ def render_suite(entries: Sequence[tuple[Mapping, Mapping]]) -> str:
             f"<td>{escape(technology)}</td>"
             f"<td>{escape(evidence_label)}</td>"
             f"<td>{escape(str(tuple_key.get('official_score_mode', '')))}</td>"
-            f"<td>{_number(score.get('comparable_score'))}</td>"
+            f"<td>{_number(score.get('pangenome_genotyping_score'))}</td>"
+            f"<td>{_number(score.get('non_reference_f1_score'))}</td>"
+            f"<td>{_number(score.get('panel_coverage'))}</td>"
+            f"<td>{_number(score.get('global_end_to_end_sv_recovery_score'))}</td>"
             f"<td>{_number(score.get('consensus_score'))}</td>"
             f"<td>{escape(str(score.get('truth_eligible_count', '')))}</td>"
             f"<td>{escape(str(score.get('total_evaluated', '')))}</td>"
@@ -363,7 +366,9 @@ th { background: #eef2ff; }
 ComparableScore 比较完整 pipeline 的实际检测结果；跨测序技术的差异同时包含
 测序证据与算法影响，因此必须结合“实际测序证据”和“工具范式”解释。</p>
 <table><thead><tr><th>工具</th><th>范式</th><th>实际测序技术</th><th>冻结输入证据</th><th>评分模式</th>
-<th>ComparableScore</th><th>ConsensusScore</th><th>Truth 数</th>
+<th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
+<th>Panel coverage</th><th>Global End-to-End SV Recovery</th>
+<th>ConsensusScore</th><th>Truth 数</th>
 <th>输出数</th><th>状态</th></tr></thead><tbody>""" + "".join(rows) + """
 </tbody></table></body></html>
 """
