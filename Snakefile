@@ -1,4 +1,5 @@
 from importlib.metadata import version
+import os
 from pathlib import Path
 import sys
 
@@ -8,6 +9,12 @@ from snakemake.utils import min_version, validate
 
 
 min_version("9.23.1")
+
+# Conda activation emitted by Snakemake uses the Bash `source` builtin on
+# Linux. Freeze the executor shell explicitly instead of inheriting `/bin/sh`
+# (dash on Ubuntu), which otherwise fails before the first rule starts.
+if os.name != "nt":
+    shell.executable("/bin/bash")
 
 outputflags: update
 
