@@ -44,6 +44,8 @@ LEDGER_FIELDS = [
     "event_eligible",
     "truth_event_id",
     "evaluator_accept",
+    "evaluator_resolved",
+    "mapping_status",
     "detection_correct",
     "genotype_scorable",
     "genotype_correct",
@@ -286,6 +288,7 @@ def parse_vcfdist(
     artifacts: Path,
     *,
     credit_threshold: float,
+    diagnostics: dict[str, Any] | None = None,
 ) -> tuple[list[str], dict[str, bool]]:
     path = artifacts / "query.tsv"
     if not path.is_file():
@@ -306,6 +309,7 @@ def parse_vcfdist(
             credits[key].append(float(row["CREDIT"]))
     order: list[str] = []
     votes: dict[str, bool] = {}
+    status_counts: dict[str, int] = defaultdict(int)
     key_owners: dict[tuple[str, int, str, str], str] = {}
     for fields in vcf_records(query):
         result_id = fields[2]
@@ -315,7 +319,9 @@ def parse_vcfdist(
             raise FormalEvaluatorError(f"duplicate canonical query ID: {result_id}")
 
         component_values: list[float] = []
-        for key in vcfdist_record_keys(fields):
+        expected_components = vcfdist_record_keys(fields)
+        mapped_components = 0
+        for key in expected_components:
             owner = key_owners.setdefault(key, result_id)
             if owner != result_id:
                 raise FormalEvaluatorError(
@@ -324,22 +330,57 @@ def parse_vcfdist(
                 )
             values = credits.get(key, [])
             if not values:
-                # vcfdist may omit a normalized component when its complex
-                # representation is absorbed into a supercluster.  That is
-                # an evaluator non-match, not a malformed benchmark result:
-                # retain the event and assign the absent component zero
-                # credit.  This keeps every blinded candidate in the common
-                # voting universe and prevents one omitted component from
-                # aborting a full evaluation run.
-                component_values.append(0.0)
+                continue
             else:
+                mapped_components += 1
                 component_values.extend(values)
 
         order.append(result_id)
-        votes[result_id] = (
-            sum(component_values) / len(component_values) >= credit_threshold
+        if mapped_components == len(expected_components):
+            status_counts["exact"] += 1
+        elif mapped_components > 0:
+            # vcfdist can absorb one normalized component of a complex allele
+            # into its supercluster representation. The remaining component
+            # is still an explicit evaluator decision for the source event.
+            status_counts["partial_complex"] += 1
+        else:
+            status_counts["unresolved"] += 1
+            continue
+        votes[result_id] = sum(component_values) / len(component_values) >= credit_threshold
+    if diagnostics is not None:
+        resolved = len(votes)
+        diagnostics.update(
+            {
+                "algorithm": "vcfdist_component_event_mapping_v2",
+                "query_events": len(order),
+                "resolved_events": resolved,
+                "unresolved_events": len(order) - resolved,
+                "mapping_coverage": resolved / len(order) if order else 1.0,
+                "status_counts": dict(sorted(status_counts.items())),
+            }
         )
     return order, votes
+
+
+def parse_vcfdist_native_summary(artifacts: Path) -> dict[str, Any]:
+    path = artifacts / "precision-recall-summary.tsv"
+    if not path.is_file():
+        raise FormalEvaluatorError(f"vcfdist native summary is absent: {path}")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            if row.get("VAR_TYPE") == "ALL" and row.get("THRESHOLD") == "NONE":
+                return {
+                    "unit": "vcfdist_native_haplotype_components",
+                    "truth_true_positive": int(row["TRUTH_TP"]),
+                    "query_true_positive": int(row["QUERY_TP"]),
+                    "truth_false_negative": int(row["TRUTH_FN"]),
+                    "query_false_positive": int(row["QUERY_FP"]),
+                    "precision": float(row["PREC"]),
+                    "recall": float(row["RECALL"]),
+                    "f1": float(row["F1_SCORE"]),
+                }
+    raise FormalEvaluatorError("vcfdist native summary has no ALL/NONE row")
 
 
 def load_regions(path: Path) -> dict[str, tuple[list[int], list[int]]]:
@@ -430,6 +471,7 @@ def write_variant_query(
     allowed_ids: set[str],
     *,
     reference: Path | None = None,
+    phase_unphased_genotypes: bool = False,
 ) -> None:
     """Write evaluator input with canonical definitions for fields we emit.
 
@@ -469,6 +511,11 @@ def write_variant_query(
                 replaced.clear()
                 for header in contig_headers:
                     writer.write(header)
+                if phase_unphased_genotypes:
+                    writer.write(
+                        '##pgbench_vcfdist_detection_phase="deterministic 0|1; '
+                        'phase is ignored for detection voting"\n'
+                    )
                 writer.write(line)
                 continue
             if line.startswith("#"):
@@ -476,7 +523,17 @@ def write_variant_query(
                 continue
             fields = line.rstrip("\n").split("\t")
             if len(fields) >= 3 and fields[2] in allowed_ids:
-                writer.write(line)
+                if phase_unphased_genotypes and len(fields) >= 10:
+                    format_keys = fields[8].split(":")
+                    sample_values = fields[9].split(":")
+                    if "GT" in format_keys:
+                        gt_index = format_keys.index("GT")
+                        if gt_index < len(sample_values):
+                            gt = sample_values[gt_index]
+                            if gt in {"0/1", "1/0"}:
+                                sample_values[gt_index] = "0|1"
+                                fields[9] = ":".join(sample_values)
+                writer.write("\t".join(fields) + "\n")
 
 
 def command_prefix(config: dict[str, Any], evaluator: str) -> list[str]:
@@ -588,6 +645,59 @@ def evaluator_version(
     }
 
 
+def native_evaluator_cache_key(
+    *,
+    evaluator: str,
+    prepared_query: Path,
+    truth: Path,
+    reference: Path,
+    regions: Path,
+    version_sha256: str,
+    prefix: list[str],
+    extra_args: list[str],
+    threads: int,
+) -> tuple[str, dict[str, Any]]:
+    """Key expensive native execution independently from parser code.
+
+    Parser/report changes must not rerun a multi-hour evaluator.  The cache is
+    content-addressed by every biological input, the frozen executable
+    fingerprint and native parameters; no parser implementation hash enters
+    this key.
+    """
+
+    payload = {
+        "schema_version": 1,
+        "evaluator": evaluator,
+        "prepared_query_sha256": sha256_file(prepared_query),
+        "truth_sha256": sha256_file(truth),
+        "reference_sha256": sha256_file(reference),
+        "regions_sha256": sha256_file(regions),
+        "version_sha256": version_sha256,
+        "command_prefix": prefix,
+        "extra_args": extra_args,
+        "threads": threads,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), payload
+
+
+def store_native_cache(source_artifacts: Path, source_log: Path, cache: Path, manifest: dict[str, Any]) -> None:
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    temporary = cache.with_name(f".{cache.name}.tmp-{os.getpid()}")
+    shutil.rmtree(temporary, ignore_errors=True)
+    temporary.mkdir()
+    shutil.copytree(source_artifacts, temporary / "artifacts")
+    shutil.copy2(source_log, temporary / "evaluator.log")
+    (temporary / "native-run.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        temporary.replace(cache)
+    except FileExistsError:
+        shutil.rmtree(temporary, ignore_errors=True)
+
+
 def event_query_indices(
     queries: list[SvRecord],
     *,
@@ -638,6 +748,8 @@ def write_ledger(
         "scope_excluded": 0,
         "events": 0,
         "detection_correct": 0,
+        "evaluator_resolved": 0,
+        "evaluator_unresolved": 0,
         "genotype_scorable": 0,
         "genotype_correct": 0,
         "no_call": 0,
@@ -668,6 +780,9 @@ def write_ledger(
                         f"truth event was assigned more than once: {truth_id}"
                     )
                 seen_truth.add(truth_id)
+            evaluator_resolved = (
+                query.record_id in evaluator_votes if event_eligible else True
+            )
             accepted = evaluator_votes.get(query.record_id, False) if event_eligible else False
             detection_correct = bool(accepted and truth is not None)
             genotype_scorable = truth is not None and state != "no_call"
@@ -688,6 +803,10 @@ def write_ledger(
                     "event_eligible": int(event_eligible),
                     "truth_event_id": truth_id,
                     "evaluator_accept": int(accepted),
+                    "evaluator_resolved": int(evaluator_resolved),
+                    "mapping_status": (
+                        "resolved" if evaluator_resolved else "unresolved"
+                    ),
                     "detection_correct": int(detection_correct),
                     "genotype_scorable": int(genotype_scorable),
                     "genotype_correct": int(genotype_correct),
@@ -715,6 +834,8 @@ def write_ledger(
             counts["scope_excluded"] += int(not scope_eligible)
             counts["events"] += int(event_eligible)
             counts["detection_correct"] += int(detection_correct)
+            counts["evaluator_resolved"] += int(event_eligible and evaluator_resolved)
+            counts["evaluator_unresolved"] += int(event_eligible and not evaluator_resolved)
             counts["genotype_scorable"] += int(genotype_scorable)
             counts["genotype_correct"] += int(genotype_correct)
             counts["no_call"] += int(no_call)
@@ -793,6 +914,16 @@ def run_evaluator(args: argparse.Namespace) -> None:
     command: list[str] = []
     try:
         evaluator_votes: dict[str, bool] = {}
+        native_cache_hit = False
+        native_cache_key_value: str | None = None
+        mapping_diagnostics: dict[str, Any] = {
+            "algorithm": "native_record_identity",
+            "query_events": len(event_ids),
+            "resolved_events": len(event_ids),
+            "unresolved_events": 0,
+            "mapping_coverage": 1.0,
+            "status_counts": {"exact": len(event_ids)},
+        }
         if event_ids:
             plain = work / "input" / "query.events.vcf"
             plain.parent.mkdir(parents=True)
@@ -801,6 +932,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 plain,
                 event_ids,
                 reference=args.reference,
+                phase_unphased_genotypes=args.evaluator == "vcfdist",
             )
             prepared = work / "input" / "query.events.vcf.gz"
             bcftools = command_prefix(config, "bcftools")
@@ -822,25 +954,56 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 artifacts=artifacts,
                 threads=args.threads,
             )
-            with (work / "evaluator.log").open("w", encoding="utf-8") as log:
-                try:
-                    subprocess.run(
-                        command,
-                        check=True,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                    )
-                except subprocess.CalledProcessError as error:
-                    log.flush()
-                    evaluator_log = (work / "evaluator.log").read_text(
-                        encoding="utf-8", errors="replace"
-                    )
-                    tail = "\n".join(evaluator_log.splitlines()[-80:])
-                    raise FormalEvaluatorError(
-                        f"{args.evaluator} exited with status {error.returncode}. "
-                        f"Evaluator log tail:\n{tail or '<empty>'}"
-                    ) from error
+            native_cache_key_value, native_manifest = native_evaluator_cache_key(
+                evaluator=args.evaluator,
+                prepared_query=prepared,
+                truth=args.truth,
+                reference=args.reference,
+                regions=args.regions,
+                version_sha256=version["sha256"],
+                prefix=prefix,
+                extra_args=list(evaluator_profile.get("extra_args", [])),
+                threads=args.threads,
+            )
+            native_cache = (
+                args.output_dir.parent
+                / f".{args.evaluator}.native-cache"
+                / native_cache_key_value
+            )
+            if (
+                (native_cache / "native-run.json").is_file()
+                and (native_cache / "artifacts").is_dir()
+                and (native_cache / "evaluator.log").is_file()
+            ):
+                shutil.copytree(native_cache / "artifacts", artifacts)
+                shutil.copy2(native_cache / "evaluator.log", work / "evaluator.log")
+                native_cache_hit = True
+            else:
+                with (work / "evaluator.log").open("w", encoding="utf-8") as log:
+                    try:
+                        subprocess.run(
+                            command,
+                            check=True,
+                            stdout=log,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                        )
+                    except subprocess.CalledProcessError as error:
+                        log.flush()
+                        evaluator_log = (work / "evaluator.log").read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+                        tail = "\n".join(evaluator_log.splitlines()[-80:])
+                        raise FormalEvaluatorError(
+                            f"{args.evaluator} exited with status {error.returncode}. "
+                            f"Evaluator log tail:\n{tail or '<empty>'}"
+                        ) from error
+                store_native_cache(
+                    artifacts,
+                    work / "evaluator.log",
+                    native_cache,
+                    native_manifest,
+                )
             if args.evaluator == "truvari":
                 _, evaluator_votes = parse_truvari(prepared, artifacts)
             elif args.evaluator == "aardvark":
@@ -850,6 +1013,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
                     prepared,
                     artifacts,
                     credit_threshold=float(evaluator_profile["credit_threshold"]),
+                    diagnostics=mapping_diagnostics,
                 )
         else:
             (work / "evaluator.log").write_text(
@@ -890,6 +1054,17 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 ),
                 "truth_assignments": len(assignments),
                 "truth_ids_unique": True,
+            },
+            "event_mapping": mapping_diagnostics,
+            "native_metrics": (
+                parse_vcfdist_native_summary(artifacts)
+                if args.evaluator == "vcfdist" and event_ids
+                else None
+            ),
+            "native_execution_cache": {
+                "key": native_cache_key_value,
+                "hit": native_cache_hit,
+                "contract": "content_addressed_native_evaluator_v1",
             },
             "semantics": {
                 "primary_vote": "detection",

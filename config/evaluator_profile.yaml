@@ -24,6 +24,9 @@ sv_match:
 
 semantics:
   primary_vote: detection
+  # A formal three-evaluator consensus is invalid when representation mapping
+  # leaves more than one percent of submitted events unresolved.
+  maximum_unresolved_mapping_fraction: 0.01
   genotype:
     require_exact: true
     require_phase: false

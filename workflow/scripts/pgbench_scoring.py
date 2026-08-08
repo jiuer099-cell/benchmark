@@ -100,6 +100,10 @@ class ScoreResult:
     consensus_score: float | None
     comparable_score: float | None
     comparable_score_raw: float | None
+    pangenome_genotyping_score: float | None
+    non_reference_f1_score: float | None
+    panel_coverage: float | None
+    global_end_to_end_sv_recovery_score: float | None
     consensus_counts: Mapping[str, int]
     total_evaluated: int
     truth_eligible_count: int
@@ -196,6 +200,10 @@ def calculate_pgbench_score(
             consensus_score=None,
             comparable_score=None,
             comparable_score_raw=None,
+            pangenome_genotyping_score=None,
+            non_reference_f1_score=None,
+            panel_coverage=None,
+            global_end_to_end_sv_recovery_score=None,
             consensus_counts={},
             total_evaluated=0,
             truth_eligible_count=0,
@@ -251,6 +259,31 @@ def calculate_pgbench_score(
             raise ScoreInputError(
                 "formal analysis ComparableScore does not match consensus counts"
             )
+    panel_score: float | None = None
+    nonref_score: float | None = None
+    panel_coverage: float | None = None
+    if isinstance(analysis, Mapping):
+        for field, target in (
+            ("pangenome_genotyping_score", "panel"),
+            ("non_reference_f1_score", "nonref"),
+            ("panel_coverage", "coverage"),
+        ):
+            value = analysis.get(field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+            ):
+                raise ScoreInputError(f"formal analysis {field} must be numeric or null")
+            if value is not None:
+                numeric = float(value)
+                upper = 1.0 if target == "coverage" else 100.0
+                if not math.isfinite(numeric) or not 0.0 <= numeric <= upper:
+                    raise ScoreInputError(f"formal analysis {field} is out of range")
+                if target == "panel":
+                    panel_score = numeric
+                elif target == "nonref":
+                    nonref_score = numeric
+                else:
+                    panel_coverage = numeric
     score_status = "valid" if evaluation_mode == "formal" else "provisional"
     traceability = payload.get("traceability")
     if isinstance(traceability, Mapping):
@@ -266,6 +299,10 @@ def calculate_pgbench_score(
                 consensus_score=None,
                 comparable_score=None,
                 comparable_score_raw=None,
+                pangenome_genotyping_score=panel_score,
+                non_reference_f1_score=nonref_score,
+                panel_coverage=panel_coverage,
+                global_end_to_end_sv_recovery_score=comparable_score,
                 consensus_counts=counts,
                 total_evaluated=total,
                 truth_eligible_count=truth_total,
@@ -286,11 +323,19 @@ def calculate_pgbench_score(
         score_profile_sha256=profile["_sha256"],
         evaluation_mode=evaluation_mode,
         score_status=score_status,
-        pgbench_score=comparable_score,
-        pgbench_score_raw=comparable_raw,
+        pgbench_score=(round(panel_score, decimals) if panel_score is not None else comparable_score),
+        pgbench_score_raw=(panel_score if panel_score is not None else comparable_raw),
         consensus_score=consensus_score,
         comparable_score=comparable_score,
         comparable_score_raw=comparable_raw,
+        pangenome_genotyping_score=(
+            round(panel_score, decimals) if panel_score is not None else None
+        ),
+        non_reference_f1_score=(
+            round(nonref_score, decimals) if nonref_score is not None else None
+        ),
+        panel_coverage=panel_coverage,
+        global_end_to_end_sv_recovery_score=comparable_score,
         consensus_counts=counts,
         total_evaluated=total,
         truth_eligible_count=truth_total,

@@ -329,8 +329,8 @@ ComparableScore = 2 * softTP / (Q + T) * 100
 ```
 
 The one-to-one ledger contract requires `softTP <= T`; a violation invalidates
-the run instead of being silently clipped. `ComparableScore` is the primary
-end-to-end score. False-positive query calls
+the run instead of being silently clipped. This value is reported as the
+secondary **Global End-to-End SV Recovery Score**. False-positive query calls
 increase `Q`; missed truth records increase `T` without increasing `softTP`.
 The score is comparable only when sample, exact reference/truth/BED content
 hashes, the stable pangenome-manifest contract hash, the hidden challenge-ledger
@@ -343,10 +343,20 @@ it compares the practical accuracy of the complete pipeline, including the
 sequencing evidence; the report does not create task-specific lanes or claim a
 platform-independent pure-algorithm rank.
 
-PanGenie additionally requires interpretation of its panel-limited task:
-`ConsensusScore` and panel-stratified genotype metrics describe in-panel
-genotyping, while `ComparableScore` retains the complete GIAB truth denominator
-and therefore exposes out-of-panel coverage limitations.
+The primary **Pangenome Genotyping Score** is `100 * genotype macro-F1` on the
+same frozen, blinded population-panel candidate universe for every applicable
+plugin. The report separately shows non-reference F1, no-call count, and Panel
+Coverage (`truth-positive panel events / all eligible GIAB truth events`).
+Coverage is not multiplied into genotype quality: this prevents a small panel
+from masquerading as whole-genome discovery while avoiding the former
+single-digit ceiling for a correct panel genotyper.
+
+vcfdist receives a benchmark-owned detection-only copy in which unphased `0/1`
+is deterministically represented as `0|1`; the original GT is retained for all
+genotype scoring. Native execution is content-addressed separately from event
+mapping, so parser/report changes reuse the frozen native artifacts. Event
+mapping coverage is reported and a consensus with more than 1% unresolved
+events is marked invalid rather than converting unresolved rows into errors.
 
 The raw category counts, fixed truth count, query count, soft true-positive
 count, comparable precision/recall, and both scores are retained. A

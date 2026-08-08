@@ -245,6 +245,10 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256",
         "evaluation_mode",
         "score_status",
+        "PangenomeGenotypingScore",
+        "NonReferenceF1",
+        "PanelCoverage",
+        "GlobalEndToEndSVRecoveryScore",
         "ComparableScore",
         "ComparableScore_CI95_lower",
         "ComparableScore_CI95_upper",
@@ -264,6 +268,12 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256": score["score_profile_sha256"],
         "evaluation_mode": score["evaluation_mode"],
         "score_status": score["score_status"],
+        "PangenomeGenotypingScore": score.get("pangenome_genotyping_score"),
+        "NonReferenceF1": score.get("non_reference_f1_score"),
+        "PanelCoverage": score.get("panel_coverage"),
+        "GlobalEndToEndSVRecoveryScore": score.get(
+            "global_end_to_end_sv_recovery_score"
+        ),
         "ComparableScore": score.get("comparable_score", score.get("pgbench_score")),
         "ComparableScore_CI95_lower": interval.get("lower"),
         "ComparableScore_CI95_upper": interval.get("upper"),
@@ -298,6 +308,11 @@ def _write_breakdown_tsv(path: Path, score: Mapping[str, Any]) -> None:
 
 def _html(score: Mapping[str, Any]) -> str:
     tuple_key = score["tuple_key"]
+    primary_value = (
+        "not available"
+        if score.get("pangenome_genotyping_score") is None
+        else f"{float(score['pangenome_genotyping_score']):.2f}"
+    )
     comparable_value = (
         "not available"
         if score.get("comparable_score", score.get("pgbench_score")) is None
@@ -405,6 +420,47 @@ def _html(score: Mapping[str, Any]) -> str:
             f"{int(candidate.get('linked_candidate_records', 0))}; "
             f"link conflicts={int(candidate.get('candidate_link_conflicts', 0))}"
         )
+    nonref_value = (
+        "not available"
+        if score.get("non_reference_f1_score") is None
+        else f"{float(score['non_reference_f1_score']):.2f}"
+    )
+    panel_coverage = score.get("panel_coverage")
+    panel_coverage_text = (
+        "not available"
+        if panel_coverage is None
+        else f"{float(panel_coverage) * 100.0:.2f}%"
+    )
+    no_call_count = (
+        int(candidate.get("no_call", 0)) if isinstance(candidate, Mapping) else 0
+    )
+    mapping = analysis.get("evaluator_event_mapping")
+    mapping_rows = ""
+    if isinstance(mapping, Mapping):
+        mapping_rows = "\n".join(
+            "<tr>"
+            f"<td>{escape(str(name))}</td>"
+            f"<td>{int(values.get('resolved_events', 0))}</td>"
+            f"<td>{int(values.get('unresolved_events', 0))}</td>"
+            f"<td>{float(values.get('mapping_coverage', 0.0)) * 100.0:.2f}%</td>"
+            "</tr>"
+            for name, values in sorted(mapping.items())
+            if isinstance(values, Mapping)
+        )
+    native = analysis.get("evaluator_native_metrics")
+    native_rows = ""
+    if isinstance(native, Mapping):
+        native_rows = "\n".join(
+            "<tr>"
+            f"<td>{escape(str(name))}</td>"
+            f"<td>{escape(str(values.get('unit', '')))}</td>"
+            f"<td>{float(values.get('precision', 0.0)):.4f}</td>"
+            f"<td>{float(values.get('recall', 0.0)):.4f}</td>"
+            f"<td>{float(values.get('f1', 0.0)):.4f}</td>"
+            "</tr>"
+            for name, values in sorted(native.items())
+            if isinstance(values, Mapping)
+        )
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -432,7 +488,16 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
-  <p class="score">ComparableScore: {comparable_value} / 100</p>
+  <p class="score">Pangenome Genotyping Score: {primary_value} / 100</p>
+  <p>This primary score is genotype macro-F1 on the frozen, blinded panel
+  candidate universe. No-call genotypes count as incorrect.</p>
+  <p><strong>Non-reference F1:</strong> {nonref_value} / 100;
+  <strong>Panel coverage:</strong> {panel_coverage_text};
+  <strong>No-call:</strong> {no_call_count}.</p>
+  <p><strong>Global End-to-End SV Recovery Score (ComparableScore):</strong>
+  {comparable_value} / 100. This secondary score measures recovery against the
+  full eligible HG002 truth set and is not the primary panel-genotyping score.</p>
+  <p>ComparableScore: {comparable_value} / 100 (legacy field name).</p>
   <p>{interval_text}</p>
   <p>ConsensusScore: {consensus_value} / 100</p>
   <p>固定 truth 数量：{score.get("truth_eligible_count", "")}；
@@ -444,6 +509,19 @@ def _html(score: Mapping[str, Any]) -> str:
   <table>
     <thead><tr><th>Category</th><th>Count</th></tr></thead>
     <tbody>{point_rows}</tbody>
+  </table>
+  <h2>Evaluator-native metrics</h2>
+  <p>These are the evaluator's own summary units and are not overwritten by
+  event-ledger conversion.</p>
+  <table>
+    <thead><tr><th>Evaluator</th><th>Native unit</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+    <tbody>{native_rows}</tbody>
+  </table>
+  <h2>Event mapping audit</h2>
+  <p>Global recovery status: {escape(str(analysis.get('global_recovery_status', 'not available')))}.</p>
+  <table>
+    <thead><tr><th>Evaluator</th><th>Resolved</th><th>Unresolved</th><th>Coverage</th></tr></thead>
+    <tbody>{mapping_rows}</tbody>
   </table>
   <h2>Hidden candidate-site genotype diagnostics</h2>
   <p>{candidate_text}</p>

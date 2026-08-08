@@ -238,6 +238,13 @@ def load_ledger(
                     "scope_eligible": _binary(raw, "scope_eligible", path),
                     "event_eligible": _binary(raw, "event_eligible", path),
                     "truth_event_id": raw["truth_event_id"] or None,
+                    "evaluator_resolved": (
+                        _binary(raw, "evaluator_resolved", path)
+                        if "evaluator_resolved" in raw
+                        and raw.get("evaluator_resolved") not in {None, ""}
+                        else True
+                    ),
+                    "mapping_status": raw.get("mapping_status", "resolved"),
                     "detection_correct": _binary(raw, "detection_correct", path),
                     "genotype_scorable": _binary(raw, "genotype_scorable", path),
                     "genotype_correct": _binary(raw, "genotype_correct", path),
@@ -258,6 +265,8 @@ def load_ledger(
                     "scope_eligible": True,
                     "event_eligible": True,
                     "truth_event_id": None,
+                    "evaluator_resolved": True,
+                    "mapping_status": "legacy",
                     "detection_correct": correct,
                     "genotype_scorable": False,
                     "genotype_correct": False,
@@ -1200,6 +1209,35 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
     ]
 
     soft_tp = sum(vote_counts.values()) / 3.0
+    mapping_summary = {
+        name: {
+            "event_count": len(event_ids),
+            "resolved_events": sum(
+                int(rows[result_id]["evaluator_resolved"])
+                for result_id in event_ids
+            ),
+            "unresolved_events": sum(
+                int(not rows[result_id]["evaluator_resolved"])
+                for result_id in event_ids
+            ),
+        }
+        for name, rows in ledgers.items()
+    }
+    for values in mapping_summary.values():
+        values["mapping_coverage"] = (
+            values["resolved_events"] / values["event_count"]
+            if values["event_count"]
+            else 1.0
+        )
+    max_unresolved_fraction = float(
+        evaluator_profile["semantics"].get(
+            "maximum_unresolved_mapping_fraction", 0.01
+        )
+    )
+    global_recovery_valid = all(
+        1.0 - float(values["mapping_coverage"]) <= max_unresolved_fraction
+        for values in mapping_summary.values()
+    )
     query_vcf = getattr(args, "query_vcf", None)
     if extended and query_vcf is None:
         raise ConsensusMetricError(
@@ -1282,6 +1320,24 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         )
         else None
     )
+    genotype_macro_f1 = (
+        candidate_summary.get("genotype_macro_f1")
+        if isinstance(candidate_summary, dict)
+        else None
+    )
+    nonref_f1 = (
+        candidate_summary.get("nonref_f1")
+        if isinstance(candidate_summary, dict)
+        else None
+    )
+    panel_truth_positive = (
+        int(candidate_summary.get("truth_positive", 0))
+        if isinstance(candidate_summary, dict)
+        else 0
+    )
+    panel_coverage = (
+        panel_truth_positive / truth_total if truth_total > 0 else None
+    )
     semantic_summary = {
         name: {
             "query_rows": len(rows),
@@ -1311,6 +1367,11 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "sha256": completion["version"]["sha256"],
         }
         for name, completion in completions.items()
+    }
+    evaluator_native_metrics = {
+        name: completion.get("native_metrics")
+        for name, completion in completions.items()
+        if completion.get("native_metrics") is not None
     }
     frozen_evidence = (
         evidence_profile(
@@ -1344,6 +1405,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "evaluator_profile_sha256": evaluator_profile["_sha256"],
             "evaluator_bundle_sha256": provenance_id,
             "evaluator_versions": version_summary,
+            "evaluator_native_metrics": evaluator_native_metrics,
             "asset_hashes": asset_hashes,
             "evidence_profile": frozen_evidence,
             "universe": evaluator_profile["universe"],
@@ -1354,7 +1416,29 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
                 "unique_truth_accounting": extended,
                 "credited_truth_events": len(credits),
             },
+            "evaluator_event_mapping": mapping_summary,
+            "maximum_unresolved_mapping_fraction": max_unresolved_fraction,
+            "global_recovery_status": (
+                "valid" if global_recovery_valid else "invalid_unresolved_mapping"
+            ),
             "comparable_score": _score(soft_tp, len(event_ids), truth_total),
+            # The primary score for a pangenome panel genotyper is its
+            # genotype macro-F1 on the common blinded candidate universe.
+            # The fixed whole-genome recovery score is retained separately;
+            # panel coverage is never multiplied into genotype quality.
+            "pangenome_genotyping_score": (
+                float(genotype_macro_f1) * 100.0
+                if genotype_macro_f1 is not None
+                else None
+            ),
+            "non_reference_f1_score": (
+                float(nonref_f1) * 100.0 if nonref_f1 is not None else None
+            ),
+            "panel_coverage": panel_coverage,
+            "panel_truth_positive_events": panel_truth_positive,
+            "global_end_to_end_sv_recovery_score": _score(
+                soft_tp, len(event_ids), truth_total
+            ),
             "comparable_score_confidence_interval": ci,
             "semantic_summary": semantic_summary,
             "candidate_genotype_summary": candidate_summary,

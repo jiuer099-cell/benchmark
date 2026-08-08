@@ -169,11 +169,20 @@ $defs:
       - evaluator_profile_sha256
       - evaluator_bundle_sha256
       - evaluator_versions
+      - evaluator_native_metrics
       - asset_hashes
       - evidence_profile
       - universe
       - matching
+      - evaluator_event_mapping
+      - maximum_unresolved_mapping_fraction
+      - global_recovery_status
       - comparable_score
+      - pangenome_genotyping_score
+      - non_reference_f1_score
+      - panel_coverage
+      - panel_truth_positive_events
+      - global_end_to_end_sv_recovery_score
       - comparable_score_confidence_interval
       - semantic_summary
       - candidate_genotype_summary
@@ -203,6 +212,29 @@ $defs:
             sha256:
               type: string
               pattern: "^[0-9a-f]{64}$"
+      evaluator_native_metrics:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required:
+            - unit
+            - truth_true_positive
+            - query_true_positive
+            - truth_false_negative
+            - query_false_positive
+            - precision
+            - recall
+            - f1
+          properties:
+            unit: {type: string, minLength: 1}
+            truth_true_positive: {type: integer, minimum: 0}
+            query_true_positive: {type: integer, minimum: 0}
+            truth_false_negative: {type: integer, minimum: 0}
+            query_false_positive: {type: integer, minimum: 0}
+            precision: {type: number, minimum: 0, maximum: 1}
+            recall: {type: number, minimum: 0, maximum: 1}
+            f1: {type: number, minimum: 0, maximum: 1}
       asset_hashes:
         type: object
         additionalProperties: false
@@ -363,7 +395,49 @@ $defs:
           credited_truth_events:
             type: integer
             minimum: 0
+      evaluator_event_mapping:
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required: [event_count, resolved_events, unresolved_events, mapping_coverage]
+          properties:
+            event_count: {type: integer, minimum: 0}
+            resolved_events: {type: integer, minimum: 0}
+            unresolved_events: {type: integer, minimum: 0}
+            mapping_coverage: {type: number, minimum: 0, maximum: 1}
+      maximum_unresolved_mapping_fraction:
+        type: number
+        minimum: 0
+        maximum: 1
+      global_recovery_status:
+        enum: [valid, invalid_unresolved_mapping]
       comparable_score:
+        type: number
+        minimum: 0
+        maximum: 100
+      pangenome_genotyping_score:
+        oneOf:
+          - type: number
+            minimum: 0
+            maximum: 100
+          - type: "null"
+      non_reference_f1_score:
+        oneOf:
+          - type: number
+            minimum: 0
+            maximum: 100
+          - type: "null"
+      panel_coverage:
+        oneOf:
+          - type: number
+            minimum: 0
+            maximum: 1
+          - type: "null"
+      panel_truth_positive_events:
+        type: integer
+        minimum: 0
+      global_end_to_end_sv_recovery_score:
         type: number
         minimum: 0
         maximum: 100

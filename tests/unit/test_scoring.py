@@ -65,6 +65,25 @@ def test_equal_vote_consensus_formula_and_counts() -> None:
     assert result.resource_points is None
 
 
+def test_panel_macro_f1_is_primary_and_global_recovery_remains_secondary() -> None:
+    payload = _payload()
+    global_score = 2 * (230 / 3) / 200 * 100
+    payload["analysis"] = {
+        "comparable_score": global_score,
+        "pangenome_genotyping_score": 86.10423,
+        "non_reference_f1_score": 84.4781,
+        "panel_coverage": 0.0626,
+    }
+
+    result = _calculate(payload)
+
+    assert result.pgbench_score == 86.10
+    assert result.pangenome_genotyping_score == 86.10
+    assert result.non_reference_f1_score == 84.48
+    assert result.panel_coverage == 0.0626
+    assert result.global_end_to_end_sv_recovery_score == result.comparable_score
+
+
 def test_perfect_unanimous_consensus_is_one_hundred() -> None:
     payload = _payload()
     payload["consensus"] = {

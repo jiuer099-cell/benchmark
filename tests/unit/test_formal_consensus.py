@@ -118,6 +118,27 @@ def test_evaluator_query_rebuilds_vcfdist_contig_headers(tmp_path: Path) -> None
     assert "##contig=<ID=chr1>\n" not in text
 
 
+def test_vcfdist_detection_copy_phases_heterozygotes_without_mutating_source(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.vcf"
+    destination = tmp_path / "query.vcf"
+    write_query(source)
+
+    write_variant_query(
+        source,
+        destination,
+        {"CANON_A", "CANON_B"},
+        phase_unphased_genotypes=True,
+    )
+
+    assert "\tGT\t0|1\n" in destination.read_text(encoding="utf-8")
+    assert "\tGT\t0/1\n" in source.read_text(encoding="utf-8")
+    assert "pgbench_vcfdist_detection_phase" in destination.read_text(
+        encoding="utf-8"
+    )
+
+
 def write_votes(path: Path, evaluator: str, votes: list[tuple[str, int]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
@@ -291,7 +312,7 @@ def test_vcfdist_complex_and_homozygous_components_map_to_one_event(
     assert votes == {"CANON_COMPLEX": True}
 
 
-def test_vcfdist_missing_complex_component_is_recorded_as_no_credit(
+def test_vcfdist_partial_complex_component_is_resolved_at_event_level(
     tmp_path: Path,
 ) -> None:
     query = tmp_path / "query.vcf"
@@ -303,8 +324,9 @@ def test_vcfdist_missing_complex_component_is_recorded_as_no_credit(
     )
     vcfdist = tmp_path / "vcfdist"
     vcfdist.mkdir()
-    # vcfdist reports only the insertion component; the missing deletion
-    # component must make the candidate fail rather than abort parsing.
+    # vcfdist reports only the insertion component because its supercluster
+    # representation absorbed the deletion component. The explicit component
+    # still resolves the source event instead of silently assigning zero.
     (vcfdist / "query.tsv").write_text(
         "CONTIG\tPOS\tHAP\tREF\tALT\tCREDIT\n"
         "chr1\t100\t0\t\tCC\t1.0\n",
@@ -314,7 +336,7 @@ def test_vcfdist_missing_complex_component_is_recorded_as_no_credit(
     order, votes = parse_vcfdist(query, vcfdist, credit_threshold=0.7)
 
     assert order == ["CANON_COMPLEX"]
-    assert votes == {"CANON_COMPLEX": False}
+    assert votes == {"CANON_COMPLEX": True}
 
 
 def test_evaluator_commands_freeze_the_common_maximum_size(

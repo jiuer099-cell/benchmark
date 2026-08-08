@@ -178,6 +178,8 @@ def test_ledger_separates_detection_genotype_and_no_call(tmp_path: Path) -> None
         "scope_excluded": 1,
         "events": 1,
         "detection_correct": 1,
+        "evaluator_resolved": 1,
+        "evaluator_unresolved": 0,
         "genotype_scorable": 1,
         "genotype_correct": 0,
         "no_call": 1,

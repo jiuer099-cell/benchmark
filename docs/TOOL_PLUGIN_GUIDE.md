@@ -47,8 +47,12 @@ semantics and can report novel graph-supported sites.
 - A graph or population panel must exclude HG002 and NA24385.
 - The tool-owned middle cannot read truth assets.
 - `ConsensusScore` describes agreement on query results.
-- `ComparableScore` uses the fixed eligible truth count as well as the query
-  count, so false positives and false negatives both lower the score.
+- `Pangenome Genotyping Score` is the primary panel score: genotype macro-F1
+  on the common blinded candidate universe, with no-call counted incorrect.
+- `ComparableScore` is retained as the secondary Global End-to-End SV Recovery
+  Score; it uses the fixed eligible truth count as well as the query count.
+- Non-reference F1 and panel coverage are displayed separately and are never
+  hidden inside a weighted score.
 - Cross-technology scores compare complete pipeline utility; they are not
   presented as separate task-type rankings.
 - Runtime, memory, disk, and provenance are reported or used as validity gates;

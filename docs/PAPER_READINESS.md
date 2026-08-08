@@ -28,7 +28,8 @@ benchmark and is not replaced by another dataset.
   linkage diagnostics;
 - equal Truvari, Aardvark, and vcfdist detection votes, with no evaluator
   weights and no ordinal ranking;
-- a fixed-truth ComparableScore, paired fixed-genomic-block confidence interval
+- a primary blinded-panel genotype macro-F1 score plus a secondary fixed-truth
+  global recovery score, paired fixed-genomic-block confidence interval
   that jointly resamples truth/query/FP contributions, type/length stratified
   output, repeated resource measurements, and an HTML report;
 - opt-in bounded real-resource preflight and independent formal KanPIG,

@@ -480,11 +480,26 @@ def _validate_metrics_records(
             isinstance(comparable_raw, bool)
             or not isinstance(comparable_raw, int | float)
             or abs(float(comparable_raw) - expected_raw) > 1e-9
-            or score.get("pgbench_score_raw") != comparable_raw
-            or score.get("pgbench_score") != score.get("comparable_score")
         ):
             raise FinalScoreSealError(
                 "score ComparableScore does not match the fixed-universe formula"
+            )
+        analysis = score.get("formal_analysis")
+        panel_score = (
+            analysis.get("pangenome_genotyping_score")
+            if isinstance(analysis, Mapping)
+            else None
+        )
+        expected_primary = panel_score if panel_score is not None else comparable_raw
+        if (
+            score.get("pgbench_score_raw") != expected_primary
+            or score.get("pangenome_genotyping_score")
+            != (round(float(panel_score), 2) if panel_score is not None else None)
+            or score.get("global_end_to_end_sv_recovery_score")
+            != score.get("comparable_score")
+        ):
+            raise FinalScoreSealError(
+                "primary score does not match panel macro-F1 or its global fallback"
             )
         return
 
