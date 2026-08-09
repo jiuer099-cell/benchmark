@@ -805,10 +805,7 @@ def test_audit_requires_nonempty_snakemake_version(tmp_path: Path) -> None:
     assert audit["status"] == "provisional"
 
 
-@pytest.mark.parametrize("mismatch", ["run_id", "score_profile_sha256"])
-def test_audit_rejects_mixed_run_or_score_profile(
-    tmp_path: Path, mismatch: str
-) -> None:
+def test_audit_rejects_mixed_run_id(tmp_path: Path) -> None:
     intermediate = tmp_path / "intermediate"
     final = tmp_path / "final"
     intermediate.write_text("one", encoding="utf-8")
@@ -820,11 +817,6 @@ def test_audit_rejects_mixed_run_or_score_profile(
         inputs=[],
         outputs=[intermediate],
     )
-    downstream_kwargs: dict[str, str] = {}
-    if mismatch == "run_id":
-        downstream_kwargs["run_id"] = "another-run"
-    else:
-        downstream_kwargs["score_profile_sha256"] = SHA_A
     downstream = _prepared_manifest(
         rule_name="compute_pgbench_score",
         job_key="hg002",
@@ -832,7 +824,7 @@ def test_audit_rejects_mixed_run_or_score_profile(
         inputs=[intermediate],
         outputs=[final],
         upstream_manifest_ids=[upstream["manifest_id"]],
-        **downstream_kwargs,
+        run_id="another-run",
     )
     _write_companions(tmp_path, upstream)
     _write_companions(tmp_path, downstream)
@@ -852,6 +844,50 @@ def test_audit_rejects_mixed_run_or_score_profile(
     assert audit["core_provenance_valid"] is False
     assert audit["status"] == "invalid"
     assert any(
-        issue.get("code") == "run_context_mismatch" and issue.get("field") == mismatch
+        issue.get("code") == "run_context_mismatch" and issue.get("field") == "run_id"
+        for issue in audit["issues"]
+    )
+
+
+def test_audit_allows_rescoring_with_a_new_score_profile(tmp_path: Path) -> None:
+    intermediate = tmp_path / "intermediate"
+    final = tmp_path / "final"
+    intermediate.write_text("one", encoding="utf-8")
+    final.write_text("two", encoding="utf-8")
+    upstream = _prepared_manifest(
+        rule_name="canonicalize_vcf",
+        job_key="hg002",
+        attempt_id="one",
+        inputs=[],
+        outputs=[intermediate],
+    )
+    downstream = _prepared_manifest(
+        rule_name="compute_pgbench_score",
+        job_key="hg002",
+        attempt_id="two",
+        inputs=[intermediate],
+        outputs=[final],
+        upstream_manifest_ids=[upstream["manifest_id"]],
+        score_profile_sha256=SHA_A,
+    )
+    _write_companions(tmp_path, upstream)
+    _write_companions(tmp_path, downstream)
+
+    audit = audit_manifests(
+        [upstream, downstream],
+        expected_jobs=[
+            {"rule_name": "canonicalize_vcf", "job_key": "hg002"},
+            {"rule_name": "compute_pgbench_score", "job_key": "hg002"},
+        ],
+        target_manifest_ids=[downstream["manifest_id"]],
+        workspace_root=tmp_path,
+        require_companions=True,
+    )
+
+    assert audit["run_context_complete"] is True
+    assert audit["core_provenance_valid"] is True
+    assert not any(
+        issue.get("code") == "run_context_mismatch"
+        and issue.get("field") == "score_profile_sha256"
         for issue in audit["issues"]
     )

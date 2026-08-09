@@ -304,10 +304,19 @@ def test_cli_input_alias_accepts_only_standard_metrics(tmp_path: Path) -> None:
     assert score_tools_main(args) == 2
 
 
-def test_cli_rejects_score_profile_not_frozen_in_run_context(
+def test_cli_allows_rescoring_with_profile_newer_than_run_context(
     tmp_path: Path,
 ) -> None:
     args = _cli_args(tmp_path)
     context = tmp_path / "run-context.json"
     _write_json(context, {"schema_version": 1, "score_profile_sha256": "0" * 64})
+    assert score_tools_main(args) == 0
+
+
+def test_cli_rejects_malformed_historical_score_profile_hash(
+    tmp_path: Path,
+) -> None:
+    args = _cli_args(tmp_path)
+    context = tmp_path / "run-context.json"
+    _write_json(context, {"schema_version": 1, "score_profile_sha256": "bad"})
     assert score_tools_main(args) == 2

@@ -1602,13 +1602,14 @@ def audit_manifests(
         for manifest in context_manifests
     )
     if run_context_complete:
-        # Every audited job must describe the same frozen run context.  A
-        # complete-looking manifest cannot silently substitute a different
-        # config, Git state, hardware identity, profile, or random seed.
+        # Every audited job must describe the same frozen *execution* context.
+        # The scoring profile is intentionally excluded: immutable tool and
+        # evaluator outputs may be rescored under a newer profile.  Score and
+        # audit manifests still bind that profile's exact hash, and the final
+        # sealing step verifies those bindings.
         context_fields = (
             "run_id",
             "config_snapshot_sha256",
-            "score_profile_sha256",
             "truth_profile",
             "git_head",
             "git_dirty",

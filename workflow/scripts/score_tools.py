@@ -122,19 +122,22 @@ def _apply_provenance_audit(
     return merged
 
 
-def _validate_run_context(
-    run_context: dict[str, Any], score_profile: dict[str, Any]
-) -> None:
+def _validate_run_context(run_context: dict[str, Any]) -> None:
+    """Validate the immutable execution context used by the evaluated run.
+
+    The score profile is deliberately *not* required to match the historical
+    run-context hash.  Tool/evaluator execution and score calculation are two
+    separately versioned stages: an immutable set of results may be rescored
+    with a newer, explicitly hashed score profile without rerunning the tool.
+    The current profile is bound by the score-rule manifest and is checked
+    again when the final score package is sealed.
+    """
     if run_context.get("schema_version") != 1:
         raise ScoreInputError("run context schema_version must be 1")
     actual_hash = run_context.get("score_profile_sha256")
     if not isinstance(actual_hash, str) or not _SHA256_RE.fullmatch(actual_hash):
         raise ScoreInputError(
             "run context score_profile_sha256 must be a lowercase SHA-256"
-        )
-    if actual_hash != score_profile.get("_sha256"):
-        raise ScoreInputError(
-            "selected score profile hash does not match the frozen run context"
         )
 
 
@@ -214,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         score_profile = load_score_profile(args.score_profile)
         run_context = _load_json(args.run_context, "run context")
-        _validate_run_context(run_context, score_profile)
+        _validate_run_context(run_context)
         expected_tuple = _expected_tuple(args)
         payload = build_score_payload_from_metrics(
             _load_json(args.metrics, "metrics document"),
