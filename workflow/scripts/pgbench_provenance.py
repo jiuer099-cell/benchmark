@@ -26,6 +26,16 @@ MANIFEST_SCHEMA_VERSION = "pgbench.rule_manifest.v1"
 LINEAGE_SCHEMA_VERSION = "pgbench.rule_lineage.v1"
 AUDIT_SCHEMA_VERSION = "pgbench.provenance_audit.v1"
 
+# Before the run-context snapshot became the authoritative owner of evaluator
+# and scoring profiles, validate_config also recorded these files as inputs.
+# validate_config only verifies that the evaluator profile path exists; it does
+# not consume either profile's contents.  Old manifests can therefore report
+# harmless drift after a profile is frozen correctly by snapshot_run_context.
+_LEGACY_VALIDATE_PROFILE_SUFFIXES = (
+    "/config/consensus_scoring.yaml",
+    "/config/evaluator_profile.yaml",
+)
+
 MANIFEST_ID_FIELDS = (
     "manifest_schema_version",
     "run_id",
@@ -1301,6 +1311,33 @@ def audit_manifests(
     valid_manifests: list[Mapping[str, Any]] = []
     selected_by_job: dict[tuple[str, str], Mapping[str, Any]] = {}
     root = Path(workspace_root) if workspace_root is not None else Path.cwd()
+
+    # A legacy validate_config manifest may contain the scoring/evaluator
+    # profiles even though validate_config never reads their contents.  Treat
+    # drift as superseded only when snapshot_run_context independently froze
+    # the *current* content of that exact profile path.  This keeps the
+    # compatibility exception narrow and still rejects unfrozen profile drift.
+    frozen_legacy_profiles: dict[str, str] = {}
+    for manifest in manifests:
+        if manifest.get("rule_name") != "snapshot_run_context":
+            continue
+        input_hashes = manifest.get("input_sha256")
+        if not isinstance(input_hashes, Mapping):
+            continue
+        for raw_path, digest in input_hashes.items():
+            normalized = "/" + str(raw_path).replace("\\", "/").lstrip("/")
+            if not normalized.endswith(_LEGACY_VALIDATE_PROFILE_SUFFIXES):
+                continue
+            candidate = Path(str(raw_path))
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            if (
+                isinstance(digest, str)
+                and candidate.is_file()
+                and sha256_file(candidate) == digest
+            ):
+                frozen_legacy_profiles[str(raw_path)] = digest
+
     for job in jobs:
         core = job.core or _matches_core(job.rule_name, effective_core_patterns)
         matches = manifests_by_key.get((job.rule_name, job.job_key), [])
@@ -1343,6 +1380,34 @@ def audit_manifests(
             base_dir=root,
             require_success=True,
         )
+        retained_validation_errors: list[str] = []
+        for message in validation_errors:
+            prefix = "input hash mismatch: "
+            drift_path = message[len(prefix) :] if message.startswith(prefix) else None
+            if (
+                job.rule_name == "validate_config"
+                and drift_path in frozen_legacy_profiles
+                and (
+                    "/" + str(drift_path).replace("\\", "/").lstrip("/")
+                ).endswith(_LEGACY_VALIDATE_PROFILE_SUFFIXES)
+            ):
+                issues.append(
+                    {
+                        "code": "superseded_validation_profile",
+                        "severity": "warning",
+                        "manifest_id": selected_manifest.get("manifest_id"),
+                        "rule_name": job.rule_name,
+                        "job_key": job.job_key,
+                        "path": drift_path,
+                        "message": (
+                            "legacy non-semantic validate_config profile drift "
+                            "is superseded by the frozen run-context profile"
+                        ),
+                    }
+                )
+                continue
+            retained_validation_errors.append(message)
+        validation_errors = retained_validation_errors
         package_valid = not validation_errors
         for message in validation_errors:
             issues.append(

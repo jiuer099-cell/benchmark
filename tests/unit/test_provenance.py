@@ -584,6 +584,56 @@ def test_missing_noncore_package_is_provisional_but_missing_core_is_invalid(
     assert core["core_provenance_valid"] is False
 
 
+def test_legacy_validate_profile_drift_is_superseded_by_frozen_context(
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / "config" / "consensus_scoring.yaml"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("version: old\n", encoding="utf-8")
+    validated = tmp_path / "validated.json"
+    validated.write_text("{}\n", encoding="utf-8")
+    validate = _prepared_manifest(
+        rule_name="validate_config",
+        job_key="config",
+        attempt_id="validate",
+        inputs=[profile],
+        outputs=[validated],
+    )
+
+    profile.write_text("version: frozen\n", encoding="utf-8")
+    context = tmp_path / "run-context.json"
+    context.write_text("{}\n", encoding="utf-8")
+    snapshot = _prepared_manifest(
+        rule_name="snapshot_run_context",
+        job_key="context",
+        attempt_id="snapshot",
+        inputs=[validated, profile],
+        outputs=[context],
+        upstream_manifest_ids=[validate["manifest_id"]],
+    )
+
+    audit = audit_manifests(
+        [validate, snapshot],
+        expected_jobs=[
+            {"rule_name": "validate_config", "job_key": "config", "core": True},
+            {
+                "rule_name": "snapshot_run_context",
+                "job_key": "context",
+                "core": True,
+            },
+        ],
+        target_manifest_ids=[snapshot["manifest_id"]],
+        workspace_root=tmp_path,
+        verify_paths=True,
+    )
+
+    assert audit["core_provenance_valid"] is True
+    assert any(
+        issue["code"] == "superseded_validation_profile"
+        for issue in audit["issues"]
+    )
+
+
 def test_duplicate_manifest_identity_invalidates_audit(tmp_path: Path) -> None:
     result = tmp_path / "result"
     result.write_text("ok", encoding="utf-8")

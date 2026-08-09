@@ -3,13 +3,13 @@ rule validate_config:
         config=CONFIG_PATH,
         config_schema="config/config.schema.yaml",
         tool_schema="workflow/schemas/tool.schema.yaml",
-        score_profile=config["catalogs"]["score_weights"],
-        evaluator_profile=config["catalogs"]["evaluator_profile"],
         rule_source="workflow/rules/common.smk",
         rule_executor=RULE_EXECUTOR,
         script="workflow/scripts/validate_config.py",
         environment=CORE_ENV_SPEC,
         provenance_library="workflow/scripts/pgbench_provenance.py",
+    params:
+        score_profile=config["catalogs"]["score_weights"],
     output:
         data=RESULTS_ROOT + "/provenance/config.validated.json",
         rule_manifest=VALIDATE_MANIFEST,
@@ -30,7 +30,7 @@ rule validate_config:
           --rule-source-path {input.rule_source:q} \
           --script-or-wrapper-path {input.script:q} \
           --config-snapshot {input.config:q} \
-          --score-profile {input.score_profile:q} \
+          --score-profile {params.score_profile:q} \
           --truth-profile {config[truth][primary]:q} \
           --snakemake-version {SNAKEMAKE_VERSION:q} \
           --execution-profile local \
@@ -41,8 +41,6 @@ rule validate_config:
           --input {input.config:q} \
           --input {input.config_schema:q} \
           --input {input.tool_schema:q} \
-          --input {input.score_profile:q} \
-          --input {input.evaluator_profile:q} \
           --input {input.rule_source:q} \
           --input {input.rule_executor:q} \
           --input {input.script:q} \
