@@ -127,8 +127,12 @@ AUDIT_REPLAY_FIELDS = (
     "run_context_complete",
     "core_provenance_valid",
     "lineage",
-    "issues",
 )
+# ``issues`` is deliberately excluded.  The stored audit performs path/hash
+# verification, while the replay below is structural because all paths have
+# already been verified once in this process.  Path-only warnings (for example
+# a tracked file verified from the run's historical Git commit) therefore need
+# not and cannot be reproduced by the structural replay.
 
 
 class FinalScoreSealError(ProvenanceError):

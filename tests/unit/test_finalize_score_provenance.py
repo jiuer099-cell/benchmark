@@ -369,6 +369,27 @@ def test_seals_valid_score_with_complete_final_lineage(tmp_path: Path) -> None:
 
     assert _run_seal(root, fixture) == 0
 
+
+def test_seals_when_stored_audit_contains_path_only_warning(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+
+    def add_path_warning(audit: dict[str, Any]) -> None:
+        audit["issues"].append(
+            {
+                "severity": "warning",
+                "code": "historical_git_input_verified",
+                "message": "tracked input verified from the frozen Git commit",
+                "rule_name": "link_pangenome_alleles",
+                "job_key": "HG002.example_genotyper.end_to_end_from_reads",
+                "manifest_id": audit["lineage"]["nodes"][0]["manifest_id"],
+                "path": "workflow/scripts/mock.py",
+            }
+        )
+
+    fixture = _seal_fixture(root, audit_mutator=add_path_warning)
+
+    assert _run_seal(root, fixture) == 0
+
     package = json.loads(fixture["outputs"]["package"].read_text(encoding="utf-8"))
     lineage = json.loads(fixture["outputs"]["lineage_json"].read_text(encoding="utf-8"))
     audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
