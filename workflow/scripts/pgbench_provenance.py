@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import tempfile
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping, Sequence
@@ -1338,6 +1339,36 @@ def audit_manifests(
             ):
                 frozen_legacy_profiles[str(raw_path)] = digest
 
+    historical_git_hashes: dict[tuple[str, str], str | None] = {}
+
+    def historical_git_hash(manifest: Mapping[str, Any], raw_path: str) -> str | None:
+        git_head = manifest.get("git_head")
+        if not isinstance(git_head, str) or not re.fullmatch(r"[0-9a-f]{40}", git_head):
+            return None
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        try:
+            relative = candidate.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return None
+        cache_key = (git_head, relative)
+        if cache_key not in historical_git_hashes:
+            try:
+                result = subprocess.run(
+                    ["git", "-C", str(root), "show", f"{git_head}:{relative}"],
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+            except OSError:
+                historical_git_hashes[cache_key] = None
+            else:
+                historical_git_hashes[cache_key] = (
+                    sha256_bytes(result.stdout) if result.returncode == 0 else None
+                )
+        return historical_git_hashes[cache_key]
+
     for job in jobs:
         core = job.core or _matches_core(job.rule_name, effective_core_patterns)
         matches = manifests_by_key.get((job.rule_name, job.job_key), [])
@@ -1406,6 +1437,33 @@ def audit_manifests(
                     }
                 )
                 continue
+            if drift_path is not None:
+                expected_hashes = selected_manifest.get("input_sha256")
+                expected_hash = (
+                    expected_hashes.get(drift_path)
+                    if isinstance(expected_hashes, Mapping)
+                    else None
+                )
+                if (
+                    isinstance(expected_hash, str)
+                    and historical_git_hash(selected_manifest, drift_path)
+                    == expected_hash
+                ):
+                    issues.append(
+                        {
+                            "code": "historical_git_input_verified",
+                            "severity": "warning",
+                            "manifest_id": selected_manifest.get("manifest_id"),
+                            "rule_name": job.rule_name,
+                            "job_key": job.job_key,
+                            "path": drift_path,
+                            "message": (
+                                "current tracked input drift is verified against "
+                                "the manifest's frozen Git commit"
+                            ),
+                        }
+                    )
+                    continue
             retained_validation_errors.append(message)
         validation_errors = retained_validation_errors
         package_valid = not validation_errors
@@ -1511,7 +1569,15 @@ def audit_manifests(
         or manifest.get("container_digest") is not None
         for manifest in valid_manifests
     )
-    run_context_complete = bool(valid_manifests) and all(
+    # validate_config bootstraps the run before run-context.json exists.  The
+    # uniform frozen context begins with snapshot_run_context and applies to
+    # every subsequent audited job.
+    context_manifests = [
+        manifest
+        for manifest in valid_manifests
+        if manifest.get("rule_name") != "validate_config"
+    ]
+    run_context_complete = bool(context_manifests) and all(
         isinstance(manifest.get("config_snapshot_sha256"), str)
         and bool(_SHA256_RE.fullmatch(manifest["config_snapshot_sha256"]))
         and isinstance(manifest.get("score_profile_sha256"), str)
@@ -1533,7 +1599,7 @@ def audit_manifests(
         and bool(manifest.get("execution_profile"))
         and isinstance(manifest.get("random_seed"), int)
         and not isinstance(manifest.get("random_seed"), bool)
-        for manifest in valid_manifests
+        for manifest in context_manifests
     )
     if run_context_complete:
         # Every audited job must describe the same frozen run context.  A
@@ -1555,7 +1621,7 @@ def audit_manifests(
         mismatched_context_fields = [
             field
             for field in context_fields
-            if len({manifest.get(field) for manifest in valid_manifests}) != 1
+            if len({manifest.get(field) for manifest in context_manifests}) != 1
         ]
         if mismatched_context_fields:
             run_context_complete = False

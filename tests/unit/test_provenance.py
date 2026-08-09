@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -630,6 +631,78 @@ def test_legacy_validate_profile_drift_is_superseded_by_frozen_context(
     assert audit["core_provenance_valid"] is True
     assert any(
         issue["code"] == "superseded_validation_profile"
+        for issue in audit["issues"]
+    )
+
+
+def test_tracked_input_drift_is_verified_against_frozen_git_commit(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "PGBench Test"],
+        check=True,
+    )
+    source = tmp_path / "workflow" / "scripts" / "engine.py"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"VERSION = 1\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "frozen"],
+        check=True,
+    )
+    git_head = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    output = tmp_path / "result.txt"
+    output.write_text("stable\n", encoding="utf-8")
+    manifest = _prepared_manifest(
+        rule_name="canonicalize_vcf",
+        job_key="HG002.tool.mode",
+        attempt_id="historical",
+        inputs=[source],
+        outputs=[output],
+    )
+    manifest["git_head"] = git_head
+    manifest["manifest_id"] = build_manifest_id(manifest)
+    frozen_blob = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "show",
+            f"{git_head}:workflow/scripts/engine.py",
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert sha256_bytes(frozen_blob) == manifest["input_sha256"][str(source)]
+    source.write_bytes(b"VERSION = 2\n")
+
+    audit = audit_manifests(
+        [manifest],
+        expected_jobs=[
+            {
+                "rule_name": "canonicalize_vcf",
+                "job_key": "HG002.tool.mode",
+                "core": True,
+            }
+        ],
+        target_manifest_ids=[manifest["manifest_id"]],
+        workspace_root=tmp_path,
+        verify_paths=True,
+    )
+
+    assert audit["core_provenance_valid"] is True, audit["issues"]
+    assert any(
+        issue["code"] == "historical_git_input_verified"
         for issue in audit["issues"]
     )
 
