@@ -144,18 +144,22 @@ def _validate_run_context(run_context: dict[str, Any]) -> None:
 def _validate_evaluator_context(
     run_context: dict[str, Any], payload: dict[str, Any]
 ) -> None:
+    """Validate the evaluator profile carried by the fused metrics.
+
+    The original run context records the profile available when the tool was
+    executed, but formal evaluator outputs may later be regenerated under a
+    newer frozen profile.  ``materialize_formal_consensus_metrics`` already
+    requires every evaluator to carry the same profile hash.  Here we require
+    that binding to be well formed instead of incorrectly equating it with the
+    historical tool-execution profile.
+    """
     analysis = payload.get("analysis")
     if not isinstance(analysis, Mapping):
         return
     expected = analysis.get("evaluator_profile_sha256")
-    actual = run_context.get("evaluator_profile_sha256")
-    if (
-        not isinstance(expected, str)
-        or not _SHA256_RE.fullmatch(expected)
-        or actual != expected
-    ):
+    if not isinstance(expected, str) or not _SHA256_RE.fullmatch(expected):
         raise ScoreInputError(
-            "formal evaluator profile does not match the frozen run context"
+            "formal evaluator profile hash is missing or malformed"
         )
 
 

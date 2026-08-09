@@ -17,8 +17,11 @@ from pgbench_metrics import (  # noqa: E402
     MetricContractError,
     build_score_payload_from_metrics,
 )
-from pgbench_scoring import load_score_profile  # noqa: E402
-from score_tools import main as score_tools_main  # noqa: E402
+from pgbench_scoring import ScoreInputError, load_score_profile  # noqa: E402
+from score_tools import (  # noqa: E402
+    _validate_evaluator_context,
+    main as score_tools_main,
+)
 
 SCORE_PROFILE_PATH = ROOT / "config" / "consensus_scoring.yaml"
 METRIC_DICTIONARY_PATH = ROOT / "config" / "metric_dictionary.yaml"
@@ -320,3 +323,18 @@ def test_cli_rejects_malformed_historical_score_profile_hash(
     context = tmp_path / "run-context.json"
     _write_json(context, {"schema_version": 1, "score_profile_sha256": "bad"})
     assert score_tools_main(args) == 2
+
+
+def test_evaluator_profile_can_be_newer_than_tool_run_context() -> None:
+    _validate_evaluator_context(
+        {"evaluator_profile_sha256": "a" * 64},
+        {"analysis": {"evaluator_profile_sha256": "b" * 64}},
+    )
+
+
+def test_evaluator_profile_binding_must_be_a_sha256() -> None:
+    with pytest.raises(ScoreInputError, match="missing or malformed"):
+        _validate_evaluator_context(
+            {"evaluator_profile_sha256": "a" * 64},
+            {"analysis": {"evaluator_profile_sha256": "bad"}},
+        )
