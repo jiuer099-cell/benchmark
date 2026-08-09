@@ -26,7 +26,6 @@ try:
         load_manifest,
         sha256_bytes,
         sha256_path,
-        validate_manifest,
     )
 except ModuleNotFoundError:  # pragma: no cover - package-style invocation
     from . import pgbench_provenance as _provenance_module
@@ -40,7 +39,6 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
         load_manifest,
         sha256_bytes,
         sha256_path,
-        validate_manifest,
     )
 
 
@@ -871,12 +869,22 @@ def finalize_score_provenance(
     ]
     all_manifests = [*supporting_manifests, audit_manifest, score_manifest]
 
-    for manifest in all_manifests:
-        validate_manifest(
-            manifest,
-            verify_paths=True,
-            base_dir=root,
-            require_success=True,
+    path_audit = audit_manifests(
+        all_manifests,
+        expected_jobs=_expected_jobs(all_manifests),
+        target_manifest_ids=[_manifest_id(score_manifest, label="score manifest")],
+        workspace_root=root,
+        require_companions=False,
+        verify_paths=True,
+    )
+    if not path_audit["core_provenance_valid"]:
+        errors = [
+            str(issue.get("message"))
+            for issue in path_audit.get("issues", ())
+            if isinstance(issue, Mapping) and issue.get("severity") == "error"
+        ]
+        raise FinalScoreSealError(
+            "manifest path validation failed: " + "; ".join(errors)
         )
     manifest_ids = [
         _manifest_id(manifest, label="manifest") for manifest in all_manifests
@@ -944,6 +952,7 @@ def finalize_score_provenance(
     final_lineage = build_lineage(
         all_manifests,
         target_manifest_ids=[score_manifest_id],
+        validate_manifests=False,
     )
     reachable_ids = {
         node["manifest_id"]
