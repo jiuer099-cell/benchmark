@@ -53,6 +53,9 @@ def load_graph_assets_lock(path: Path) -> dict:
     profile = lock.get("profile")
     profile_assets = {
         "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
+        "vg_giraffe_shortread": {
+            "gbz", "min", "zipcodes", "dist", "sample_list"
+        },
         "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
     }
     if profile not in profile_assets:

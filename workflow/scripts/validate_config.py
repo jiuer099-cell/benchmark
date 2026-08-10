@@ -33,6 +33,9 @@ READ_INPUTS = {"canonical_fastq", "short_fastq_r1", "short_fastq_r2"}
 GRAPH_PROFILE_ASSETS = {
     "none": set(),
     "vg_gbz_min_dist": {"manifest", "gbz", "min", "dist", "sample_list"},
+    "vg_giraffe_shortread": {
+        "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
+    },
     "vg_legacy_xg": {"manifest", "gbz", "xg", "min", "dist", "sample_list"},
 }
 

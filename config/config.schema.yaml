@@ -165,7 +165,7 @@ properties:
           - reference_path
         properties:
           profile:
-            enum: [none, vg_gbz_min_dist, vg_legacy_xg]
+            enum: [none, vg_gbz_min_dist, vg_giraffe_shortread, vg_legacy_xg]
           manifest:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
@@ -179,6 +179,10 @@ properties:
               - $ref: "#/$defs/nonEmptyPath"
               - type: "null"
           min:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          zipcodes:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
               - type: "null"

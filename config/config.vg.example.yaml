@@ -2,22 +2,22 @@ schema_version: 1
 
 project:
   id: hg002_grch38_sv_benchmark
-  run_id: hg002_clr_graphaligner_vg
+  run_id: hg002_illumina_vg_giraffe
 
 sample:
   id: HG002
   sex: male
-  technology: pacbio_clr
-  library_id: HG002_PacBio_MtSinai_NIST_CLR
-  source_evidence_id: HG002_PacBio_GRCh38_derived_fastq
+  technology: illumina_short_read
+  library_id: HG002_NIST_Illumina_2x250
+  source_evidence_id: HG002_Illumina_2x250_fastq
   coverage_x: null
   read_count: null
   read_bases: null
   downsampling_seed: null
-  bam: resources/alignments/HG002.GRCh38.bam
-  fastq: resources/reads/HG002.PacBio_CLR.fastq.gz
-  fastq_r1: null
-  fastq_r2: null
+  bam: null
+  fastq: null
+  fastq_r1: resources/reads/HG002.Illumina_2x250.R1.fastq.gz
+  fastq_r2: resources/reads/HG002.Illumina_2x250.R2.fastq.gz
 
 reference:
   id: grch38
@@ -35,11 +35,12 @@ pangenome:
   excluded_samples: [HG002, NA24385]
   population_vcf: resources/pangenome/grch38_hprc_1kg_sv_v1/population.sv.vcf.gz
   graph_assets:
-    profile: vg_gbz_min_dist
+    profile: vg_giraffe_shortread
     manifest: resources/pangenome/grch38_hprc_1kg_sv_v1/graph-assets.lock.yaml
     gbz: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.gbz
     xg: null
-    min: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.min
+    min: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.shortread.withzip.min
+    zipcodes: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.shortread.zipcodes
     dist: resources/pangenome/grch38_hprc_1kg_sv_v1/graph.dist
     sample_list: resources/pangenome/grch38_hprc_1kg_sv_v1/samples.txt
     reference_path: GRCh38
@@ -66,7 +67,7 @@ execution:
   random_seed: 20260716
   tool_threads: 16
   tool_memory_mb: 65536
-  tool_timeout_seconds: 604800
+  tool_timeout_seconds: 259200
 
 development:
   synthetic_mode: false
@@ -76,12 +77,6 @@ development:
   benchmark_bed: null
   evaluator_fixture_dir: null
   allow_missing_bam: false
-
-caller_only:
-  alignment_kind: bam
-  alignment_group_id: grch38_pbmm2_clr_bam_v1
-  shared_bam: resources/alignments/HG002.GRCh38.bam
-  shared_graph_alignments: {}
 
 score:
   profile: pgbench_consensus_v2

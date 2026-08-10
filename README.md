@@ -15,8 +15,8 @@ vcfdist.
 - production assets are fail-closed until paths and SHA-256 values are frozen.
 
 `config/config.example.yaml` is the BAM-based KanPIG caller-only layout.
-`config/config.vg.example.yaml` is the PacBio CLR end-to-end graph layout using
-GraphAligner, `vg pack`, and `vg call`.
+`config/config.vg.example.yaml` is the paired-Illumina end-to-end graph layout
+using `vg giraffe`, `vg pack`, and `vg call`.
 `config/config.pangenie.example.yaml` is the HG002 Illumina short-read
 PanGenie layout. The small files in
 `tests/fixtures/synthetic/` are contract fixtures, not biological benchmark
@@ -36,7 +36,7 @@ The middle is deliberately not one universal caller rule. A plugin declares a
 family (`graph_pangenome`, `discovery_integration`, `assembly_based`,
 `mapping_based`, `genotyping_only`, or
 `short_read_pangenome_genotyping`) and its own task stages. The included
-examples cover GraphAligner/vg, KanPIG, and PanGenie. User-provided genotypers
+examples cover vg Giraffe, KanPIG, and PanGenie. User-provided genotypers
 use the same checked plugin contract; see
 [`docs/TOOL_PLUGIN_GUIDE.md`](docs/TOOL_PLUGIN_GUIDE.md).
 
@@ -92,9 +92,9 @@ selected plugin profile. The mode-specific inputs are:
 | `caller_only_shared_alignment` | shared GRCh38 BAM and BAI | FASTQ |
 | `end_to_end_from_reads` | registered HG002 FASTQ input: one long-read file or a complete short-read R1/R2 pair, as required by the plugin | shared BAM and BAI |
 
-The technology still has to match the plugin. The vg example expects PacBio
-CLR FASTQ. PanGenie requires an explicit HG002 **Illumina paired-end R1/R2**
-FASTQ pair and cannot use the PacBio CLR BAM/FASTQ.
+The technology still has to match the plugin. Both vg Giraffe and PanGenie
+require an explicit HG002 **Illumina paired-end R1/R2** FASTQ pair and cannot
+use the PacBio CLR BAM/FASTQ.
 
 Before a plugin starts, every FASTQ is streamed to EOF. The executor validates
 gzip integrity, FASTQ record structure, sequence/quality lengths, and (for
@@ -115,7 +115,7 @@ configuration to the paths already used on the server:
 
 - GRCh38 no-alt plus hs38d1 FASTA, its `.fai`, and its `.dict`;
 - for caller-only, the matching HG002 PacBio CLR GRCh38 BAM and BAI;
-- for vg end-to-end, the canonical HG002 PacBio CLR FASTQ;
+- for vg Giraffe end-to-end, the canonical paired HG002 Illumina FASTQs;
 - for PanGenie end-to-end, the canonical HG002 Illumina paired R1/R2 FASTQ
   files;
 - GIAB HG002 GRCh38 T2T-Q100 v0.9 whole-genome draft SV truth VCF, its
@@ -412,7 +412,7 @@ snakemake --snakefile Snakefile \
   --configfile config/config.example.yaml \
   --cores 16 --use-conda --rerun-incomplete --keep-going
 
-# True read-to-graph mapping/calling for PacBio CLR.
+# Haplotype-aware read-to-graph mapping/calling for paired Illumina reads.
 snakemake --snakefile Snakefile \
   --configfile config/config.vg.example.yaml \
   --cores 16 --use-conda --rerun-incomplete --keep-going

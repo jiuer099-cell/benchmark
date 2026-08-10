@@ -31,7 +31,7 @@ listed in the plugin rule registry for auditability.
 | Adapter | Family | Starts from | Tool-owned stages |
 | --- | --- | --- | --- |
 | `kanpig` | long-read candidate genotyping | shared GRCh38 BAM | genotype, postprocess |
-| `vg` | graph mapping/calling | PacBio/ONT FASTQ | GraphAligner map, vg pack, vg call |
+| `vg` | graph mapping/calling | paired Illumina R1/R2 FASTQ | vg Giraffe map, vg pack, vg call |
 | `pangenie` | short-read pangenome genotyping | paired Illumina R1/R2 FASTQ | prepare, index, k-mer genotype |
 
 PanGenie and KanPIG are re-genotypers: they cannot discover an allele absent

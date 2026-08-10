@@ -54,6 +54,28 @@ def test_graph_bundle_is_content_locked(tmp_path: Path) -> None:
     assert lock["source_manifest"]["path"] == str(paths["source_manifest"])
 
 
+def test_giraffe_shortread_indexes_are_content_locked(tmp_path: Path) -> None:
+    paths = _write_bundle(tmp_path)
+    paths["min_index"] = tmp_path / "graph" / "graph.shortread.withzip.min"
+    paths["min_index"].write_bytes(b"synthetic-minimizer-with-zipcodes")
+    paths["zipcodes"] = tmp_path / "graph" / "graph.shortread.zipcodes"
+    paths["zipcodes"].write_bytes(b"synthetic-zipcodes")
+
+    lock = lock_graph_assets(
+        **paths,
+        reference_path="GRCh38",
+        profile="vg_giraffe_shortread",
+    )
+
+    assert set(lock["assets"]) == {
+        "gbz",
+        "min",
+        "zipcodes",
+        "dist",
+        "sample_list",
+    }
+
+
 def test_source_lock_checksum_mismatch_is_rejected(tmp_path: Path) -> None:
     paths = _write_bundle(tmp_path)
     paths["source_manifest"].write_text(

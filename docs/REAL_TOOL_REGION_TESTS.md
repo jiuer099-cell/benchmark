@@ -5,7 +5,7 @@ opt-in checks for the production server.
 
 The preflight gate verifies:
 
-- the KanPIG 2.0.2, PanGenie 4.2.1, PanGenie-index, GraphAligner, and vg 1.63+
+- the KanPIG 2.0.2, PanGenie 4.2.1, PanGenie-index, and vg 1.63+
   command-line programs;
 - the `bwrap` or `apptainer` backend declared by every bundled production
   plugin;
@@ -17,7 +17,7 @@ Three independent execution gates run the KanPIG, PanGenie, or vg adapter throug
 `execution_purpose=formal`, `sandbox_backend=bwrap`,
 the plugin's declared mode, and a hard timeout. Each validates the attempt
 record, sandbox status, resolved inputs, logs, and non-empty VCF. The vg gate
-also runs GraphAligner; none of these bounded adapter gates runs an evaluator,
+also runs vg Giraffe; none of these bounded adapter gates runs an evaluator,
 scoring, or the full Snakemake workflow.
 
 Ordinary `pytest` runs skip every test in this module. Setting only the
@@ -66,7 +66,6 @@ export PGBENCH_KANPIG_BIN=/path/to/conda/envs/kanpig/bin/kanpig
 export PGBENCH_PANGENIE_BIN=/path/to/PanGenie
 export PGBENCH_PANGENIE_INDEX_BIN=/path/to/PanGenie-index
 export PGBENCH_VG_BIN=/path/to/vg
-export PGBENCH_GRAPHALIGNER_BIN=/path/to/GraphAligner
 export PGBENCH_BWRAP_BIN=/usr/bin/bwrap
 ```
 
@@ -134,14 +133,13 @@ python -m pytest -q \
 
 ## Run the formal vg small-region test
 
-For the bounded gate, vg and GraphAligner must be in one runtime environment:
+For the bounded gate, vg Giraffe and its graph indexes must be available:
 
 ```bash
 cd /home/luzhiting/hg002-grch38-pangenome-sv-benchmark
 
 export PGBENCH_REAL_REGION_DIR=/absolute/path/to/hg002-real-region
 export PGBENCH_VG_BIN=/path/to/vg_env/bin/vg
-export PGBENCH_GRAPHALIGNER_BIN=/path/to/vg_env/bin/GraphAligner
 export PGBENCH_BWRAP_BIN=/usr/bin/bwrap
 export PGBENCH_REAL_VG_EXECUTION=1
 

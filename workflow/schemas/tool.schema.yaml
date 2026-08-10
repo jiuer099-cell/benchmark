@@ -333,7 +333,7 @@ $defs:
         type: array
         uniqueItems: true
         items:
-          enum: [vg_gbz_min_dist, vg_legacy_xg]
+          enum: [vg_gbz_min_dist, vg_giraffe_shortread, vg_legacy_xg]
   modeInput:
     enum:
       - canonical_fastq

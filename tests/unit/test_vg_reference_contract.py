@@ -84,12 +84,20 @@ def _set_runner_environment(
 ) -> None:
     graph_dir = tmp_path / "runner-graph"
     graph_dir.mkdir()
-    for name in ("graph.gbz", "graph.min", "graph.dist"):
+    for name in (
+        "graph.gbz",
+        "graph.shortread.withzip.min",
+        "graph.shortread.zipcodes",
+        "graph.dist",
+    ):
         (graph_dir / name).write_bytes(name.encode())
-    reads = tmp_path / "reads.fastq"
-    reads.write_text("@read\nAC\n+\n!!\n", encoding="utf-8")
+    reads_r1 = tmp_path / "reads.R1.fastq"
+    reads_r2 = tmp_path / "reads.R2.fastq"
+    reads_r1.write_text("@read/1\nAC\n+\n!!\n", encoding="utf-8")
+    reads_r2.write_text("@read/2\nGT\n+\n!!\n", encoding="utf-8")
     output_dir = tmp_path / "runner-output"
-    monkeypatch.setenv("PGBENCH_INPUT_FASTQ", str(reads))
+    monkeypatch.setenv("PGBENCH_INPUT_FASTQ_R1", str(reads_r1))
+    monkeypatch.setenv("PGBENCH_INPUT_FASTQ_R2", str(reads_r2))
     monkeypatch.setenv("PGBENCH_GRAPH_DIR", str(graph_dir))
     monkeypatch.setenv("PGBENCH_OUTPUT_DIR", str(output_dir))
     monkeypatch.setenv(
@@ -123,6 +131,13 @@ def test_vg_call_is_restricted_to_frozen_reference_sample(
     call = next(command for command in commands if command[:2] == ["vg", "call"])
     selector_index = call.index("--ref-sample")
     assert call[selector_index + 1] == "GRCh38"
+
+    giraffe = next(
+        command for command in commands if command[:2] == ["vg", "giraffe"]
+    )
+    assert giraffe.count("-f") == 2
+    assert "graph.shortread.withzip.min" in giraffe[giraffe.index("-m") + 1]
+    assert "graph.shortread.zipcodes" in giraffe[giraffe.index("-z") + 1]
 
 
 def test_vg_runner_fails_closed_without_reference_selector(

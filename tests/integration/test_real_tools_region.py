@@ -112,13 +112,6 @@ TOOL_PROBES = (
         arguments=(("version",), ("--version",)),
         minimum_version=(1, 63),
     ),
-    ToolProbe(
-        name="GraphAligner",
-        plugin="vg",
-        executable="GraphAligner",
-        executable_env="PGBENCH_GRAPHALIGNER_BIN",
-        arguments=(("--version",), ("-v",), ("--help",)),
-    ),
 )
 
 PLUGIN_MANIFESTS = (
@@ -149,6 +142,7 @@ REQUIRED_RESOURCE_KEYS = {
     "graph_gbz",
     "graph_xg",
     "graph_min",
+    "graph_zipcodes",
     "graph_dist",
     "graph_samples",
 }
@@ -639,17 +633,14 @@ def test_vg_formal_small_region_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Run the real GraphAligner plus vg adapter once on regional long reads."""
+    """Run the real vg Giraffe adapter once on regional paired short reads."""
 
     assert sys.platform.startswith("linux")
-    for variable in ("PGBENCH_VG_BIN", "PGBENCH_GRAPHALIGNER_BIN"):
+    for variable in ("PGBENCH_VG_BIN",):
         assert os.environ.get(variable), f"set {variable} to an absolute executable"
     _activate_single_conda_runtime(
         monkeypatch,
-        [
-            ("PGBENCH_VG_BIN", "vg"),
-            ("PGBENCH_GRAPHALIGNER_BIN", "GraphAligner"),
-        ],
+        [("PGBENCH_VG_BIN", "vg")],
     )
     _assert_bwrap_isolates(_resolve_executable("PGBENCH_BWRAP_BIN", "bwrap"))
     region, resources = _validated_region_resources()
@@ -665,7 +656,8 @@ def test_vg_formal_small_region_execution(
         run_id=f"real-region-{region['id']}",
         sample_id="HG002",
         supplied_inputs={
-            "canonical_fastq": resources["long_fastq"],
+            "short_fastq_r1": resources["short_fastq_r1"],
+            "short_fastq_r2": resources["short_fastq_r2"],
             "reference": resources["reference_fasta"],
             "pangenome_manifest": resources["pangenome_manifest"],
             "pangenome_panel": resources["population_vcf"],

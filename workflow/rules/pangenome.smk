@@ -39,6 +39,7 @@ rule lock_graph_assets:
         gbz=configured_graph_asset("gbz"),
         xg=optional_graph_asset("xg"),
         min_index=configured_graph_asset("min"),
+        zipcodes=optional_graph_asset("zipcodes"),
         dist=configured_graph_asset("dist"),
         sample_list=configured_graph_asset("sample_list"),
         rule_source="workflow/rules/pangenome.smk",
@@ -65,13 +66,20 @@ rule lock_graph_assets:
             "--input",
             [
                 config["pangenome"]["graph_assets"][name]
-                for name in ("manifest", "gbz", "xg", "min", "dist", "sample_list")
+                for name in (
+                    "manifest", "gbz", "xg", "min", "zipcodes", "dist", "sample_list"
+                )
                 if config["pangenome"]["graph_assets"].get(name)
             ],
         ),
         xg_script_arguments=(
             ["--xg", config["pangenome"]["graph_assets"]["xg"]]
             if config["pangenome"]["graph_assets"].get("xg")
+            else []
+        ),
+        zipcodes_script_arguments=(
+            ["--zipcodes", config["pangenome"]["graph_assets"]["zipcodes"]]
+            if config["pangenome"]["graph_assets"].get("zipcodes")
             else []
         ),
     shell:
@@ -119,6 +127,7 @@ rule lock_graph_assets:
             --gbz {input.gbz:q} \
             {params.xg_script_arguments:q} \
             --min {input.min_index:q} \
+            {params.zipcodes_script_arguments:q} \
             --dist {input.dist:q} \
             --sample-list {input.sample_list:q} \
             --reference-path {config[pangenome][graph_assets][reference_path]:q} \

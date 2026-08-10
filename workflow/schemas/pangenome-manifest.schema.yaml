@@ -84,7 +84,7 @@ properties:
           asset_root:
             $ref: "#/$defs/nonEmptyPath"
           profile:
-            enum: [vg_gbz_min_dist, vg_legacy_xg]
+            enum: [vg_gbz_min_dist, vg_giraffe_shortread, vg_legacy_xg]
           reference_path:
             type: string
             minLength: 1
@@ -101,6 +101,8 @@ properties:
           xg:
             $ref: "#/$defs/sizedAsset"
           min:
+            $ref: "#/$defs/sizedAsset"
+          zipcodes:
             $ref: "#/$defs/sizedAsset"
           dist:
             $ref: "#/$defs/sizedAsset"

@@ -1,13 +1,16 @@
-# GraphAligner + vg graph-calling adapter
+# vg Giraffe graph-calling adapter
 
-This end-to-end adapter exports the exact frozen GBZ graph to GFA, maps the
-canonical HG002 PacBio CLR FASTQ with `GraphAligner`, creates a support pack,
-computes snarls, and emits graph-supported variant sites with `vg call`.
+This end-to-end adapter maps the registered paired HG002 Illumina FASTQs to
+the exact frozen GBZ graph with `vg giraffe`, accumulates support with
+`vg pack`, computes snarls, and emits graph-supported variant sites with
+`vg call`.
 
-The modern `vg_gbz_min_dist` profile contains validated `graph.gbz`,
-`graph.min`, and `graph.dist` assets plus its manifest/sample list. `graph.xg`
-is required only by the explicit legacy `vg_legacy_xg` profile. The exported
-GFA, GAM, pack, and snarls are run-local intermediates, so node identity
-remains tied to the locked GBZ.
+The `vg_giraffe_shortread` profile freezes `graph.gbz`, `graph.dist`,
+`graph.shortread.withzip.min`, and `graph.shortread.zipcodes` together with
+the graph manifest and HG002-free sample list. Explicit paths prevent Giraffe
+from silently building or selecting mutable indexes at execution time. GAM,
+pack, and snarls files are run-local intermediates.
 
 Formal attempts run without network access in the configured `bwrap` sandbox.
+The runner receives no truth asset and emits a fresh VCF for the common formal
+evaluators.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PGBench CLR graph adapter for GraphAligner + vg pack + vg call."""
+"""PGBench paired-short-read adapter for vg Giraffe + pack + call."""
 
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ def run(command: list[str], *, stdout: Path | None = None) -> None:
 
 
 def main() -> int:
-    reads = Path(required("PGBENCH_INPUT_FASTQ"))
+    reads_r1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
+    reads_r2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
     graph_dir = Path(required("PGBENCH_GRAPH_DIR"))
     output_dir = Path(required("PGBENCH_OUTPUT_DIR"))
     output_vcf = Path(required("PGBENCH_OUTPUT_VCF"))
@@ -33,48 +34,43 @@ def main() -> int:
     reference_path = required("PGBENCH_GRAPH_REFERENCE_PATH")
 
     gbz = graph_dir / "graph.gbz"
-    for path in (
-        gbz,
-        graph_dir / "graph.min",
-        graph_dir / "graph.dist",
-    ):
+    minimizer = graph_dir / "graph.shortread.withzip.min"
+    zipcodes = graph_dir / "graph.shortread.zipcodes"
+    distance = graph_dir / "graph.dist"
+    for path in (gbz, minimizer, zipcodes, distance):
         if not path.is_file():
             raise RuntimeError(f"required vg graph asset is absent: {path}")
 
     work = output_dir / "work"
     work.mkdir(parents=True, exist_ok=True)
     output_vcf.parent.mkdir(parents=True, exist_ok=True)
-    gfa = work / "graph.gfa"
     gam = work / "HG002.gam"
     pack = work / "HG002.pack"
     snarls = work / "graph.snarls"
 
-    # GraphAligner is appropriate for noisy PacBio CLR reads and can emit GAM
-    # with node identities preserved from the exact frozen graph.
+    # Giraffe is vg's haplotype-aware production mapper for paired short reads.
+    # Explicit index paths prevent implicit, mutable index construction.
     run(
         [
             "vg",
-            "convert",
-            "-f",
-            "--no-translation",
+            "giraffe",
+            "-Z",
             str(gbz),
-        ],
-        stdout=gfa,
-    )
-    run(
-        [
-            "GraphAligner",
-            "-g",
-            str(gfa),
+            "-d",
+            str(distance),
+            "-m",
+            str(minimizer),
+            "-z",
+            str(zipcodes),
             "-f",
-            str(reads),
-            "-a",
-            str(gam),
-            "-x",
-            "vg",
+            str(reads_r1),
+            "-f",
+            str(reads_r2),
             "-t",
             threads,
-        ]
+            "-p",
+        ],
+        stdout=gam,
     )
     run(
         [

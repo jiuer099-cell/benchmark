@@ -1,14 +1,14 @@
 interface_version: 1
 id: vg
-name: GraphAligner plus vg graph SV calling
-version: "1"
+name: vg Giraffe short-read pangenome SV calling
+version: "2"
 source: external
 paradigm: graph_pangenome
 
 tasks: [mapping, calling, postprocess]
 
 inputs:
-  reads: long_fastq
+  reads: paired_short_fastq
   reference: required
   candidates: optional
   pangenome_manifest: required
@@ -16,17 +16,17 @@ inputs:
   graph_assets:
     required: true
     accepted_formats: [vg, xg_gbwt]
-    accepted_profiles: [vg_gbz_min_dist, vg_legacy_xg]
+    accepted_profiles: [vg_giraffe_shortread]
   shared_alignment:
     required: false
     accepted_formats: [gam, gaf]
   read_sequences_auxiliary: false
 
 capabilities:
-  technology: [pacbio_clr, pacbio_hifi, ont]
+  technology: [illumina_short_read]
   svtypes: [DEL, INS, DUP, INV, CNV, BND, CPX]
   phasing: false
-  novel_discovery: true
+  novel_discovery: false
   allele_linkage_output: benchmark_inferred
   allele_namespace: [PGSV]
 
@@ -40,7 +40,8 @@ execution:
 supported_modes:
   end_to_end_from_reads:
     required_inputs:
-      - canonical_fastq
+      - short_fastq_r1
+      - short_fastq_r2
       - reference
       - pangenome_manifest
       - pangenome_panel
@@ -51,8 +52,7 @@ supported_modes:
       - original_input_bam
       - shared_alignment
       - haplotype_fastq
-      - short_fastq_r1
-      - short_fastq_r2
+      - canonical_fastq
     billable_stages:
       - map
       - call

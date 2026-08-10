@@ -285,6 +285,10 @@ def test_vg_end_to_end_example_config_matches_schema() -> None:
     config = _load_yaml(CONFIG / "config.vg.example.yaml")
     _assert_valid(CONFIG / "config.schema.yaml", config)
     assert config["execution"]["official_score_mode"] == "end_to_end_from_reads"
+    assert config["sample"]["technology"] == "illumina_short_read"
+    assert config["sample"]["fastq_r1"] is not None
+    assert config["sample"]["fastq_r2"] is not None
+    assert config["pangenome"]["graph_assets"]["profile"] == "vg_giraffe_shortread"
     assert config["external_plugins"] == [
         {"id": "vg", "manifest": "plugins/vg/tool.yaml"}
     ]

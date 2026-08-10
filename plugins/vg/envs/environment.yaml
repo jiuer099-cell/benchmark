@@ -3,5 +3,4 @@ channels:
   - bioconda
 dependencies:
   - python=3.12
-  - graphaligner
   - vg>=1.63

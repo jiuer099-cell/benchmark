@@ -1,11 +1,12 @@
 schema_version: 1
 rules:
   - id: tool__vg__map
-    description: Map canonical HG002 long reads to the frozen graph with GraphAligner.
+    description: Map paired HG002 Illumina reads to the frozen graph with vg Giraffe.
     phase: tool_execution
     kind: plugin
     inputs:
-      - canonical_fastq
+      - short_fastq_r1
+      - short_fastq_r2
       - frozen_vg_graph_assets
     outputs:
       - graph_alignment_gam

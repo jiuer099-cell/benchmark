@@ -17,11 +17,15 @@ ASSET_FILENAMES = {
     "gbz": "graph.gbz",
     "xg": "graph.xg",
     "min": "graph.min",
+    "zipcodes": "graph.shortread.zipcodes",
     "dist": "graph.dist",
     "sample_list": "samples.txt",
 }
 PROFILE_ASSETS = {
     "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
+    "vg_giraffe_shortread": {
+        "gbz", "min", "zipcodes", "dist", "sample_list"
+    },
     "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
 }
 
@@ -132,6 +136,7 @@ def lock_graph_assets(
     dist: Path,
     sample_list: Path,
     reference_path: str,
+    zipcodes: Path | None = None,
     profile: str = "vg_legacy_xg",
     excluded_samples: tuple[str, ...] = ("HG002", "NA24385"),
 ) -> dict[str, Any]:
@@ -146,6 +151,7 @@ def lock_graph_assets(
         "gbz": gbz,
         "xg": xg,
         "min": min_index,
+        "zipcodes": zipcodes,
         "dist": dist,
         "sample_list": sample_list,
     }
@@ -178,7 +184,11 @@ def lock_graph_assets(
         )
 
     for name, path in paths.items():
-        expected_name = ASSET_FILENAMES[name]
+        expected_name = (
+            "graph.shortread.withzip.min"
+            if profile == "vg_giraffe_shortread" and name == "min"
+            else ASSET_FILENAMES[name]
+        )
         if path.name != expected_name:
             raise GraphAssetError(
                 f"{name} must use conventional filename {expected_name!r}, "
@@ -215,6 +225,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gbz", required=True, type=Path)
     parser.add_argument("--xg", type=Path)
     parser.add_argument("--min", dest="min_index", required=True, type=Path)
+    parser.add_argument("--zipcodes", type=Path)
     parser.add_argument("--dist", required=True, type=Path)
     parser.add_argument("--sample-list", required=True, type=Path)
     parser.add_argument("--reference-path", required=True)
@@ -241,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             gbz=args.gbz,
             xg=args.xg,
             min_index=args.min_index,
+            zipcodes=args.zipcodes,
             dist=args.dist,
             sample_list=args.sample_list,
             reference_path=args.reference_path,

@@ -32,6 +32,7 @@ resources:
   graph_manifest: graph/graph-assets.lock.yaml
   graph_gbz: graph/graph.gbz
   graph_xg: graph/graph.xg
-  graph_min: graph/graph.min
+  graph_min: graph/graph.shortread.withzip.min
+  graph_zipcodes: graph/graph.shortread.zipcodes
   graph_dist: graph/graph.dist
   graph_samples: graph/samples.txt
