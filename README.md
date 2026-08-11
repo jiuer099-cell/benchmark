@@ -423,7 +423,7 @@ snakemake --snakefile Snakefile \
   --cores 16 --use-conda --rerun-incomplete --keep-going
 ```
 
-The graph adapter environment installs `graphaligner` and `vg>=1.63`; the
+The graph adapter environment installs the index-compatible `vg=1.73.0`; the
 KanPIG adapter pins KanPIG 2.0.2, and the PanGenie adapter pins PanGenie 4.2.1.
 KanPIG receives the workflow's declared thread allocation through its native
 `--threads` option.
