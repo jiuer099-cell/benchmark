@@ -102,6 +102,46 @@ class LinkResult:
     similarity: float | None
 
 
+@dataclass(frozen=True)
+class AlleleIndex:
+    """Indexes that avoid scanning every relevant panel allele for every call."""
+
+    exact: dict[tuple[str, int, int, str, int, str, str], list[Allele]]
+    grouped: dict[tuple[str, str], tuple[list[int], list[Allele], float]]
+
+
+def build_allele_index(alleles: list[Allele]) -> AlleleIndex:
+    exact: dict[tuple[str, int, int, str, int, str, str], list[Allele]] = (
+        defaultdict(list)
+    )
+    grouped_values: dict[tuple[str, str], list[Allele]] = defaultdict(list)
+    for allele in alleles:
+        exact[allele.exact_key].append(allele)
+        grouped_values[(allele.chrom, allele.svtype)].append(allele)
+    grouped: dict[tuple[str, str], tuple[list[int], list[Allele], float]] = {}
+    for key, values in grouped_values.items():
+        ordered = sorted(values, key=lambda allele: allele.pos)
+        max_distance = max(
+            max(100.0, 0.10 * max(1, abs(allele.svlen))) for allele in ordered
+        )
+        grouped[key] = (
+            [allele.pos for allele in ordered],
+            ordered,
+            max_distance,
+        )
+    return AlleleIndex(exact=dict(exact), grouped=grouped)
+
+
+def _candidate_alleles(call: Call, index: AlleleIndex) -> list[Allele]:
+    grouped = index.grouped.get((call.chrom, call.svtype))
+    if grouped is None:
+        return []
+    positions, alleles, max_distance = grouped
+    left = bisect.bisect_left(positions, call.pos - max_distance)
+    right = bisect.bisect_right(positions, call.pos + max_distance)
+    return alleles[left:right]
+
+
 def _allow_large_vcf_alleles() -> None:
     """Raise csv's legacy 128 KiB field cap without assuming C-long width."""
 
@@ -266,14 +306,17 @@ def link_call(
     call: Call,
     allele_by_id: dict[str, Allele],
     alleles: list[Allele],
+    *,
+    allele_index: AlleleIndex | None = None,
 ) -> LinkResult:
     if call.svtype == "BND" and ("[" not in call.alt and "]" not in call.alt):
         return LinkResult("unresolved", None, 0, "unpaired_bnd", None)
 
-    exact = [allele for allele in alleles if call.exact_key == allele.exact_key]
+    index = allele_index or build_allele_index(alleles)
+    exact = index.exact.get(call.exact_key, [])
     compatible = [
         (allele, score)
-        for allele in alleles
+        for allele in _candidate_alleles(call, index)
         if (score := compatibility(call, allele)) is not None
     ]
 
@@ -358,6 +401,7 @@ def link_vcf(
         ledger_path,
         relevant_calls=calls,
     )
+    allele_index = build_allele_index(alleles)
     output_vcf.parent.mkdir(parents=True, exist_ok=True)
     links_tsv.parent.mkdir(parents=True, exist_ok=True)
     temporary_vcf = output_vcf.with_name(f".{output_vcf.name}.tmp")
@@ -402,7 +446,12 @@ def link_vcf(
                 continue
             fields = raw_line.rstrip("\n").split("\t")
             call = parse_call(fields)
-            result = link_call(call, allele_by_id, alleles)
+            result = link_call(
+                call,
+                allele_by_id,
+                alleles,
+                allele_index=allele_index,
+            )
             if result.status not in LINK_STATUSES:
                 raise AlleleLinkError(f"unexpected link status {result.status}")
             info = parse_info(fields[7])
