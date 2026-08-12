@@ -24,6 +24,7 @@ from materialize_formal_consensus_metrics import (  # noqa: E402
     stratified_summary,
 )
 from run_formal_evaluator import (  # noqa: E402
+    _resolve_votes,
     build_command,
     command_prefix,
     parse_aardvark,
@@ -284,6 +285,28 @@ def test_aardvark_output_suffix_trimming_and_missing_ids_are_mapped(
     order, votes = parse_aardvark(query, aardvark)
     assert order == ["CANON_TRIMMED"]
     assert votes == {"CANON_TRIMMED": True}
+
+
+def test_native_evaluator_omission_is_recorded_as_unresolved(
+    tmp_path: Path,
+) -> None:
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tCANON_RESOLVED\tA\tAT\t.\tPASS\tSVTYPE=INS\tGT\t0/1\n"
+        "chrUn\t200\tCANON_OMITTED\tA\tAT\t.\tPASS\tSVTYPE=INS\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    order, votes = _resolve_votes(
+        query,
+        {"CANON_RESOLVED": True},
+        {},
+    )
+
+    assert order == ["CANON_RESOLVED", "CANON_OMITTED"]
+    assert votes == {"CANON_RESOLVED": True}
 
 
 def test_vcfdist_complex_and_homozygous_components_map_to_one_event(

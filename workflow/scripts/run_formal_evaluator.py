@@ -218,9 +218,13 @@ def _resolve_votes(
             continue
         key_votes = decisions_by_key.get(keys[result_id], [])
         if not key_votes:
-            raise FormalEvaluatorError(
-                f"evaluator did not classify query result {result_id}"
-            )
+            # Native evaluators may intentionally omit records they cannot
+            # represent (for example calls on auxiliary contigs or very large
+            # complex alleles).  Preserve that distinction in the formal
+            # ledger as evaluator_resolved=0 instead of aborting the complete
+            # benchmark.  Missing decisions are deliberately not converted to
+            # false votes here.
+            continue
         if len(set(key_votes)) != 1:
             raise FormalEvaluatorError(
                 f"evaluator produced conflicting classifications for {result_id}"
