@@ -64,7 +64,7 @@ execution:
   use_conda: true
   use_apptainer: false
   keep_going: true
-  benchmark_repeats: 3
+  benchmark_repeats: 1
   cache_policy: isolated_empty_tool_cache
   random_seed: 20260716
   tool_threads: 16
