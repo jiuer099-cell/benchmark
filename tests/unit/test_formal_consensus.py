@@ -851,3 +851,46 @@ def test_partial_truth_gt_is_detection_scorable_but_not_genotype_scorable(
     assert summary["genotype_correct"] == 0
     assert summary["genotype_accuracy"] is None
     assert summary["binary_nonref_confusion"]["true_positive"] == 1
+
+
+def test_duplicate_discovery_records_are_merged_without_cherry_picking(
+    tmp_path: Path,
+) -> None:
+    hidden = tmp_path / "hidden.tsv"
+    hidden.write_text(
+        "candidate_id\tpangenome_allele_id\ttruth_gt\ttruth_label\t"
+        "truth_scorable\ttruth_event_id\n"
+        "CAND_DUP\tPG_DUP\t0/1\tpositive\t1\tTRUTH_DUP\n",
+        encoding="utf-8",
+    )
+    query = tmp_path / "linked.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tCANON_A\tA\t<INS>\t.\tPASS\t"
+        "PANGENOME_LINKED_ID=PG_DUP;PANGENOME_LINK_STATUS=in_panel_equivalent;"
+        "SVTYPE=INS;SVLEN=100\tGT\t0/1\n"
+        "chr1\t11\tCANON_B\tA\t<INS>\t.\tPASS\t"
+        "PANGENOME_LINKED_ID=PG_DUP;PANGENOME_LINK_STATUS=in_panel_equivalent;"
+        "SVTYPE=INS;SVLEN=100\tGT\t1/0\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "tool.yaml"
+    manifest.write_text(
+        "outputs:\n"
+        "  candidate_output_contract: variant_sites\n"
+        "  absence_semantics: hom_ref\n",
+        encoding="utf-8",
+    )
+
+    summary = candidate_genotype_summary(
+        query_vcf=query,
+        hidden_truth_ledger=hidden,
+        tool_manifest=manifest,
+        require_phase=False,
+    )
+
+    assert summary["observed_candidates"] == 1
+    assert summary["duplicate_candidate_records"] == 1
+    assert summary["conflicting_duplicate_candidates"] == 0
+    assert summary["genotype_correct"] == 1

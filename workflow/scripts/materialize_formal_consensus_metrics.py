@@ -629,6 +629,9 @@ def candidate_genotype_summary(
     linked_candidate_records = 0
     candidate_link_conflicts = 0
     rejected_link_records = 0
+    duplicate_candidate_records = 0
+    conflicting_duplicate_candidates: set[str] = set()
+    observed_priority: dict[str, int] = {}
     accepted_link_statuses = {"in_panel_exact", "in_panel_equivalent"}
     with open_text(query_vcf) as handle:
         for line in handle:
@@ -670,10 +673,6 @@ def candidate_genotype_summary(
                 direct_candidate_records += 1
             else:
                 linked_candidate_records += 1
-            if candidate_id in observed:
-                raise ConsensusMetricError(
-                    f"query VCF maps more than once to candidate {candidate_id}"
-                )
             if len(fields) < 10:
                 query_gt = "./."
             else:
@@ -685,7 +684,30 @@ def candidate_genotype_summary(
                     and format_keys.index("GT") < len(sample_values)
                     else "./."
                 )
+            # Discovery callers can emit several equivalent records for one
+            # panel allele (for example, two nearby graph traversals for the
+            # same repeat insertion).  A direct candidate ID is stronger than
+            # a positional/sequence link.  Equal-priority duplicate calls are
+            # accepted when their genotypes agree; conflicting calls become a
+            # no-call so the benchmark cannot cherry-pick the favourable one.
+            priority = 1 if direct_candidate_id is not None else 0
+            if candidate_id in observed:
+                duplicate_candidate_records += 1
+                previous_priority = observed_priority[candidate_id]
+                if priority > previous_priority:
+                    observed[candidate_id] = query_gt
+                    observed_priority[candidate_id] = priority
+                    conflicting_duplicate_candidates.discard(candidate_id)
+                elif priority == previous_priority and not genotypes_equal(
+                    observed[candidate_id],
+                    query_gt,
+                    require_phase=require_phase,
+                ):
+                    observed[candidate_id] = "./."
+                    conflicting_duplicate_candidates.add(candidate_id)
+                continue
             observed[candidate_id] = query_gt
+            observed_priority[candidate_id] = priority
 
     missing = set(hidden) - set(observed)
     if candidate_output_contract == "all_sites" and missing:
@@ -878,6 +900,8 @@ def candidate_genotype_summary(
         "direct_candidate_records": direct_candidate_records,
         "linked_candidate_records": linked_candidate_records,
         "candidate_link_conflicts": candidate_link_conflicts,
+        "duplicate_candidate_records": duplicate_candidate_records,
+        "conflicting_duplicate_candidates": len(conflicting_duplicate_candidates),
         "rejected_link_records": rejected_link_records,
         **counts,
         "genotype_accuracy": (
