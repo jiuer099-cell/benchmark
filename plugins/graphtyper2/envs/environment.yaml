@@ -1,0 +1,9 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12
+  - graphtyper=2.7.7
+  - bwa-mem2=2.2.1
+  - samtools=1.24
+  - bcftools=1.24

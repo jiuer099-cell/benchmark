@@ -1,0 +1,65 @@
+interface_version: 1
+id: graphtyper2
+name: GraphTyper2 external short-read SV genotyper
+version: 2.7.7
+source: external
+paradigm: short_read_pangenome_genotyping
+
+tasks: [mapping, prepare_assets, genotyping, postprocess]
+
+inputs:
+  reads: paired_short_fastq
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: false
+    accepted_formats: [other]
+    accepted_profiles: []
+  shared_alignment:
+    required: false
+    accepted_formats: [bam]
+  read_sequences_auxiliary: false
+
+capabilities:
+  technology: [illumina_short_read]
+  svtypes: [DEL, INS, DUP, INV, CNV, CPX]
+  phasing: false
+  novel_discovery: false
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: untrusted
+  sandbox_backend: bwrap
+
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs:
+      - short_fastq_r1
+      - short_fastq_r2
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    optional_inputs: []
+    forbidden_inputs:
+      - canonical_fastq
+      - haplotype_fastq
+      - original_input_bam
+      - shared_alignment
+      - graph_assets
+    billable_stages:
+      - map
+      - prepare_assets
+      - genotype
+      - postprocess
+
+outputs:
+  vcf: raw/calls.vcf
+  candidate_output_contract: all_sites
+  absence_semantics: no_call
