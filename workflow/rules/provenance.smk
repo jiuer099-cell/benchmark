@@ -4,6 +4,7 @@ def pre_score_manifest_paths(wildcards):
     manifests = [
         VALIDATE_MANIFEST,
         CONTEXT_MANIFEST,
+        *([GRAPH_ASSET_RULE_MANIFEST] if GRAPH_ASSETS_ENABLED else []),
         PANGENOME_RULE_MANIFEST,
         CHALLENGE_RULE_MANIFEST,
         semantic_rule_manifest(
@@ -40,6 +41,11 @@ def expected_pre_score_jobs(wildcards):
     jobs = [
         "validate_config=config",
         "snapshot_run_context=context",
+        *(
+            [f"lock_graph_assets={PANGENOME_ID}"]
+            if GRAPH_ASSETS_ENABLED
+            else []
+        ),
         f"build_pangenome_manifest={PANGENOME_ID}",
         f"build_blinded_challenge_panel={SAMPLE_ID}",
         f"tool__{wildcards.tool}__execute={tool_job}",
