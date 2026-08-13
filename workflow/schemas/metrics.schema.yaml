@@ -483,6 +483,8 @@ $defs:
               - direct_candidate_records
               - linked_candidate_records
               - candidate_link_conflicts
+              - duplicate_candidate_records
+              - conflicting_duplicate_candidates
               - rejected_link_records
               - candidate_count
               - truth_scorable
@@ -525,6 +527,8 @@ $defs:
               direct_candidate_records: {type: integer, minimum: 0}
               linked_candidate_records: {type: integer, minimum: 0}
               candidate_link_conflicts: {type: integer, minimum: 0}
+              duplicate_candidate_records: {type: integer, minimum: 0}
+              conflicting_duplicate_candidates: {type: integer, minimum: 0}
               rejected_link_records: {type: integer, minimum: 0}
               candidate_count: {type: integer, minimum: 1}
               truth_scorable: {type: integer, minimum: 0}
