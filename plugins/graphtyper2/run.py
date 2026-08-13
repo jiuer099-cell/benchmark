@@ -190,6 +190,14 @@ def main() -> int:
     read1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
     read2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
+    reference_index = Path(required("PGBENCH_REFERENCE_INDEX"))
+    expected_reference_index = Path(f"{reference}.fai")
+    if reference_index.resolve() != expected_reference_index.resolve():
+        raise RuntimeError(
+            "GraphTyper2 requires reference_index to be the .fai adjacent to "
+            f"the reference FASTA: expected {expected_reference_index}, got "
+            f"{reference_index}"
+        )
     candidate = Path(required("PGBENCH_CANDIDATE_VCF"))
     output = Path(required("PGBENCH_OUTPUT_VCF"))
     output_dir = Path(required("PGBENCH_OUTPUT_DIR"))

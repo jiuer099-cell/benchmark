@@ -43,6 +43,7 @@ supported_modes:
       - short_fastq_r1
       - short_fastq_r2
       - reference
+      - reference_index
       - pangenome_manifest
       - pangenome_panel
       - candidate_panel

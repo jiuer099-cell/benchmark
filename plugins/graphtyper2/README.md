@@ -6,5 +6,9 @@ genotypes the benchmark-owned blinded SV candidate panel, and projects GraphType
 calls back onto the immutable candidate IDs. Missing or conflicting candidates are
 emitted as explicit no-calls.
 
+The reference FASTA and its adjacent `.fai` are both declared as immutable
+sandbox inputs because GraphTyper2 opens the index by appending `.fai` to the
+FASTA path.
+
 The plugin runs in the formal network-disabled `bwrap` sandbox and never receives
 the hidden HG002 truth ledger. Mapping is part of the measured tool-owned middle.

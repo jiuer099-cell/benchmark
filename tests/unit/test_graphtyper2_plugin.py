@@ -13,6 +13,13 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def test_manifest_requires_adjacent_reference_index() -> None:
+    manifest = (ROOT / "plugins" / "graphtyper2" / "tool.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "- reference_index" in manifest
+
+
 def _candidate(path: Path) -> None:
     path.write_text(
         "##fileformat=VCFv4.2\n"
