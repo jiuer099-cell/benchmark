@@ -20,6 +20,12 @@ def test_manifest_requires_adjacent_reference_index() -> None:
     assert "- reference_index" in manifest
 
 
+def test_root_workflow_can_supply_reference_index_to_read_based_plugins() -> None:
+    workflow = (ROOT / "Snakefile").read_text(encoding="utf-8")
+    input_candidates = workflow.split("input_candidates = {", 1)[1].split("}", 1)[0]
+    assert '"reference_index": config["reference"].get("fai")' in input_candidates
+
+
 def _candidate(path: Path) -> None:
     path.write_text(
         "##fileformat=VCFv4.2\n"

@@ -195,6 +195,7 @@ for registration in config["external_plugins"]:
     }
     input_candidates = {
         "reference": config["reference"]["fasta"],
+        "reference_index": config["reference"].get("fai"),
         "pangenome_manifest": (
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml"
         ),
@@ -235,7 +236,6 @@ for registration in config["external_plugins"]:
                         else None
                     )
                 ),
-                "reference_index": config["reference"].get("fai"),
             }
         )
     settings["inputs"] = {
