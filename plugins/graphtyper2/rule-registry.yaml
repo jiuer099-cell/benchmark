@@ -17,7 +17,7 @@ rules:
     resource_class: tool_large
     active_when: {tool: graphtyper2, task: mapping}
   - id: tool__graphtyper2__genotype
-    description: Genotype the frozen blinded pangenome SV panel with GraphTyper2.
+    description: Genotype deterministic disjoint shards of the frozen blinded pangenome SV panel with GraphTyper2.
     phase: tool_execution
     kind: plugin
     inputs: [coordinate_sorted_bam, blinded_candidate_panel]

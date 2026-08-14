@@ -12,3 +12,10 @@ FASTA path.
 
 The plugin runs in the formal network-disabled `bwrap` sandbox and never receives
 the hidden HG002 truth ledger. Mapping is part of the measured tool-owned middle.
+
+For a single input BAM, GraphTyper2 cannot usefully apply all requested threads
+to SAM reading. The adapter therefore distributes the frozen, non-overlapping
+10 Mb region list round-robin across at most `PGBENCH_THREADS` independent
+single-thread GraphTyper2 processes. Each process writes to its own shard
+directory; the adapter then performs one deterministic candidate-ID projection.
+The aggregate worker count remains bounded by the benchmark resource contract.

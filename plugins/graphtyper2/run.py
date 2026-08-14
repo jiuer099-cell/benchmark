@@ -7,7 +7,9 @@ import gzip
 import os
 import shutil
 import subprocess
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TextIO
 
@@ -72,6 +74,105 @@ def write_regions(candidate: Path, destination: Path, chunk_size: int = 10_000_0
     with destination.open("w", encoding="utf-8") as handle:
         for chrom, start, end in sorted(regions, key=lambda item: (item[0], item[1])):
             handle.write(f"{chrom}:{start}-{end}\n")
+
+
+def write_region_shards(
+    regions: Path,
+    destination: Path,
+    shard_count: int,
+) -> list[Path]:
+    """Split ordered regions deterministically across balanced worker shards."""
+
+    ordered = [
+        line.strip()
+        for line in regions.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not ordered:
+        raise RuntimeError("GraphTyper2 region list is empty")
+    workers = min(max(1, shard_count), len(ordered))
+    destination.mkdir(parents=True, exist_ok=False)
+    buckets: list[list[str]] = [[] for _ in range(workers)]
+    for index, region in enumerate(ordered):
+        buckets[index % workers].append(region)
+
+    shards: list[Path] = []
+    for index, bucket in enumerate(buckets):
+        shard = destination / f"regions.{index:03d}.txt"
+        shard.write_text("\n".join(bucket) + "\n", encoding="utf-8")
+        shards.append(shard)
+    return shards
+
+
+def run_graphtyper_shards(
+    reference: Path,
+    candidate: Path,
+    bam: Path,
+    regions: Path,
+    output: Path,
+    threads: int,
+) -> None:
+    """Run one single-BAM GraphTyper process per deterministic region shard.
+
+    GraphTyper's internal SAM-reader parallelism is bounded by the number of
+    input BAMs.  A one-sample benchmark therefore uses process-level regional
+    parallelism while keeping the aggregate worker count within PGBENCH_THREADS.
+    """
+
+    workers = max(1, threads)
+    shard_root = output.parent / "region-shards"
+    if shard_root.exists():
+        shutil.rmtree(shard_root)
+    shards = write_region_shards(regions, shard_root, workers)
+    output.mkdir(parents=True, exist_ok=False)
+
+    active: dict[int, subprocess.Popen[bytes]] = {}
+    active_lock = threading.Lock()
+
+    def execute(index_and_shard: tuple[int, Path]) -> None:
+        index, shard = index_and_shard
+        shard_output = output / f"shard_{index:03d}"
+        command = [
+            "graphtyper",
+            "genotype_sv",
+            str(reference),
+            str(candidate),
+            "--sam=" + str(bam),
+            "--region_file=" + str(shard),
+            "--threads=1",
+            "--output=" + str(shard_output),
+            "--force_no_copy_reference",
+        ]
+        print("+ " + " ".join(command), flush=True)
+        with active_lock:
+            process = subprocess.Popen(command)
+            active[index] = process
+        returncode = process.wait()
+        with active_lock:
+            active.pop(index, None)
+            if returncode != 0:
+                for sibling in active.values():
+                    sibling.terminate()
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, command)
+
+    failures: list[BaseException] = []
+    with ThreadPoolExecutor(max_workers=len(shards)) as executor:
+        futures = [
+            executor.submit(execute, item)
+            for item in enumerate(shards)
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except BaseException as exc:  # propagate after all children settle
+                failures.append(exc)
+                for pending in futures:
+                    pending.cancel()
+    if failures:
+        raise RuntimeError(
+            f"{len(failures)} GraphTyper2 region shard(s) failed"
+        ) from failures[0]
 
 
 def align_reads(
@@ -219,15 +320,13 @@ def main() -> int:
     graphtyper_output = work / "graphtyper"
     if graphtyper_output.exists():
         shutil.rmtree(graphtyper_output)
-    run(
-        [
-            "graphtyper", "genotype_sv", str(reference), str(staged_candidate),
-            "--sam=" + str(bam),
-            "--region_file=" + str(regions),
-            "--threads=" + threads,
-            "--output=" + str(graphtyper_output),
-            "--force_no_copy_reference",
-        ]
+    run_graphtyper_shards(
+        reference,
+        staged_candidate,
+        bam,
+        regions,
+        graphtyper_output,
+        int(threads),
     )
     project_calls(candidate, generated_vcfs(graphtyper_output), output, sample)
     return 0

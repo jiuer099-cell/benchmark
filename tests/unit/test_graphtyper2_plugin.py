@@ -47,6 +47,29 @@ def test_regions_cover_candidate_chunks(tmp_path: Path) -> None:
     ]
 
 
+def test_region_shards_are_deterministic_balanced_and_lossless(tmp_path: Path) -> None:
+    regions = tmp_path / "regions.txt"
+    expected = [f"chr1:{index * 10 + 1}-{index * 10 + 10}" for index in range(7)]
+    regions.write_text("\n".join(expected) + "\n", encoding="utf-8")
+
+    shards = MODULE.write_region_shards(regions, tmp_path / "shards", 3)
+
+    contents = [path.read_text(encoding="utf-8").splitlines() for path in shards]
+    assert contents == [expected[0::3], expected[1::3], expected[2::3]]
+    assert max(map(len, contents)) - min(map(len, contents)) <= 1
+    assert sorted(item for shard in contents for item in shard) == sorted(expected)
+
+
+def test_region_shards_never_create_empty_workers(tmp_path: Path) -> None:
+    regions = tmp_path / "regions.txt"
+    regions.write_text("chr1:1-10\nchr2:1-10\n", encoding="utf-8")
+
+    shards = MODULE.write_region_shards(regions, tmp_path / "shards", 16)
+
+    assert len(shards) == 2
+    assert all(path.read_text(encoding="utf-8").strip() for path in shards)
+
+
 def test_projection_preserves_all_candidates_and_no_calls(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.vcf"
     _candidate(candidate)
