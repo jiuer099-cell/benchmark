@@ -227,10 +227,40 @@ def generated_vcfs(root: Path) -> list[Path]:
     return result
 
 
+def info_values(info: str) -> dict[str, str]:
+    """Parse scalar INFO values needed by the GraphTyper2 adapter."""
+
+    values: dict[str, str] = {}
+    for entry in info.split(";"):
+        if "=" not in entry:
+            continue
+        key, value = entry.split("=", 1)
+        values[key] = value
+    return values
+
+
+def sample_genotype(fields: list[str]) -> str:
+    """Return the first sample GT without carrying GraphTyper model alleles."""
+
+    format_keys = fields[8].split(":")
+    try:
+        gt_index = format_keys.index("GT")
+    except ValueError:
+        return "./."
+    sample_values = fields[9].split(":")
+    if gt_index >= len(sample_values) or not sample_values[gt_index]:
+        return "./."
+    return sample_values[gt_index]
+
+
 def project_calls(candidate: Path, generated: list[Path], output: Path, sample: str) -> None:
     order, key_to_id = candidate_keys(candidate)
+    candidate_ids = set(order)
     headers: list[str] = []
-    by_candidate: dict[str, list[list[str]]] = defaultdict(list)
+    # A candidate can have AGGREGATED, BREAKPOINT and COVERAGE model records.
+    # Keep only model rank and GT: the output must retain the blinded panel's
+    # exact REF/ALT representation rather than GraphTyper's symbolic alleles.
+    by_candidate: dict[str, list[tuple[int, str]]] = defaultdict(list)
     for source in generated:
         with open_text(source, "rt") as handle:
             for line in handle:
@@ -243,9 +273,19 @@ def project_calls(candidate: Path, generated: list[Path], output: Path, sample: 
                 fields = line.rstrip("\n").split("\t")
                 if len(fields) < 10:
                     continue
-                candidate_id = key_to_id.get((fields[0], fields[1], fields[3], fields[4]))
+                info = info_values(fields[7])
+                candidate_id = info.get("OLD_VARIANT_ID")
+                if candidate_id not in candidate_ids:
+                    # Retain exact-coordinate fallback for GraphTyper builds
+                    # that preserve the input representation.
+                    candidate_id = key_to_id.get(
+                        (fields[0], fields[1], fields[3], fields[4])
+                    )
                 if candidate_id is not None:
-                    by_candidate[candidate_id].append(fields)
+                    model_rank = 0 if info.get("SVMODEL") == "AGGREGATED" else 1
+                    by_candidate[candidate_id].append(
+                        (model_rank, sample_genotype(fields))
+                    )
 
     candidate_records: dict[str, list[str]] = {}
     with open_text(candidate, "rt") as handle:
@@ -268,17 +308,22 @@ def project_calls(candidate: Path, generated: list[Path], output: Path, sample: 
         handle.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + sample + "\n")
         for candidate_id in order:
             records = by_candidate.get(candidate_id, [])
-            unique = {tuple(record) for record in records}
-            if len(unique) == 1:
-                fields = list(next(iter(unique)))
-                fields[2] = candidate_id
-                handle.write("\t".join(fields[:10]) + "\n")
-                matched += 1
-                continue
+            best_rank = min((rank for rank, _gt in records), default=None)
+            genotypes = {
+                gt for rank, gt in records
+                if best_rank is not None and rank == best_rank
+            }
             base = candidate_records[candidate_id]
+            if len(genotypes) == 1:
+                genotype = next(iter(genotypes))
+                handle.write("\t".join(base[:8] + ["GT", genotype]) + "\n")
+                matched += 1
+                if genotype in {".", "./.", ".|."}:
+                    no_calls += 1
+                continue
             handle.write("\t".join(base[:8] + ["GT", "./."]) + "\n")
             no_calls += 1
-            if len(unique) > 1:
+            if len(genotypes) > 1:
                 conflicts += 1
     print(
         f"GraphTyper2 candidate projection: matched={matched} "

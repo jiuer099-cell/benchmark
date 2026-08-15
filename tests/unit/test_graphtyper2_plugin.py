@@ -91,3 +91,33 @@ def test_projection_preserves_all_candidates_and_no_calls(tmp_path: Path) -> Non
     assert [record[2] for record in records] == ["CAND_1", "CAND_2"]
     assert records[0][9] == "0/1"
     assert records[1][9] == "./."
+
+
+def test_projection_uses_old_variant_id_and_prefers_aggregated_model(
+    tmp_path: Path,
+) -> None:
+    candidate = tmp_path / "candidate.vcf"
+    _candidate(candidate)
+    generated = tmp_path / "generated.vcf.gz"
+    with gzip.open(generated, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "##fileformat=VCFv4.2\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+            "chr1\t10\tmodel.agg\tN\t<DEL:AGGREGATED>\t99\tPASS\t"
+            "OLD_VARIANT_ID=CAND_1;SVMODEL=AGGREGATED\tGT:DP\t0/1:30\n"
+            "chr1\t10\tmodel.bp\tN\t<DEL:BREAKPOINT>\t99\tPASS\t"
+            "OLD_VARIANT_ID=CAND_1;SVMODEL=BREAKPOINT\tGT:DP\t1/1:30\n"
+        )
+
+    output = tmp_path / "calls.vcf"
+    MODULE.project_calls(candidate, [generated], output, "HG002")
+    records = [
+        line.split("\t")
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+
+    assert records[0][2:5] == ["CAND_1", "A", "<DEL>"]
+    assert records[0][8:] == ["GT", "0/1"]
+    assert records[1][9] == "./."
