@@ -131,6 +131,33 @@ def test_link_vcf_writes_auditable_ledger(tmp_path: Path) -> None:
     assert row["LINK_STATUS"] == "in_panel_exact"
 
 
+def test_link_vcf_declares_retained_info_fields(tmp_path: Path) -> None:
+    ledger = tmp_path / "alleles.tsv"
+    ledger.write_text(
+        "PANGENOME_ALLELE_ID\tCHROM\tPOS\tEND\tSVTYPE\tSVLEN\tREF\tALT\tAF\t"
+        "GRAPH_COMPLEXITY_CLASS\tSOURCE_RECORD_ID\n"
+        "PGSV_A\t1\t100\t110\tDEL\t-10\tA\t<DEL>\t0.01\t"
+        "simple_biallelic\ta\n",
+        encoding="utf-8",
+    )
+    canonical = tmp_path / "canonical.vcf"
+    canonical.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "1\t100\tCANON_1\tA\t<DEL>\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_A;CONFLICT=source;UNDECLARED=value;"
+        "SVTYPE=DEL;END=110;SVLEN=-10\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    linked = tmp_path / "linked.vcf"
+    link_vcf(canonical, ledger, linked, tmp_path / "links.tsv")
+    text = linked.read_text(encoding="utf-8")
+    assert "##INFO=<ID=PANGENOME_ALLELE_ID,Number=1,Type=String" in text
+    assert "##INFO=<ID=CONFLICT,Number=.,Type=String" in text
+    assert "##INFO=<ID=UNDECLARED,Number=.,Type=String" in text
+    assert text.index("##INFO=<ID=UNDECLARED") < text.index("#CHROM")
+
+
 def test_relevant_ledger_scan_accepts_large_irrelevant_alleles(
     tmp_path: Path,
 ) -> None:

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -36,6 +37,50 @@ LINK_HEADERS = (
     "##INFO=<ID=PANGENOME_CANDIDATE_COUNT,Number=1,Type=Integer,"
     'Description="Number of compatible pangenome candidates">',
 )
+
+INFO_HEADER_PATTERN = re.compile(r"^##INFO=<ID=([^,>]+)")
+
+# Canonical records intentionally retain useful source/panel annotations.  Some
+# upstream VCFs omit declarations for those annotations; htslib may tolerate
+# that while Truvari correctly rejects the resulting VCF during translation.
+# Known fields get their normative VCF types and all other retained fields get
+# a conservative String declaration so the linked VCF is self-contained.
+KNOWN_INFO_HEADERS = {
+    "END": "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position\">",
+    "SVTYPE": (
+        "##INFO=<ID=SVTYPE,Number=1,Type=String,"
+        'Description="Structural variant type">'
+    ),
+    "SVLEN": (
+        "##INFO=<ID=SVLEN,Number=.,Type=Integer,"
+        'Description="Structural variant length">'
+    ),
+    "PANGENOME_ALLELE_ID": (
+        "##INFO=<ID=PANGENOME_ALLELE_ID,Number=1,Type=String,"
+        'Description="Stable pangenome allele identifier">'
+    ),
+    "CONFLICT": (
+        "##INFO=<ID=CONFLICT,Number=.,Type=String,"
+        'Description="Conflicting source annotation retained during normalization">'
+    ),
+}
+
+
+def missing_info_headers(
+    declared: set[str], used: set[str]
+) -> tuple[str, ...]:
+    """Return deterministic declarations for INFO tags absent from the header."""
+
+    generated = []
+    for field_id in sorted(used - declared):
+        generated.append(
+            KNOWN_INFO_HEADERS.get(
+                field_id,
+                f'##INFO=<ID={field_id},Number=.,Type=String,'
+                'Description="Retained upstream annotation">',
+            )
+        )
+    return tuple(generated)
 
 
 class AlleleLinkError(ValueError):
@@ -393,10 +438,18 @@ def link_vcf(
     links_tsv: Path,
 ) -> int:
     calls: list[Call] = []
+    declared_info: set[str] = set()
+    used_info: set[str] = set()
     with canonical_vcf.open("r", encoding="utf-8") as source:
         for raw_line in source:
+            match = INFO_HEADER_PATTERN.match(raw_line)
+            if match:
+                declared_info.add(match.group(1))
             if raw_line.strip() and not raw_line.startswith("#"):
-                calls.append(parse_call(raw_line.rstrip("\n").split("\t")))
+                fields = raw_line.rstrip("\n").split("\t")
+                calls.append(parse_call(fields))
+                used_info.update(parse_info(fields[7]))
+    supplemental_headers = missing_info_headers(declared_info, used_info)
     allele_by_id, alleles = load_ledger(
         ledger_path,
         relevant_calls=calls,
@@ -437,6 +490,8 @@ def link_vcf(
                 continue
             if raw_line.startswith("#CHROM"):
                 if not added_headers:
+                    for header in supplemental_headers:
+                        output.write(header + "\n")
                     for header in LINK_HEADERS:
                         output.write(header + "\n")
                     added_headers = True
