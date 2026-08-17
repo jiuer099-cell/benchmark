@@ -1,0 +1,34 @@
+schema_version: 1
+rules:
+  - id: tool__varigraph__construct
+    description: Construct the private Varigraph index from the frozen leave-HG002-out population panel.
+    phase: tool_execution
+    kind: plugin
+    inputs: [grch38_reference, pangenome_population_panel]
+    outputs: [varigraph_graph_index]
+    upstream: [build_pangenome_manifest]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/varigraph/run.py
+    environment: plugins/varigraph/envs/environment.yaml
+    resource_class: tool_large
+    active_when: {tool: varigraph, task: prepare_assets}
+  - id: tool__varigraph__genotype
+    description: Genotype the frozen blinded SV universe from registered paired Illumina reads.
+    phase: tool_execution
+    kind: plugin
+    inputs: [varigraph_graph_index, short_fastq_r1, short_fastq_r2]
+    outputs: [raw_all_sites_vcf]
+    upstream: [tool__varigraph__construct]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/varigraph/run.py
+    environment: plugins/varigraph/envs/environment.yaml
+    resource_class: tool_large
+    active_when: {tool: varigraph, task: genotyping}

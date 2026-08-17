@@ -1,0 +1,6 @@
+channels:
+  - duzezhen
+  - conda-forge
+dependencies:
+  - python=3.12.3
+  - varigraph=1.0.8
