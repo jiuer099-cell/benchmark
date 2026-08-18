@@ -156,6 +156,36 @@ def test_svarp_rgfa_profile_requires_leave_out_declaration(tmp_path: Path) -> No
         )
 
 
+def test_svarp_rgfa_lock_is_rechecked_before_manifest_embedding(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "graph"
+    root.mkdir()
+    source = root / "graph-assets.lock.yaml"
+    source.write_text(
+        "producer: HPRC minigraph\n"
+        "reference_path: GRCh38\n"
+        "excluded_samples: [HG002, NA24385]\n",
+        encoding="utf-8",
+    )
+    gfa = root / "graph.gfa.gz"
+    gfa.write_bytes(b"synthetic-rgfa")
+    payload = lock_graph_assets(
+        source_manifest=source,
+        gfa=gfa,
+        reference_path="GRCh38",
+        profile="svarp_minigraph_longread",
+    )
+    lock_path = tmp_path / "results" / "graph-assets.lock.yaml"
+    lock_path.parent.mkdir()
+    lock_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    embedded = load_graph_assets_lock(lock_path)
+    assert embedded["profile"] == "svarp_minigraph_longread"
+    assert embedded["sample_count"] is None
+    assert embedded["gfa"]["sha256"] == sha256_file(gfa)
+
+
 def test_pangenome_embedding_rechecks_locked_content(tmp_path: Path) -> None:
     paths = _write_bundle(tmp_path)
     payload = lock_graph_assets(**paths, reference_path="GRCh38")

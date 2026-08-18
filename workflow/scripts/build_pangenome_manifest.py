@@ -57,6 +57,11 @@ def load_graph_assets_lock(path: Path) -> dict:
             "gbz", "min", "zipcodes", "dist", "sample_list"
         },
         "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
+        # SVarp maps long reads to an rGFA directly.  Unlike the vg profiles,
+        # its released leave-one-out graph does not carry a separate sample
+        # list, so the source lock declaration is the auditable exclusion
+        # evidence and sample_count is intentionally unavailable.
+        "svarp_minigraph_longread": {"gfa"},
     }
     if profile not in profile_assets:
         raise PangenomeManifestError("graph assets lock has unsupported profile")
@@ -74,7 +79,12 @@ def load_graph_assets_lock(path: Path) -> dict:
         raise PangenomeManifestError("graph assets lock has no reference_path")
     if not isinstance(asset_root, str) or not asset_root:
         raise PangenomeManifestError("graph assets lock has no asset_root")
-    if not isinstance(sample_count, int) or sample_count < 1:
+    if profile == "svarp_minigraph_longread":
+        if sample_count is not None:
+            raise PangenomeManifestError(
+                "SVarp rGFA graph assets lock must have null sample_count"
+            )
+    elif not isinstance(sample_count, int) or sample_count < 1:
         raise PangenomeManifestError("graph assets lock has invalid sample_count")
     if (
         not isinstance(excluded_samples, list)
