@@ -249,8 +249,18 @@ for registration in config["external_plugins"]:
     }
     if graph_allowed and GRAPH_ASSETS_ENABLED:
         graph_config = config["pangenome"]["graph_assets"]
+        graph_path = next(
+            (
+                graph_config.get(name)
+                for name in ("gbz", "gfa", "xg", "min", "dist")
+                if graph_config.get(name)
+            ),
+            None,
+        )
+        if graph_path is None:
+            raise WorkflowError("enabled graph profile has no graph asset path")
         settings["inputs"]["graph_assets"] = str(
-            Path(graph_config["gbz"]).parent
+            Path(graph_path).parent
         )
         settings["graph_asset_manifest"] = graph_config["manifest"]
         settings["graph_asset_lock"] = GRAPH_ASSET_LOCK

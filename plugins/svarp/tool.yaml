@@ -1,0 +1,69 @@
+interface_version: 1
+id: svarp
+name: SVarp external long-read pangenome SV discovery
+version: 1.2.0
+source: external
+paradigm: discovery_integration
+
+tasks: [prepare_assets, mapping, discovery, assembly, postprocess]
+
+inputs:
+  reads: long_fastq
+  reference: required
+  candidates: optional
+  pangenome_manifest: required
+  pangenome_panel: optional
+  graph_assets:
+    required: true
+    accepted_formats: [gfa]
+    accepted_profiles: [svarp_minigraph_longread]
+  shared_alignment:
+    required: false
+    accepted_formats: [gaf]
+  read_sequences_auxiliary: false
+
+capabilities:
+  technology: [pacbio_clr]
+  svtypes: [DEL, INS]
+  phasing: false
+  novel_discovery: true
+  allele_linkage_output: none
+  allele_namespace: [SVARP]
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: untrusted
+  sandbox_backend: bwrap
+
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs:
+      - canonical_fastq
+      - reference
+      - reference_index
+      - pangenome_manifest
+      - graph_assets
+    optional_inputs:
+      - pangenome_panel
+      - candidate_panel
+    forbidden_inputs:
+      - short_fastq_r1
+      - short_fastq_r2
+      - haplotype_fastq
+      - original_input_bam
+      - shared_alignment
+    billable_stages:
+      - prepare_assets
+      - map
+      - discover
+      - assemble
+      - postprocess
+
+outputs:
+  vcf: raw/calls.vcf
+  # SVarp discovers new allele sequences rather than genotyping a fixed panel.
+  # A record's presence is therefore the detection assertion; GT stays no-call.
+  candidate_output_contract: variant_sites
+  absence_semantics: no_call

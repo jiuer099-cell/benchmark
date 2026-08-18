@@ -115,6 +115,47 @@ def test_hg002_alias_in_graph_is_rejected(tmp_path: Path) -> None:
         lock_graph_assets(**paths, reference_path="GRCh38")
 
 
+def test_svarp_rgfa_profile_uses_declared_leave_out_manifest(tmp_path: Path) -> None:
+    root = tmp_path / "graph"
+    root.mkdir()
+    source = root / "graph-assets.lock.yaml"
+    source.write_text(
+        "producer: HPRC minigraph\n"
+        "reference_path: GRCh38\n"
+        "excluded_samples: [HG002, NA24385]\n",
+        encoding="utf-8",
+    )
+    gfa = root / "graph.gfa.gz"
+    gfa.write_bytes(b"synthetic-rgfa")
+
+    lock = lock_graph_assets(
+        source_manifest=source,
+        gfa=gfa,
+        reference_path="GRCh38",
+        profile="svarp_minigraph_longread",
+    )
+
+    assert lock["sample_count"] is None
+    assert set(lock["assets"]) == {"gfa"}
+
+
+def test_svarp_rgfa_profile_requires_leave_out_declaration(tmp_path: Path) -> None:
+    root = tmp_path / "graph"
+    root.mkdir()
+    source = root / "graph-assets.lock.yaml"
+    source.write_text("reference_path: GRCh38\n", encoding="utf-8")
+    gfa = root / "graph.gfa.gz"
+    gfa.write_bytes(b"synthetic-rgfa")
+
+    with pytest.raises(GraphAssetError, match="excluded_samples"):
+        lock_graph_assets(
+            source_manifest=source,
+            gfa=gfa,
+            reference_path="GRCh38",
+            profile="svarp_minigraph_longread",
+        )
+
+
 def test_pangenome_embedding_rechecks_locked_content(tmp_path: Path) -> None:
     paths = _write_bundle(tmp_path)
     payload = lock_graph_assets(**paths, reference_path="GRCh38")

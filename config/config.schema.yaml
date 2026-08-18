@@ -165,12 +165,21 @@ properties:
           - reference_path
         properties:
           profile:
-            enum: [none, vg_gbz_min_dist, vg_giraffe_shortread, vg_legacy_xg]
+            enum:
+              - none
+              - vg_gbz_min_dist
+              - vg_giraffe_shortread
+              - vg_legacy_xg
+              - svarp_minigraph_longread
           manifest:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
               - type: "null"
           gbz:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
+          gfa:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
               - type: "null"

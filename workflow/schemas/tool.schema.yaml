@@ -328,12 +328,17 @@ $defs:
             - svjedi
             - vcf
             - fasta
+            - gfa
             - other
       accepted_profiles:
         type: array
         uniqueItems: true
         items:
-          enum: [vg_gbz_min_dist, vg_giraffe_shortread, vg_legacy_xg]
+          enum:
+            - vg_gbz_min_dist
+            - vg_giraffe_shortread
+            - vg_legacy_xg
+            - svarp_minigraph_longread
   modeInput:
     enum:
       - canonical_fastq

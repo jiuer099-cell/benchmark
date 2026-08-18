@@ -37,6 +37,9 @@ GRAPH_PROFILE_ASSETS = {
         "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
     },
     "vg_legacy_xg": {"manifest", "gbz", "xg", "min", "dist", "sample_list"},
+    # SVarp maps long reads to an rGFA minigraph graph.  Unlike vg's GBZ
+    # profiles, no minimizer/distance index is involved.
+    "svarp_minigraph_longread": {"manifest", "gfa"},
 }
 
 

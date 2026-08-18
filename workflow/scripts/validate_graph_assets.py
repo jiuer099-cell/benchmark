@@ -20,6 +20,7 @@ ASSET_FILENAMES = {
     "zipcodes": "graph.shortread.zipcodes",
     "dist": "graph.dist",
     "sample_list": "samples.txt",
+    "gfa": "graph.gfa.gz",
 }
 PROFILE_ASSETS = {
     "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
@@ -27,6 +28,7 @@ PROFILE_ASSETS = {
         "gbz", "min", "zipcodes", "dist", "sample_list"
     },
     "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
+    "svarp_minigraph_longread": {"gfa"},
 }
 
 
@@ -127,16 +129,42 @@ def _validate_declared_lock(
             )
 
 
+def _validate_declared_exclusions(
+    source: Mapping[str, Any], excluded_samples: tuple[str, ...]
+) -> None:
+    """Require a graph without the benchmark sample when no sample list exists.
+
+    Minigraph rGFA releases do not necessarily ship a separate sample list.
+    Their immutable source manifest therefore has to make the leave-out
+    declaration explicit before it can be used by a formal benchmark.
+    """
+
+    declared = source.get("excluded_samples")
+    if not isinstance(declared, list) or not all(
+        isinstance(item, str) and item for item in declared
+    ):
+        raise GraphAssetError(
+            "source graph manifest must declare excluded_samples for this profile"
+        )
+    missing = sorted(set(excluded_samples) - set(declared))
+    if missing:
+        raise GraphAssetError(
+            "source graph manifest does not declare excluded benchmark aliases: "
+            + ", ".join(missing)
+        )
+
+
 def lock_graph_assets(
     *,
     source_manifest: Path,
-    gbz: Path,
-    xg: Path | None,
-    min_index: Path,
-    dist: Path,
-    sample_list: Path,
+    gbz: Path | None = None,
+    xg: Path | None = None,
+    min_index: Path | None = None,
+    dist: Path | None = None,
+    sample_list: Path | None = None,
     reference_path: str,
     zipcodes: Path | None = None,
+    gfa: Path | None = None,
     profile: str = "vg_legacy_xg",
     excluded_samples: tuple[str, ...] = ("HG002", "NA24385"),
 ) -> dict[str, Any]:
@@ -154,6 +182,7 @@ def lock_graph_assets(
         "zipcodes": zipcodes,
         "dist": dist,
         "sample_list": sample_list,
+        "gfa": gfa,
     }
     missing = sorted(
         name for name in PROFILE_ASSETS[profile] if supplied_paths.get(name) is None
@@ -172,7 +201,7 @@ def lock_graph_assets(
     if len(roots) != 1:
         raise GraphAssetError("all graph assets must reside in one directory")
     asset_root = next(iter(roots))
-    recorded_asset_root = gbz.parent
+    recorded_asset_root = asset_root
     if source_manifest.parent.resolve(strict=True) != asset_root:
         raise GraphAssetError(
             "source manifest must reside in the graph asset directory"
@@ -198,7 +227,13 @@ def lock_graph_assets(
 
     if not excluded_samples or len(set(excluded_samples)) != len(excluded_samples):
         raise GraphAssetError("excluded_samples must be non-empty and unique")
-    sample_count = _validate_sample_list(sample_list, excluded_samples)
+    sample_count = (
+        _validate_sample_list(sample_list, excluded_samples)
+        if "sample_list" in paths
+        else None
+    )
+    if "sample_list" not in paths:
+        _validate_declared_exclusions(source, excluded_samples)
     records = {name: _asset_record(path) for name, path in paths.items()}
     _validate_declared_lock(
         source,
@@ -222,12 +257,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Validate a conventional vg graph bundle and write its lock."
     )
     parser.add_argument("--source-manifest", required=True, type=Path)
-    parser.add_argument("--gbz", required=True, type=Path)
+    parser.add_argument("--gbz", type=Path)
     parser.add_argument("--xg", type=Path)
-    parser.add_argument("--min", dest="min_index", required=True, type=Path)
+    parser.add_argument("--min", dest="min_index", type=Path)
     parser.add_argument("--zipcodes", type=Path)
-    parser.add_argument("--dist", required=True, type=Path)
-    parser.add_argument("--sample-list", required=True, type=Path)
+    parser.add_argument("--dist", type=Path)
+    parser.add_argument("--sample-list", type=Path)
+    parser.add_argument("--gfa", type=Path)
     parser.add_argument("--reference-path", required=True)
     parser.add_argument(
         "--profile",
@@ -253,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
             xg=args.xg,
             min_index=args.min_index,
             zipcodes=args.zipcodes,
+            gfa=args.gfa,
             dist=args.dist,
             sample_list=args.sample_list,
             reference_path=args.reference_path,

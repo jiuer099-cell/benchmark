@@ -36,12 +36,13 @@ rule lock_graph_assets:
         score_profile=config["catalogs"]["score_weights"],
         reference=config["reference"]["fasta"],
         source_manifest=configured_graph_asset("manifest"),
-        gbz=configured_graph_asset("gbz"),
+        gbz=optional_graph_asset("gbz"),
         xg=optional_graph_asset("xg"),
-        min_index=configured_graph_asset("min"),
+        min_index=optional_graph_asset("min"),
         zipcodes=optional_graph_asset("zipcodes"),
-        dist=configured_graph_asset("dist"),
-        sample_list=configured_graph_asset("sample_list"),
+        dist=optional_graph_asset("dist"),
+        sample_list=optional_graph_asset("sample_list"),
+        gfa=optional_graph_asset("gfa"),
         rule_source="workflow/rules/pangenome.smk",
         rule_executor=RULE_EXECUTOR,
         script="workflow/scripts/validate_graph_assets.py",
@@ -67,7 +68,7 @@ rule lock_graph_assets:
             [
                 config["pangenome"]["graph_assets"][name]
                 for name in (
-                    "manifest", "gbz", "xg", "min", "zipcodes", "dist", "sample_list"
+                    "manifest", "gbz", "xg", "min", "zipcodes", "dist", "sample_list", "gfa"
                 )
                 if config["pangenome"]["graph_assets"].get(name)
             ],
@@ -77,9 +78,34 @@ rule lock_graph_assets:
             if config["pangenome"]["graph_assets"].get("xg")
             else []
         ),
+        gbz_script_arguments=(
+            ["--gbz", config["pangenome"]["graph_assets"]["gbz"]]
+            if config["pangenome"]["graph_assets"].get("gbz")
+            else []
+        ),
+        min_script_arguments=(
+            ["--min", config["pangenome"]["graph_assets"]["min"]]
+            if config["pangenome"]["graph_assets"].get("min")
+            else []
+        ),
+        dist_script_arguments=(
+            ["--dist", config["pangenome"]["graph_assets"]["dist"]]
+            if config["pangenome"]["graph_assets"].get("dist")
+            else []
+        ),
+        sample_list_script_arguments=(
+            ["--sample-list", config["pangenome"]["graph_assets"]["sample_list"]]
+            if config["pangenome"]["graph_assets"].get("sample_list")
+            else []
+        ),
         zipcodes_script_arguments=(
             ["--zipcodes", config["pangenome"]["graph_assets"]["zipcodes"]]
             if config["pangenome"]["graph_assets"].get("zipcodes")
+            else []
+        ),
+        gfa_script_arguments=(
+            ["--gfa", config["pangenome"]["graph_assets"]["gfa"]]
+            if config["pangenome"]["graph_assets"].get("gfa")
             else []
         ),
     shell:
@@ -124,12 +150,13 @@ rule lock_graph_assets:
           {PYTHON_EXECUTABLE:q} {input.script:q} \
             --source-manifest {input.source_manifest:q} \
             --profile {GRAPH_PROFILE:q} \
-            --gbz {input.gbz:q} \
+            {params.gfa_script_arguments:q} \
+            {params.gbz_script_arguments:q} \
             {params.xg_script_arguments:q} \
-            --min {input.min_index:q} \
+            {params.min_script_arguments:q} \
             {params.zipcodes_script_arguments:q} \
-            --dist {input.dist:q} \
-            --sample-list {input.sample_list:q} \
+            {params.dist_script_arguments:q} \
+            {params.sample_list_script_arguments:q} \
             --reference-path {config[pangenome][graph_assets][reference_path]:q} \
             {params.exclude_sample_arguments:q} \
             --output {output.lock:q} \
