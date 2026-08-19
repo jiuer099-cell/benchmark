@@ -228,8 +228,6 @@ def main() -> int:
                 str(graph),
                 "--fasta",
                 str(reads_fasta),
-                "--reads",
-                "clr",
                 "--sample",
                 sample,
                 "--out",

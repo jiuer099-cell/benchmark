@@ -23,6 +23,8 @@ def test_manifest_freezes_long_read_discovery_contract() -> None:
     assert "reads: long_fastq" in manifest
     assert "candidate_output_contract: variant_sites" in manifest
     assert "- svarp=1.2.0" in environment
+    assert "- wtdbg=2.5" in environment
+    assert '"--reads"' not in RUNNER.read_text(encoding="utf-8")
 
 
 def test_svtig_vcf_adapter_emits_only_large_sequence_resolved_svs(

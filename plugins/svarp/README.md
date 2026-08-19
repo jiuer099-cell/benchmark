@@ -3,7 +3,8 @@
 This adapter evaluates SVarp 1.2.0 as an end-to-end PacBio CLR pangenome SV
 discovery tool.  It converts only the registered input FASTQ to bgzip FASTA,
 maps it to a frozen, leave-HG002-out HPRC minigraph rGFA, and runs SVarp in
-`clr` mode.  No truth data, truth-derived panel, or linear-reference BAM is
+`clr` mode.  Its `wtdbg2`/`wtpoa-cns` local-assembly dependencies are frozen
+in the plugin environment. No truth data, truth-derived panel, or linear-reference BAM is
 exposed to the tool sandbox.
 
 SVarp natively emits sequence-resolved local assemblies (`svtigs`), not a VCF.
