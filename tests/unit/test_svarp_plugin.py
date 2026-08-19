@@ -27,24 +27,31 @@ def test_manifest_freezes_long_read_discovery_contract() -> None:
     assert '"--reads"' not in RUNNER.read_text(encoding="utf-8")
 
 
-def test_svtig_vcf_adapter_emits_only_large_sequence_resolved_svs(
+def test_svtig_paf_adapter_emits_only_large_sequence_resolved_svs(
     tmp_path: Path,
 ) -> None:
-    raw = tmp_path / "paftools.vcf"
+    raw = tmp_path / "svtigs.paf"
     raw.write_text(
-        "##fileformat=VCFv4.2\n"
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "chr1\t10\t.\tA\tAT\t.\tPASS\t.\n"
-        "chr1\t20\t.\t" + "A" * 61 + "\tA\t.\tPASS\t.\n"
-        "chr1\t100\t.\tA\t" + "A" + "C" * 60 + "\t.\tPASS\t.\n",
+        "svtig1\t200\t0\t200\t+\tchr1\t1000\t0\t200\t200\t200\t60\t"
+        "tp:A:P\tcs:Z::20-" + "A" * 60 + ":120\n"
+        "svtig2\t200\t0\t200\t-\tchr1\t1000\t300\t500\t200\t200\t60\t"
+        "tp:A:P\tcs:Z::30+" + "C" * 60 + ":110\n"
+        "svtig3\t100\t0\t100\t+\tchr1\t1000\t600\t700\t100\t100\t60\t"
+        "tp:A:P\tcs:Z::30+" + "T" * 10 + ":60\n",
         encoding="utf-8",
     )
+    reference = tmp_path / "reference.fa"
+    reference.write_text(">chr1\n" + "A" * 1000 + "\n", encoding="utf-8")
     fai = tmp_path / "reference.fa.fai"
-    fai.write_text("chr1\t1000\t0\t80\t81\n", encoding="utf-8")
+    fai.write_text("chr1\t1000\t6\t1000\t1001\n", encoding="utf-8")
     destination = tmp_path / "calls.vcf"
 
     count = MODULE.write_discovery_vcf(
-        raw, destination, sample="HG002", reference_fai=fai
+        raw,
+        destination,
+        sample="HG002",
+        reference=reference,
+        reference_fai=fai,
     )
 
     records = [

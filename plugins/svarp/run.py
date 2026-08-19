@@ -4,13 +4,16 @@
 SVarp's native result is a collection of assembled SV allele sequences
 ("svtigs").  The adapter makes the conversion to the benchmark's VCF exchange
 format explicit and reproducible: svtigs are aligned against the registered
-linear reference and `paftools.js call` provides sequence-resolved INS/DEL
-records.  These are discovery records, not invented genotypes.
+linear reference and large indels are extracted directly from minimap2's
+reference-oriented ``cs`` strings.  ``paftools call`` is intentionally not
+used: it expects a set of genome-scale, non-overlapping assembly contigs and
+therefore discards SVarp's local alternate-allele contigs.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +21,12 @@ from typing import BinaryIO, Iterable
 
 
 MINIMUM_SV_SIZE = 50
+MINIMUM_MAPQ = 20
+CS_OPERATION = re.compile(
+    r"(?::(?P<match>\d+)|=(?P<equal>[A-Za-z]+)|\*(?P<sub>[A-Za-z]{2})|"
+    r"\+(?P<insertion>[A-Za-z]+)|-(?P<deletion>[A-Za-z]+)|"
+    r"~[A-Za-z]{2}(?P<skip>\d+)[A-Za-z]{2})"
+)
 
 
 def required(name: str) -> str:
@@ -91,53 +100,124 @@ def _header_from_fai(reference_fai: Path) -> Iterable[str]:
             yield f"##contig=<ID={fields[0]},length={fields[1]}>\n"
 
 
-def _sv_record(fields: list[str], ordinal: int) -> list[str] | None:
-    """Turn one paftools VCF record into a benchmark discovery record."""
+class IndexedFasta:
+    """Minimal random-access FASTA reader using the registered .fai index."""
 
-    if len(fields) < 8 or "," in fields[4]:
-        return None
-    chrom, position, _, ref, alt, _, filter_value, _ = fields[:8]
-    if ref in {"", "."} or alt in {"", "."} or alt.startswith("<"):
-        return None
+    def __init__(self, fasta: Path, fai: Path) -> None:
+        self.fasta = fasta
+        self.entries: dict[str, tuple[int, int, int]] = {}
+        for raw_line in fai.read_text(encoding="utf-8").splitlines():
+            fields = raw_line.split("\t")
+            if len(fields) >= 5:
+                self.entries[fields[0]] = (
+                    int(fields[2]),
+                    int(fields[3]),
+                    int(fields[4]),
+                )
+
+    def base(self, contig: str, position: int) -> str | None:
+        """Return one 1-based reference base, or None outside a contig."""
+
+        entry = self.entries.get(contig)
+        if entry is None or position < 1:
+            return None
+        offset, line_bases, line_width = entry
+        zero_based = position - 1
+        byte_offset = offset + (zero_based // line_bases) * line_width + (
+            zero_based % line_bases
+        )
+        with self.fasta.open("rb") as handle:
+            handle.seek(byte_offset)
+            value = handle.read(1).decode("ascii").upper()
+        return value if value in {"A", "C", "G", "T", "N"} else None
+
+
+def _tag_value(tags: list[str], prefix: str) -> str | None:
+    for tag in tags:
+        if tag.startswith(prefix):
+            return tag[len(prefix) :]
+    return None
+
+
+def _paf_events(
+    paf_line: str,
+    reference: IndexedFasta,
+) -> Iterable[tuple[str, int, str, str, str, int]]:
+    """Yield sequence-resolved INS/DEL calls from one primary minimap2 PAF row."""
+
+    fields = paf_line.rstrip("\n").split("\t")
+    if len(fields) < 12:
+        return
     try:
-        pos = int(position)
+        mapq = int(fields[11])
+        target_position = int(fields[7])  # 0-based reference coordinate.
     except ValueError:
-        return None
-    difference = len(alt) - len(ref)
-    if abs(difference) < MINIMUM_SV_SIZE:
-        return None
-    if difference > 0:
-        svtype, end, svlen = "INS", pos, difference
-    else:
-        svtype, end, svlen = "DEL", pos + len(ref) - 1, difference
-    return [
-        chrom,
-        str(pos),
-        f"SVARP_{ordinal:09d}",
-        ref,
-        alt,
-        ".",
-        filter_value if filter_value in {"PASS", "."} else "PASS",
-        f"SVTYPE={svtype};END={end};SVLEN={svlen};SVARP_SOURCE=svtig",
-        "GT",
-        "./.",
-    ]
+        return
+    if mapq < MINIMUM_MAPQ or "tp:A:P" not in fields[12:]:
+        return
+    cs = _tag_value(fields[12:], "cs:Z:")
+    if cs is None:
+        return
+    contig = fields[5]
+    cursor = 0
+    for match in CS_OPERATION.finditer(cs):
+        if match.start() != cursor:
+            return
+        cursor = match.end()
+        kind = match.lastgroup
+        value = match.group(kind) if kind else ""
+        if kind in {"match", "equal"}:
+            target_position += int(value) if kind == "match" else len(value)
+        elif kind == "sub":
+            target_position += 1
+        elif kind == "skip":
+            target_position += int(value)
+        elif kind == "insertion":
+            if len(value) < MINIMUM_SV_SIZE or target_position == 0:
+                continue
+            # cs is in reference alignment orientation, including reverse PAF rows.
+            anchor = reference.base(contig, target_position)
+            if anchor is not None:
+                yield (
+                    contig,
+                    target_position,
+                    anchor,
+                    anchor + value.upper(),
+                    "INS",
+                    len(value),
+                )
+        elif kind == "deletion":
+            if len(value) >= MINIMUM_SV_SIZE and target_position > 0:
+                anchor = reference.base(contig, target_position)
+                if anchor is not None:
+                    yield (
+                        contig,
+                        target_position,
+                        anchor + value.upper(),
+                        anchor,
+                        "DEL",
+                        -len(value),
+                    )
+            target_position += len(value)
+    if cursor != len(cs):
+        return
 
 
 def write_discovery_vcf(
-    raw_vcf: Path,
+    paf: Path,
     destination: Path,
     *,
     sample: str,
+    reference: Path,
     reference_fai: Path,
 ) -> int:
-    """Filter paftools VCF to sequence-resolved structural discovery records."""
+    """Write non-redundant, sequence-resolved SVs directly from svtig PAF rows."""
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     emitted = 0
     with destination.open("w", encoding="utf-8") as output:
         output.write("##fileformat=VCFv4.2\n")
-        output.write("##source=PGBench-SVarp-1.2.0+minimap2-2.31-paftools\n")
+        output.write("##source=PGBench-SVarp-1.2.0+minimap2-cs-v1\n")
         output.write(
             '##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">\n'
         )
@@ -160,14 +240,32 @@ def write_discovery_vcf(
             + sample
             + "\n"
         )
-        for raw_line in raw_vcf.read_text(encoding="utf-8").splitlines():
-            if not raw_line or raw_line.startswith("#"):
-                continue
-            record = _sv_record(raw_line.split("\t"), emitted + 1)
-            if record is None:
-                continue
-            output.write("\t".join(record) + "\n")
-            emitted += 1
+        indexed_reference = IndexedFasta(reference, reference_fai)
+        seen: set[tuple[str, int, str, str]] = set()
+        with paf.open("r", encoding="utf-8") as source:
+            for raw_line in source:
+                for chrom, pos, ref, alt, svtype, svlen in _paf_events(
+                    raw_line, indexed_reference
+                ):
+                    key = (chrom, pos, ref, alt)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    end = pos if svtype == "INS" else pos + len(ref) - 1
+                    record = [
+                        chrom,
+                        str(pos),
+                        f"SVARP_{emitted + 1:09d}",
+                        ref,
+                        alt,
+                        ".",
+                        "PASS",
+                        f"SVTYPE={svtype};END={end};SVLEN={svlen};SVARP_SOURCE=svtig",
+                        "GT",
+                        "./.",
+                    ]
+                    output.write("\t".join(record) + "\n")
+                    emitted += 1
     return emitted
 
 
@@ -239,12 +337,11 @@ def main() -> int:
         )
         svtigs = find_svtigs(svarp_dir, sample)
 
-    raw_vcf = work / f"{sample}.svtigs.paftools.vcf"
     if svtigs is None:
-        raw_vcf.write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+        paf = work / f"{sample}.svtigs.paf"
+        paf.write_text("", encoding="utf-8")
     else:
         paf = work / f"{sample}.svtigs.paf"
-        sorted_paf = work / f"{sample}.svtigs.sorted.paf"
         with paf.open("wb") as output:
             run(
                 [
@@ -260,19 +357,12 @@ def main() -> int:
                 cwd=work,
                 stdout=output,
             )
-        with sorted_paf.open("wb") as output:
-            run(["sort", "-k6,6", "-k8,8n", str(paf)], cwd=work, stdout=output)
-        with raw_vcf.open("wb") as output:
-            run(
-                ["paftools.js", "call", "-f", str(reference), str(sorted_paf)],
-                cwd=work,
-                stdout=output,
-            )
 
     count = write_discovery_vcf(
-        raw_vcf,
+        paf,
         output_vcf,
         sample=sample,
+        reference=reference,
         reference_fai=reference_fai,
     )
     print(
