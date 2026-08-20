@@ -64,3 +64,20 @@ def test_svtig_paf_adapter_emits_only_large_sequence_resolved_svs(
     assert "SVTYPE=DEL" in records[0][7]
     assert "SVTYPE=INS" in records[1][7]
     assert records[0][9] == "./."
+
+
+def test_completed_svarp_work_checkpoint_can_be_reused(tmp_path: Path) -> None:
+    attempts = tmp_path / ".pgbench_attempts"
+    previous_work = attempts / "previous" / "output" / "work"
+    (previous_work / "svarp").mkdir(parents=True)
+    for relative in (
+        "HG002.clr.fasta.gz",
+        "HG002.clr.fasta.gz.fai",
+        "HG002.svarp.gaf",
+        "HG002.svtigs.paf",
+        "svarp/HG002_svtigs.fa",
+    ):
+        (previous_work / relative).write_text("complete", encoding="utf-8")
+    fresh_output = attempts / "fresh" / "output"
+
+    assert MODULE.find_reusable_work_dir(fresh_output, "HG002") == previous_work
