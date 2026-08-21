@@ -84,6 +84,23 @@ def test_panel_macro_f1_is_primary_and_global_recovery_remains_secondary() -> No
     assert result.global_end_to_end_sv_recovery_score == result.comparable_score
 
 
+def test_variant_sites_contract_uses_detection_score_not_no_call_genotype_zero() -> None:
+    payload = _payload()
+    global_score = 2 * (230 / 3) / 200 * 100
+    payload["analysis"] = {
+        "comparable_score": global_score,
+        "pangenome_genotyping_score": 0.0,
+        "candidate_genotype_summary": {
+            "candidate_output_contract": "variant_sites",
+        },
+    }
+
+    result = _calculate(payload)
+
+    assert result.pgbench_score == round(global_score, 2)
+    assert result.pangenome_genotyping_score is None
+
+
 def test_perfect_unanimous_consensus_is_one_hundred() -> None:
     payload = _payload()
     payload["consensus"] = {

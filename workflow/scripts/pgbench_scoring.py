@@ -262,7 +262,18 @@ def calculate_pgbench_score(
     panel_score: float | None = None
     nonref_score: float | None = None
     panel_coverage: float | None = None
+    detection_only_contract = False
     if isinstance(analysis, Mapping):
+        candidate_summary = analysis.get("candidate_genotype_summary")
+        if isinstance(candidate_summary, Mapping):
+            # A discovery adapter may intentionally emit variant sites with
+            # no GT assertion.  Its site-recovery score is comparable, but a
+            # panel-genotyping macro-F1 is not applicable and must never be
+            # promoted to the primary score as a misleading zero.
+            detection_only_contract = (
+                candidate_summary.get("candidate_output_contract")
+                == "variant_sites"
+            )
         for field, target in (
             ("pangenome_genotyping_score", "panel"),
             ("non_reference_f1_score", "nonref"),
@@ -284,6 +295,8 @@ def calculate_pgbench_score(
                     nonref_score = numeric
                 else:
                     panel_coverage = numeric
+    if detection_only_contract:
+        panel_score = None
     score_status = "valid" if evaluation_mode == "formal" else "provisional"
     traceability = payload.get("traceability")
     if isinstance(traceability, Mapping):
