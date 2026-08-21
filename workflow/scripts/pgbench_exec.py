@@ -1522,7 +1522,15 @@ def execute_tool(
         plugin_root=plugin_root,
         resolved_inputs=resolved_inputs,
         attempt_work_dir=attempt_work_dir,
-        additional_read_only_paths=(resolved_inputs_path.resolve(strict=True),),
+        additional_read_only_paths=(
+            resolved_inputs_path.resolve(strict=True),
+            # Permit adapters to inspect only their own immutable history.
+            # The current attempt is rebound read/write by ``_sandbox_command``;
+            # its siblings remain read-only.  This supports safe reuse of a
+            # completed, content-verified checkpoint after an adapter-only fix
+            # without exposing other tools' results or the host filesystem.
+            attempt_work_dir.parent,
+        ),
     )
     if sandbox_backend == "apptainer":
         environment.update(
