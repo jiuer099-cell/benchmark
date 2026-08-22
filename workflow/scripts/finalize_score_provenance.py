@@ -492,6 +492,21 @@ def _validate_metrics_records(
             if isinstance(analysis, Mapping)
             else None
         )
+        candidate_summary = (
+            analysis.get("candidate_genotype_summary")
+            if isinstance(analysis, Mapping)
+            else None
+        )
+        # Discovery-only adapters submit variant sites, not genotype calls.
+        # Their formal primary score is the global detection-recovery score;
+        # a zero panel macro-F1 is a non-applicable diagnostic, not evidence
+        # that the sealed primary score is inconsistent.
+        if (
+            isinstance(candidate_summary, Mapping)
+            and candidate_summary.get("candidate_output_contract")
+            == "variant_sites"
+        ):
+            panel_score = None
         expected_primary = panel_score if panel_score is not None else comparable_raw
         if (
             score.get("pgbench_score_raw") != expected_primary
