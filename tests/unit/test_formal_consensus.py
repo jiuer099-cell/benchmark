@@ -167,6 +167,28 @@ def test_detection_projection_replaces_no_call_only_in_evaluator_copy(
     )
 
 
+def test_detection_projection_works_for_unphased_evaluators(tmp_path: Path) -> None:
+    source = tmp_path / "source.vcf"
+    destination = tmp_path / "query.vcf"
+    source.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t10\tKEEP\tA\tAT\t.\tPASS\tSVTYPE=INS\tGT\t./.\n",
+        encoding="utf-8",
+    )
+
+    write_variant_query(
+        source,
+        destination,
+        {"KEEP"},
+        phase_unphased_genotypes=False,
+        project_detection_genotypes=True,
+    )
+
+    assert "\tGT\t0/1\n" in destination.read_text(encoding="utf-8")
+    assert "\tGT\t./.\n" in source.read_text(encoding="utf-8")
+
+
 def write_votes(path: Path, evaluator: str, votes: list[tuple[str, int]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")

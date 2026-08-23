@@ -538,7 +538,9 @@ def write_variant_query(
                 continue
             fields = line.rstrip("\n").split("\t")
             if len(fields) >= 3 and fields[2] in allowed_ids:
-                if phase_unphased_genotypes and len(fields) >= 10:
+                if (
+                    phase_unphased_genotypes or project_detection_genotypes
+                ) and len(fields) >= 10:
                     format_keys = fields[8].split(":")
                     sample_values = fields[9].split(":")
                     if "GT" in format_keys:
@@ -555,7 +557,7 @@ def write_variant_query(
                                     else "0/1"
                                 )
                                 gt = sample_values[gt_index]
-                            if gt in {"0/1", "1/0"}:
+                            if phase_unphased_genotypes and gt in {"0/1", "1/0"}:
                                 sample_values[gt_index] = "0|1"
                             fields[9] = ":".join(sample_values)
                 writer.write("\t".join(fields) + "\n")
