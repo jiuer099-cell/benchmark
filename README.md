@@ -9,8 +9,10 @@ vcfdist.
 
 - reference: GRCh38 no-alt plus hs38d1 decoy (`GRCh38_no_alt_plus_hs38d1_analysis_set.fasta`), matching the GIAB PacBio CLR GRCh38 BAM;
 - sample: HG002 / NA24385;
-- primary truth profile: `giab_hg002_grch38_t2tq100_v0_9_sv` (GIAB
-  assembly-based whole-genome draft SV benchmark);
+- primary truth profile: `giab_hg002_grch38_v5_0q` (current NIST/GIAB HG002
+  assembly-based whole-genome draft SV benchmark for GRCh38);
+- legacy truth profile: `giab_hg002_grch38_t2tq100_v0_9_sv_legacy` (retained
+  only for explicitly labelled historical reproduction);
 - pangenome backbone: GRCh38;
 - production assets are fail-closed until paths and SHA-256 values are frozen.
 
@@ -118,7 +120,7 @@ configuration to the paths already used on the server:
 - for vg Giraffe end-to-end, the canonical paired HG002 Illumina FASTQs;
 - for PanGenie end-to-end, the canonical HG002 Illumina paired R1/R2 FASTQ
   files;
-- GIAB HG002 GRCh38 T2T-Q100 v0.9 whole-genome draft SV truth VCF, its
+- GIAB HG002 GRCh38 v5.0q whole-genome draft SV truth VCF, its
   `.tbi`, and paired benchmark BED;
 - a sequence-resolved GRCh38 population SV VCF plus `.tbi` that excludes
   HG002/NA24385;
@@ -138,25 +140,27 @@ assembly is therefore not an acceptable benchmark graph: prepare a leave-one-out
 graph or another GRCh38 graph whose construction cohort excludes HG002.
 
 Formal execution also refuses a truth catalog whose three data hashes disagree
-with the files. `config/truthsets.yaml` contains the hashes already verified
-for the named GIAB T2T-Q100 v0.9 files. Recalculate them on every server after transfer
-and confirm that all three match before running:
+with the files. `config/truthsets.yaml` contains the hashes verified against
+the NCBI-hosted NIST/GIAB v5.0q release, its official `checksum.md5`, and an
+independent download. Recalculate them on every server after transfer and
+confirm that all three match before running:
 
 ```bash
 cd /home/luzhiting/hg002-grch38-pangenome-sv-benchmark
 
-TRUTH_DIR=resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv
-TRUTH_S3=s3://giab/data/AshkenazimTrio/analysis/NIST_HG002_DraftBenchmark_defrabbV0.011-20230725
+TRUTH_DIR=resources/truth/giab_hg002_grch38_v5_0q
+TRUTH_BASE=https://ftp.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q
 mkdir -p "$TRUTH_DIR"
 
 for FILE in \
-  GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz \
-  GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz.tbi \
-  GRCh38_HG002-T2TQ100-V0.9_stvar.benchmark.bed \
+  HG002_GRCh38_v5.0q_stvar.vcf.gz \
+  HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi \
+  HG002_GRCh38_v5.0q_stvar.benchmark.bed \
   checksum.md5 \
-  README.md
+  NIST_HG002_v5.0q_variant-benchmarksets_README.md
 do
-  aws s3 cp --no-sign-request "$TRUTH_S3/$FILE" "$TRUTH_DIR/$FILE"
+  curl --fail --location --retry 3 \
+    --output "$TRUTH_DIR/$FILE" "$TRUTH_BASE/$FILE"
 done
 ```
 
@@ -167,9 +171,9 @@ VCF from another release.
 cd /home/luzhiting/hg002-grch38-pangenome-sv-benchmark
 
 sha256sum \
-  resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz \
-  resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.vcf.gz.tbi \
-  resources/truth/giab_hg002_grch38_t2tq100_v0_9_sv/GRCh38_HG002-T2TQ100-V0.9_stvar.benchmark.bed
+  resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz \
+  resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi \
+  resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
 ```
 
 If any value differs, stop and verify the release and transfer instead of

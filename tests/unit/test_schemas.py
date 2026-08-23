@@ -360,22 +360,32 @@ def test_sample_table_has_the_canonical_hg002_bam() -> None:
 
 def test_truth_and_stratification_profiles_are_frozen() -> None:
     truthsets = _load_yaml(CONFIG / "truthsets.yaml")
-    primary = truthsets["truthsets"]["giab_hg002_grch38_t2tq100_v0_9_sv"]
+    primary = truthsets["truthsets"]["giab_hg002_grch38_v5_0q"]
     assert primary["role"] == "primary"
     assert primary["truth_status"] == "draft"
+    assert primary["legacy"] is False
+    assert primary["source_page"].endswith(
+        "/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/"
+    )
     assert truthsets["reference_id"] == "grch38"
     assert {
         name: asset["sha256"]
         for name, asset in primary["files"].items()
     } == {
-        "vcf": "a122d35853f96ec17888f3bcb0b0775b392b7d71a2897f14cdee971ec01dbc5b",
+        "vcf": "d66b2d2496ff5418763813d3195599007dbff950514d10e5bc27b6c8b76e34b8",
         "vcf_index": (
-            "f2edc5d0c742c96392010cda1d7a6870d8ff4ef9d0be58983d6d8571ef6323e8"
+            "57898d17e44ecd5c286aeb863f27e613244396a3ad4b04ca79c8add647b8a81d"
         ),
         "benchmark_bed": (
-            "e0848252b88890da48a137274aaeec19aae2720b0d45c2564711b80316ebc923"
+            "2f75ce942e1dd9e1a443e4e04fac640104aae5e23fba24d7d3f2c1f1f9985b00"
         ),
     }
+    legacy = truthsets["truthsets"][
+        "giab_hg002_grch38_t2tq100_v0_9_sv_legacy"
+    ]
+    assert legacy["role"] == "legacy"
+    assert legacy["legacy"] is True
+    assert legacy["superseded_by"] == "giab_hg002_grch38_v5_0q"
 
     stratifications = _load_yaml(CONFIG / "stratifications.yaml")
     required = {

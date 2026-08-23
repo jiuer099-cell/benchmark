@@ -3,8 +3,10 @@ reference_id: grch38
 sample_id: HG002
 
 truthsets:
-  giab_hg002_grch38_t2tq100_v0_9_sv:
-    role: primary
+  giab_hg002_grch38_t2tq100_v0_9_sv_legacy:
+    role: legacy
+    legacy: true
+    superseded_by: giab_hg002_grch38_v5_0q
     truth_status: draft
     release: T2TQ100-V0.9
     reference_id: grch38
@@ -35,23 +37,34 @@ truthsets:
 
   giab_hg002_grch38_v5_0q:
     role: primary
+    legacy: false
     truth_status: draft
     release: v5.0q
     reference_id: grch38
     sample_id: HG002
-    source_page: https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/GRCh38/
+    source_authority: NIST Genome in a Bottle via NCBI
+    source_page: https://ftp.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/
+    source_readme: NIST_HG002_v5.0q_variant-benchmarksets_README.md
+    source_checksum_manifest: checksum.md5
+    source_verified_at: "2026-08-23"
     files:
       vcf:
         name: HG002_GRCh38_v5.0q_stvar.vcf.gz
         local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
+        size_bytes: 48040012
+        md5: 34dbeeac5eb3fc09e94c5cb8cfe9e24f
         sha256: d66b2d2496ff5418763813d3195599007dbff950514d10e5bc27b6c8b76e34b8
       vcf_index:
         name: HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi
         local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi
+        size_bytes: 1554436
+        md5: df639c204bf457f22248220602ea183e
         sha256: 57898d17e44ecd5c286aeb863f27e613244396a3ad4b04ca79c8add647b8a81d
       benchmark_bed:
         name: HG002_GRCh38_v5.0q_stvar.benchmark.bed
         local_path: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
+        size_bytes: 230609
+        md5: 55fc11c80ff376c0a8da99d0c69004f3
         sha256: 2f75ce942e1dd9e1a443e4e04fac640104aae5e23fba24d7d3f2c1f1f9985b00
     filters:
       pass_only: true
