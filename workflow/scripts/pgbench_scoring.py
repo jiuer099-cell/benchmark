@@ -38,8 +38,10 @@ SCORE_PAYLOAD_FIELDS = frozenset(
 )
 NON_SCORABLE_STATUSES = {
     "not_applicable", "runtime_failed", "invalid_output", "incompatible_output",
-    "provenance_failed", "mode_contract_violation",
+    "provenance_failed", "mode_contract_violation", "invalid_evaluator_mapping",
+    "invalid_empty_submission",
 }
+INVALID_SCORE_STATUSES = {"invalid_evaluator_mapping", "invalid_empty_submission"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -56,7 +58,7 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         raise ScoreInputError("consensus profile schema_version must be 2")
     meta = profile.get("profile")
     consensus = profile.get("consensus")
-    if not isinstance(meta, dict) or meta.get("id") != "pgbench_consensus_v2":
+    if not isinstance(meta, dict) or meta.get("id") != "pgbench_consensus_v3":
         raise ScoreInputError("unsupported consensus profile id")
     if meta.get("produce_ranking") is not False:
         raise ScoreInputError("consensus profile must disable ranking")
@@ -164,7 +166,7 @@ def _count(value: Any, name: str) -> int:
 
 def resource_fraction(value: float, target: float, limit: float) -> float:
     """Removed weighted-resource helper retained only to fail clearly."""
-    raise ScoreInputError("resource weighting was removed in pgbench_consensus_v2")
+    raise ScoreInputError("resource weighting was removed in pgbench_consensus_v3")
 
 
 def calculate_pgbench_score(
@@ -188,13 +190,14 @@ def calculate_pgbench_score(
     if evaluation_mode not in {"formal", "synthetic_smoke"}:
         raise ScoreInputError("unsupported evaluation mode")
     status = payload.get("eligibility_status")
+    analysis = payload.get("analysis")
     if status in NON_SCORABLE_STATUSES:
         return ScoreResult(
             tuple_key=trusted,
             score_profile=profile_id,
             score_profile_sha256=profile["_sha256"],
             evaluation_mode=evaluation_mode,
-            score_status=str(status),
+            score_status="invalid" if status in INVALID_SCORE_STATUSES else str(status),
             pgbench_score=None,
             pgbench_score_raw=None,
             consensus_score=None,
@@ -213,6 +216,7 @@ def calculate_pgbench_score(
             unanimous_correct_rate=None,
             majority_correct_rate=None,
             point_breakdown={},
+            formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
             reason=str(payload.get("reason") or status),
         )
     if status != "eligible" or payload.get("infrastructure_valid") is not True:
@@ -231,6 +235,34 @@ def calculate_pgbench_score(
         or truth_total <= 0
     ):
         raise ScoreInputError("truth_eligible_count must be a positive integer")
+    if total == 0:
+        return ScoreResult(
+            tuple_key=trusted,
+            score_profile=profile_id,
+            score_profile_sha256=profile["_sha256"],
+            evaluation_mode=evaluation_mode,
+            score_status="invalid",
+            pgbench_score=None,
+            pgbench_score_raw=None,
+            consensus_score=None,
+            comparable_score=None,
+            comparable_score_raw=None,
+            pangenome_genotyping_score=None,
+            non_reference_f1_score=None,
+            panel_coverage=None,
+            global_end_to_end_sv_recovery_score=None,
+            consensus_counts=counts,
+            total_evaluated=0,
+            truth_eligible_count=truth_total,
+            soft_true_positive_count=None,
+            comparable_precision=None,
+            comparable_recall=None,
+            unanimous_correct_rate=None,
+            majority_correct_rate=None,
+            point_breakdown={},
+            formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
+            reason="no submitted in-scope events were available for scoring",
+        )
     vote_points = 3 * n3 + 2 * n2 + n1
     consensus_raw = vote_points / (3 * total) * 100.0 if total else 0.0
     soft_tp = vote_points / 3.0
@@ -243,7 +275,6 @@ def calculate_pgbench_score(
     decimals = int(profile["profile"].get("display_decimals", 2))
     consensus_score = round(consensus_raw, decimals)
     comparable_score = round(comparable_raw, decimals)
-    analysis = payload.get("analysis")
     if isinstance(analysis, Mapping):
         independently_materialized = analysis.get("comparable_score")
         if (
@@ -267,9 +298,9 @@ def calculate_pgbench_score(
         candidate_summary = analysis.get("candidate_genotype_summary")
         if isinstance(candidate_summary, Mapping):
             # A discovery adapter may intentionally emit variant sites with
-            # no GT assertion.  Its site-recovery score is comparable, but a
-            # panel-genotyping macro-F1 is not applicable and must never be
-            # promoted to the primary score as a misleading zero.
+            # no GT assertion. Its site-recovery score is comparable, but GT
+            # macro-F1 and non-reference F1 are not applicable and must never
+            # be promoted as misleading zero-valued scores.
             detection_only_contract = (
                 candidate_summary.get("candidate_output_contract")
                 == "variant_sites"
@@ -297,6 +328,7 @@ def calculate_pgbench_score(
                     panel_coverage = numeric
     if detection_only_contract:
         panel_score = None
+        nonref_score = None
     score_status = "valid" if evaluation_mode == "formal" else "provisional"
     traceability = payload.get("traceability")
     if isinstance(traceability, Mapping):
@@ -312,10 +344,10 @@ def calculate_pgbench_score(
                 consensus_score=None,
                 comparable_score=None,
                 comparable_score_raw=None,
-                pangenome_genotyping_score=panel_score,
-                non_reference_f1_score=nonref_score,
-                panel_coverage=panel_coverage,
-                global_end_to_end_sv_recovery_score=comparable_score,
+                pangenome_genotyping_score=None,
+                non_reference_f1_score=None,
+                panel_coverage=None,
+                global_end_to_end_sv_recovery_score=None,
                 consensus_counts=counts,
                 total_evaluated=total,
                 truth_eligible_count=truth_total,
@@ -325,6 +357,7 @@ def calculate_pgbench_score(
                 unanimous_correct_rate=n3 / total if total else 0.0,
                 majority_correct_rate=(n3 + n2) / total if total else 0.0,
                 point_breakdown={},
+                formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
                 reason="core provenance validation failed",
             )
         if not all(traceability.get(k) is True for k in ("hash_lineage_complete", "environment_complete", "run_context_complete")) or traceability.get("manifest_completeness") != 1.0:

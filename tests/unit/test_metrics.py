@@ -84,7 +84,7 @@ def _metrics_document() -> dict:
             "tool_id": expected["tool"],
             "official_score_mode": expected["official_score_mode"],
             "primary_truth_profile": expected["primary_truth_profile"],
-            "score_profile": "pgbench_consensus_v2",
+            "score_profile": "pgbench_consensus_v3",
         },
         "records": [_record(metric_id) for metric_id in sorted(_required_metric_ids())],
     }

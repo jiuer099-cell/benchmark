@@ -5,6 +5,7 @@ import gzip
 import json
 import sys
 from argparse import Namespace
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,8 @@ from materialize_formal_consensus_metrics import (  # noqa: E402
     semantic_asset_hash,
     stratified_summary,
 )
+from pgbench_metrics import build_score_payload_from_metrics  # noqa: E402
+from pgbench_scoring import load_score_profile  # noqa: E402
 from run_formal_evaluator import (  # noqa: E402
     _resolve_votes,
     build_command,
@@ -647,6 +650,8 @@ def test_semantic_materialization_has_unique_truth_ci_and_strata(
     analysis = payload["analysis"]
     assert analysis["matching"]["unique_truth_accounting"] is True
     assert analysis["matching"]["credited_truth_events"] == 1
+    assert analysis["formal_score_status"] == "valid"
+    assert analysis["formal_score_reason"] is None
     assert analysis["semantic_summary"]["truvari"]["no_call"] == 1
     assert analysis["comparable_score"] == pytest.approx(100 / 3)
     interval = analysis["comparable_score_confidence_interval"]
@@ -675,6 +680,35 @@ def test_semantic_materialization_has_unique_truth_ci_and_strata(
         )
     )
     Draft202012Validator(metrics_schema).validate(payload)
+
+    expected_tuple = {
+        "run_id": "formal",
+        "sample": "HG002",
+        "tool": "kanpig",
+        "official_score_mode": "caller_only_shared_alignment",
+        "primary_truth_profile": "giab_hg002_grch38_v5_0q",
+    }
+    score_profile = load_score_profile(ROOT / "config" / "consensus_scoring.yaml")
+    valid_score_payload = build_score_payload_from_metrics(
+        payload,
+        expected_tuple=expected_tuple,
+        score_profile=score_profile,
+    )
+    assert valid_score_payload["eligibility_status"] == "eligible"
+    assert valid_score_payload["infrastructure_valid"] is True
+
+    invalid_payload = deepcopy(payload)
+    invalid_payload["analysis"]["formal_score_status"] = "invalid_evaluator_mapping"
+    invalid_payload["analysis"]["formal_score_reason"] = (
+        "evaluator unresolved mapping exceeds 1.00%: aardvark=1/2 (50.00%)"
+    )
+    invalid_score_payload = build_score_payload_from_metrics(
+        invalid_payload,
+        expected_tuple=expected_tuple,
+        score_profile=score_profile,
+    )
+    assert invalid_score_payload["eligibility_status"] == "invalid_evaluator_mapping"
+    assert invalid_score_payload["infrastructure_valid"] is False
 
 
 def test_resource_repeats_use_median_and_frozen_cold_cache(tmp_path: Path) -> None:

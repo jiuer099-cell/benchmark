@@ -23,7 +23,7 @@ def _payload() -> dict:
             "official_score_mode": "end_to_end_from_reads",
             "primary_truth_profile": "giab_hg002_grch38_v5_0q",
         },
-        "score_profile": "pgbench_consensus_v2",
+        "score_profile": "pgbench_consensus_v3",
         "eligibility_status": "eligible",
         "infrastructure_valid": True,
         "truth_eligible_count": 100,
@@ -90,6 +90,7 @@ def test_variant_sites_contract_uses_universal_consensus_not_no_call_gt_zero() -
     payload["analysis"] = {
         "comparable_score": global_score,
         "pangenome_genotyping_score": 0.0,
+        "non_reference_f1_score": 0.0,
         "candidate_genotype_summary": {
             "candidate_output_contract": "variant_sites",
         },
@@ -99,6 +100,7 @@ def test_variant_sites_contract_uses_universal_consensus_not_no_call_gt_zero() -
 
     assert result.pgbench_score == result.consensus_score
     assert result.pangenome_genotyping_score is None
+    assert result.non_reference_f1_score is None
 
 
 def test_perfect_unanimous_consensus_is_one_hundred() -> None:
@@ -116,7 +118,7 @@ def test_synthetic_result_is_provisional() -> None:
     assert _calculate(_payload(), "synthetic_smoke").score_status == "provisional"
 
 
-def test_counts_must_be_nonnegative_integers_and_empty_callsets_score_zero() -> None:
+def test_counts_must_be_nonnegative_integers_and_empty_callsets_are_invalid() -> None:
     payload = _payload()
     payload["consensus"]["all_three_correct"] = 1.5
     with pytest.raises(ScoreInputError, match="non-negative integer"):
@@ -124,9 +126,34 @@ def test_counts_must_be_nonnegative_integers_and_empty_callsets_score_zero() -> 
     payload = _payload()
     payload["consensus"] = {name: 0 for name in payload["consensus"]}
     result = _calculate(payload)
-    assert result.comparable_score == 0.0
-    assert result.consensus_score == 0.0
+    assert result.score_status == "invalid"
+    assert result.pgbench_score is None
+    assert result.comparable_score is None
+    assert result.consensus_score is None
     assert result.total_evaluated == 0
+    assert result.reason == "no submitted in-scope events were available for scoring"
+
+
+def test_unresolved_evaluator_mapping_is_invalid_but_keeps_diagnostics() -> None:
+    payload = _payload()
+    payload["eligibility_status"] = "invalid_evaluator_mapping"
+    payload["infrastructure_valid"] = False
+    payload["reason"] = "evaluator unresolved mapping exceeds 1.00%: aardvark=2/100 (2.00%)"
+    payload["analysis"] = {
+        "formal_score_status": "invalid_evaluator_mapping",
+        "formal_score_reason": payload["reason"],
+        "comparable_score": 12.34,
+    }
+
+    result = _calculate(payload)
+
+    assert result.score_status == "invalid"
+    assert result.pgbench_score is None
+    assert result.consensus_score is None
+    assert result.comparable_score is None
+    assert result.global_end_to_end_sv_recovery_score is None
+    assert result.formal_analysis == payload["analysis"]
+    assert result.reason == payload["reason"]
 
 
 def test_soft_true_positive_credit_cannot_exceed_truth_universe() -> None:

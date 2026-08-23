@@ -37,7 +37,7 @@ properties:
       primary_truth_profile:
         $ref: "#/$defs/identifier"
       score_profile:
-        const: pgbench_consensus_v2
+        const: pgbench_consensus_v3
   records:
     type: array
     minItems: 1
@@ -177,6 +177,8 @@ $defs:
       - evaluator_event_mapping
       - maximum_unresolved_mapping_fraction
       - global_recovery_status
+      - formal_score_status
+      - formal_score_reason
       - comparable_score
       - pangenome_genotyping_score
       - non_reference_f1_score
@@ -412,6 +414,13 @@ $defs:
         maximum: 1
       global_recovery_status:
         enum: [valid, invalid_unresolved_mapping]
+      formal_score_status:
+        enum: [valid, invalid_evaluator_mapping, invalid_empty_submission]
+      formal_score_reason:
+        oneOf:
+          - type: string
+            minLength: 1
+          - type: "null"
       comparable_score:
         type: number
         minimum: 0

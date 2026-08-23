@@ -345,9 +345,9 @@ properties:
     required: [profile, final_score_name, produce_ranking]
     properties:
       profile:
-        const: pgbench_consensus_v2
+        const: pgbench_consensus_v3
       final_score_name:
-        const: ComparableScore
+        const: PGBenchConsensusScore
       produce_ranking:
         const: false
   evaluation:

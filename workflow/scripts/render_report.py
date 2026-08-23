@@ -310,13 +310,23 @@ def _write_breakdown_tsv(path: Path, score: Mapping[str, Any]) -> None:
 
 def _html(score: Mapping[str, Any]) -> str:
     tuple_key = score["tuple_key"]
+    analysis = score.get("formal_analysis")
+    analysis = analysis if isinstance(analysis, Mapping) else {}
+    candidate = analysis.get("candidate_genotype_summary")
+    candidate = candidate if isinstance(candidate, Mapping) else {}
+    detection_only_contract = (
+        candidate.get("candidate_output_contract") == "variant_sites"
+    )
+    not_applicable = "N/A — detection-only output contract"
     pgbench_value = (
         "not available"
         if score.get("pgbench_score") is None
         else f"{float(score['pgbench_score']):.2f}"
     )
     panel_value = (
-        "not available"
+        not_applicable
+        if detection_only_contract
+        else "not available"
         if score.get("pangenome_genotyping_score") is None
         else f"{float(score['pangenome_genotyping_score']):.2f}"
     )
@@ -334,8 +344,6 @@ def _html(score: Mapping[str, Any]) -> str:
         f"<tr><td>{escape(component)}</td><td>{float(points):.4f}</td></tr>"
         for component, points in sorted(score["point_breakdown"].items())
     )
-    analysis = score.get("formal_analysis")
-    analysis = analysis if isinstance(analysis, Mapping) else {}
     interval = analysis.get("comparable_score_confidence_interval")
     interval_text = "not available"
     if isinstance(interval, Mapping):
@@ -386,7 +394,6 @@ def _html(score: Mapping[str, Any]) -> str:
             f"median wall={median.get('wall_seconds', 'n/a')} s, "
             f"median RSS={median.get('max_rss_mb', 'n/a')} MB"
         )
-    candidate = analysis.get("candidate_genotype_summary")
     candidate_text = "not available"
     if isinstance(candidate, Mapping):
         accuracy = candidate.get("genotype_accuracy")
@@ -428,7 +435,9 @@ def _html(score: Mapping[str, Any]) -> str:
             f"link conflicts={int(candidate.get('candidate_link_conflicts', 0))}"
         )
     nonref_value = (
-        "not available"
+        not_applicable
+        if detection_only_contract
+        else "not available"
         if score.get("non_reference_f1_score") is None
         else f"{float(score['non_reference_f1_score']):.2f}"
     )
@@ -495,6 +504,8 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
+  <p><strong>Formal score gate:</strong> {escape(str(analysis.get('formal_score_status', 'not available')))};
+  {escape(str(analysis.get('formal_score_reason') or 'no blocking reason recorded'))}.</p>
   <p class="score">PGBench Consensus Score: {pgbench_value} / 100</p>
   <p>This universal primary score is the mean of three frozen evaluators'
   binary detection votes on submitted in-scope events.</p>

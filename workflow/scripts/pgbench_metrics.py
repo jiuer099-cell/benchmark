@@ -389,7 +389,7 @@ def build_score_payload_from_metrics(
             )
 
     aggregates = _aggregate_records(records)
-    if score_profile_id == "pgbench_consensus_v2":
+    if score_profile_id == "pgbench_consensus_v3":
         truth_metric_id = "benchmark.truth.eligible.count"
         consensus_metrics = {
             "all_three_correct": "consensus.all_three_correct.count",
@@ -421,16 +421,48 @@ def build_score_payload_from_metrics(
             raise MetricContractError(
                 f"{truth_metric_id} must be a positive integer"
             )
+        analysis = document.get("analysis")
+        formal_status = (
+            analysis.get("formal_score_status")
+            if isinstance(analysis, Mapping)
+            else None
+        )
+        formal_reason = (
+            analysis.get("formal_score_reason")
+            if isinstance(analysis, Mapping)
+            else None
+        )
+        if formal_status not in {
+            None,
+            "valid",
+            "invalid_evaluator_mapping",
+            "invalid_empty_submission",
+        }:
+            raise MetricContractError("formal analysis has an unsupported score status")
+        if formal_status in {"invalid_evaluator_mapping", "invalid_empty_submission"}:
+            if not isinstance(formal_reason, str) or not formal_reason:
+                raise MetricContractError(
+                    "invalid formal analysis requires a non-empty score reason"
+                )
+            eligibility_status = formal_status
+            infrastructure_valid = False
+            reason = formal_reason
+        else:
+            eligibility_status = "eligible"
+            infrastructure_valid = True
+            reason = None
         payload = {
             "tuple": normalized_expected,
             "score_profile": score_profile_id,
-            "eligibility_status": "eligible",
-            "infrastructure_valid": True,
+            "eligibility_status": eligibility_status,
+            "infrastructure_valid": infrastructure_valid,
             "truth_eligible_count": truth_eligible_count,
             "consensus": consensus,
         }
-        if "analysis" in document:
-            payload["analysis"] = deepcopy(document["analysis"])
+        if reason is not None:
+            payload["reason"] = reason
+        if analysis is not None:
+            payload["analysis"] = deepcopy(analysis)
         return payload
     (
         evaluator_metric_map,

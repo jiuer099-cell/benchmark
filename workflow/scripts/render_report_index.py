@@ -19,6 +19,18 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
 
 
 def _score_value(score: Mapping[str, object], field: str) -> str:
+    analysis = score.get("formal_analysis")
+    candidate = (
+        analysis.get("candidate_genotype_summary")
+        if isinstance(analysis, Mapping)
+        else None
+    )
+    if (
+        field in {"pangenome_genotyping_score", "non_reference_f1_score"}
+        and isinstance(candidate, Mapping)
+        and candidate.get("candidate_output_contract") == "variant_sites"
+    ):
+        return "N/A"
     value = score.get(field)
     return "N/A" if value is None else f"{float(value):.2f}"
 

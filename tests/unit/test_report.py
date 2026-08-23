@@ -200,6 +200,42 @@ def test_report_renders_ci_semantics_strata_and_resources(tmp_path: Path) -> Non
     assert "ComparableScore_CI95_lower" in score_tsv.read_text(encoding="utf-8")
 
 
+def test_detection_only_genotype_metrics_render_as_not_applicable(
+    tmp_path: Path,
+) -> None:
+    score = _renderable_score()
+    score["pangenome_genotyping_score"] = 0.0
+    score["non_reference_f1_score"] = 0.0
+    score["formal_analysis"] = {
+        "candidate_genotype_summary": {
+            "candidate_output_contract": "variant_sites",
+        },
+    }
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(score), encoding="utf-8")
+    package_path = _write_package(score_path, score)
+    manifest_path = _write_finalizer_manifest(score_path, package_path, score)
+    html = tmp_path / "index.html"
+    render_report(
+        score_path,
+        score_package=package_path,
+        finalizer_manifest=manifest_path,
+        html_output=html,
+        score_tsv=tmp_path / "score.tsv",
+        point_breakdown_tsv=tmp_path / "points.tsv",
+    )
+
+    text = html.read_text(encoding="utf-8")
+    assert text.count("N/A — detection-only output contract") == 2
+
+    index = render_index(
+        [tmp_path / "example.html"],
+        scores=[score],
+        manifests=[{"id": "example", "capabilities": {"technology": []}}],
+    )
+    assert index.count("N/A") >= 2
+
+
 def test_report_rejects_ranking_fields(tmp_path: Path) -> None:
     score = _renderable_score()
     score["rank"] = 1

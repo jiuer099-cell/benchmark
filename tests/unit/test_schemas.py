@@ -218,7 +218,7 @@ def _valid_metric_document() -> dict:
             "tool_id": "my_genotyper",
             "official_score_mode": "end_to_end_from_reads",
             "primary_truth_profile": "giab_hg002_grch38_v5_0q",
-            "score_profile": "pgbench_consensus_v2",
+            "score_profile": "pgbench_consensus_v3",
         },
         "records": [
             {
@@ -273,7 +273,7 @@ def test_example_config_validates_and_starts_without_unimplemented_tools() -> No
     assert config["tools"]["enabled"] == []
     assert config["tools"]["planned_tools"] == []
     assert config["score"]["produce_ranking"] is False
-    assert config["score"]["final_score_name"] == "ComparableScore"
+    assert config["score"]["final_score_name"] == "PGBenchConsensusScore"
     assert (
         config["execution"]["official_score_mode"]
         == "caller_only_shared_alignment"
@@ -547,7 +547,7 @@ def test_undefined_metric_requires_null_value_and_reason() -> None:
 
 def test_consensus_profile_has_three_equal_votes_and_no_weights() -> None:
     profile = _load_yaml(CONFIG / "consensus_scoring.yaml")
-    assert profile["profile"]["id"] == "pgbench_consensus_v2"
+    assert profile["profile"]["id"] == "pgbench_consensus_v3"
     assert profile["consensus"]["evaluators"] == ["truvari", "aardvark", "vcfdist"]
     assert "layers" not in profile
     assert "evaluator_weights" not in profile["consensus"]

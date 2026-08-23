@@ -1262,6 +1262,27 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         1.0 - float(values["mapping_coverage"]) <= max_unresolved_fraction
         for values in mapping_summary.values()
     )
+    unresolved_failures = [
+        (
+            f"{name}={int(values['unresolved_events'])}/"
+            f"{int(values['event_count'])} "
+            f"({1.0 - float(values['mapping_coverage']):.2%})"
+        )
+        for name, values in sorted(mapping_summary.items())
+        if 1.0 - float(values["mapping_coverage"]) > max_unresolved_fraction
+    ]
+    if not event_ids:
+        formal_score_status = "invalid_empty_submission"
+        formal_score_reason = "no submitted in-scope events were available for scoring"
+    elif unresolved_failures:
+        formal_score_status = "invalid_evaluator_mapping"
+        formal_score_reason = (
+            "evaluator unresolved mapping exceeds "
+            f"{max_unresolved_fraction:.2%}: " + ", ".join(unresolved_failures)
+        )
+    else:
+        formal_score_status = "valid"
+        formal_score_reason = None
     query_vcf = getattr(args, "query_vcf", None)
     if extended and query_vcf is None:
         raise ConsensusMetricError(
@@ -1362,6 +1383,10 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
     panel_coverage = (
         panel_truth_positive / truth_total if truth_total > 0 else None
     )
+    all_sites_contract = (
+        isinstance(candidate_summary, dict)
+        and candidate_summary.get("candidate_output_contract") == "all_sites"
+    )
     semantic_summary = {
         name: {
             "query_rows": len(rows),
@@ -1445,18 +1470,22 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "global_recovery_status": (
                 "valid" if global_recovery_valid else "invalid_unresolved_mapping"
             ),
+            "formal_score_status": formal_score_status,
+            "formal_score_reason": formal_score_reason,
             "comparable_score": _score(soft_tp, len(event_ids), truth_total),
-            # The primary score for a pangenome panel genotyper is its
-            # genotype macro-F1 on the common blinded candidate universe.
-            # The fixed whole-genome recovery score is retained separately;
-            # panel coverage is never multiplied into genotype quality.
+            # Genotype and non-reference F1 are meaningful only for an
+            # all-sites genotyping contract. Discovery-only variant-sites
+            # outputs deliberately make no genotype assertion, so reporting
+            # their no-calls as a score of zero would be misleading.
             "pangenome_genotyping_score": (
                 float(genotype_macro_f1) * 100.0
-                if genotype_macro_f1 is not None
+                if all_sites_contract and genotype_macro_f1 is not None
                 else None
             ),
             "non_reference_f1_score": (
-                float(nonref_f1) * 100.0 if nonref_f1 is not None else None
+                float(nonref_f1) * 100.0
+                if all_sites_contract and nonref_f1 is not None
+                else None
             ),
             "panel_coverage": panel_coverage,
             "panel_truth_positive_events": panel_truth_positive,

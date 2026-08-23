@@ -79,8 +79,8 @@ development:
   allow_missing_bam: false
 
 score:
-  profile: pgbench_consensus_v2
-  final_score_name: ComparableScore
+  profile: pgbench_consensus_v3
+  final_score_name: PGBenchConsensusScore
   produce_ranking: false
 
 evaluation:

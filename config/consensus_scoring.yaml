@@ -1,6 +1,6 @@
 schema_version: 2
 profile:
-  id: pgbench_consensus_v2
+  id: pgbench_consensus_v3
   final_score_name: PGBenchConsensusScore
   score_min: 0.0
   score_max: 100.0
