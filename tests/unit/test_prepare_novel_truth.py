@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "workflow" / "scripts"
@@ -38,16 +40,20 @@ def test_graph_exclusion_builds_a_nonleaking_novel_truth_fixture(
     gfa.write_text(
         "H\tVN:Z:1.0\n"
         f"S\tins\t{insertion}\n"
-        f"S\trev\t{reverse_source}\n",
+        f"S\trev\t{reverse_source}\n"
+        f"S\tunused\tC{'A' * 59}\n"
+        f"S\ttiny\t{'G' * 10}\n",
         encoding="utf-8",
     )
     calls = tmp_path / "graph.variation.calls.bed"
     calls.write_text(
         "#CHROM\tSTART\tEND\tINFO\tFORMAT\n"
-        "chr1\t20\t20\tNS=2;NA=3;ALEN=0,60,60;"
+        "chr1\t20\t20\tNS=2;NA=3;ALEN=0,64,55;"
         "AWALK=*,>ins,<rev\tGT:CSTRAND\t0:+\n"
-        "chr1\t100\t160\tNS=2;NA=2;ALEN=60,0;"
-        "AWALK=>unused,*\tGT:CSTRAND\t0:+\n",
+        "chr1\t100\t160\tNS=2;NA=2;ALEN=58,3;"
+        "AWALK=>unused,*\tGT:CSTRAND\t0:+\n"
+        "chr1\t200\t200\tNS=1;NA=2;ALEN=0,10;"
+        "AWALK=*,>tiny\tGT:CSTRAND\t.\n",
         encoding="utf-8",
     )
     truth = tmp_path / "truth.vcf"
@@ -69,17 +75,34 @@ def test_graph_exclusion_builds_a_nonleaking_novel_truth_fixture(
     required = {
         name
         for bubble in bubbles
-        for allele_index, walk in enumerate(bubble.allele_walks)
-        if allele_index != bubble.reference_allele
+        for walk in bubble.allele_walks
         for _, name in _walk_parts(walk)
     }
     segments = load_graph_segments(gfa, required)
-    records = graph_alleles(
+    records, reconstruction = graph_alleles(
         bubbles=bubbles,
         segments=segments,
         reference=IndexedReference(fasta, fai),
         evaluator_profile=evaluator,
     )
+    assert reconstruction == {
+        "bubbles": 3,
+        "alleles": 7,
+        "missing_reference_genotype_bubbles": 1,
+        "bubbles_with_exact_reference_path": 2,
+        "multiple_exact_reference_path_bubbles": 0,
+        "declared_reference_length_mismatches": 1,
+        "declared_reference_sequence_mismatches": 1,
+        "declared_allele_length_mismatches": 4,
+        "reference_interval_bubbles": 3,
+        "reference_identical_alleles": 2,
+        "out_of_universe_length_alleles": 2,
+        "in_scope_length_changing_alleles": 3,
+        "complex_alleles_excluded": 0,
+        "duplicate_pure_sv_alleles": 0,
+        "eligible_unique_pure_sv_alleles": 3,
+    }
+    pytest.importorskip("edlib")
     output = tmp_path / "novel.vcf"
     ledger = tmp_path / "exclusion.tsv"
 
@@ -97,6 +120,7 @@ def test_graph_exclusion_builds_a_nonleaking_novel_truth_fixture(
         "excluded_graph_represented": 3,
         "novel_truth_records": 1,
         "ambiguous_truth_matches": 0,
+        "known_truth_leakage_count": 0,
     }
     text = output.read_text(encoding="utf-8")
     assert "NOVEL_INS" in text

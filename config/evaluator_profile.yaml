@@ -1,7 +1,7 @@
 schema_version: 1
 
 profile:
-  id: pgbench_evaluators_grch38_v1
+  id: pgbench_evaluators_grch38_v2
   description: Frozen evaluator, event-matching, genotype, and bootstrap contract.
 
 universe:
@@ -19,6 +19,8 @@ sv_match:
   max_breakpoint_distance: 500
   min_size_similarity: 0.70
   min_sequence_similarity: 0.70
+  sequence_similarity_algorithm: truvari_v5.4.0_best_seqsim_edlib_1.3.9.post1
+  sequence_roll_policy: enabled
   sequence_required_for_resolved_insertions: true
   one_to_one: true
 
@@ -38,6 +40,7 @@ evaluators:
     # supported 4.x releases. The frozen bench help text is used as the
     # executable/interface fingerprint and is compared across formal runs.
     version_args: [bench, --help]
+    expected_version_sha256: 6587f29d09e453ae50a398c79804f127a615e76563f4c179ff7ae45fe750fad4
     extra_args:
       - --refdist
       - "500"
@@ -49,10 +52,12 @@ evaluators:
       - "10000"
   aardvark:
     version_args: [--version]
+    expected_version_sha256: fb6fda42c6d7b8f3baabdf027e9bde95a0114798673f84e676b1eff9b4c5c2ac
     # Pacific Biosciences recommends a wider clustering gap for SV comparison.
     extra_args: [--min-variant-gap, "1000"]
   vcfdist:
     version_args: [--version]
+    expected_version_sha256: 714eb9f5def97655ca3cd6704c2f5dc146604b2066f872e8f0a81d1239978c53
     # vcfdist 2.x names the filter --largest-variant. For SV workloads its
     # own documentation recommends size clustering; the supercluster ceiling
     # is kept above the frozen 10 kb event envelope.

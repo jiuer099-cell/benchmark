@@ -885,6 +885,11 @@ def run_evaluator(args: argparse.Namespace) -> None:
     evaluator_profile = profile["evaluators"][args.evaluator]
     prefix = command_prefix(config, args.evaluator)
     version = evaluator_version(prefix, list(evaluator_profile["version_args"]))
+    if version["sha256"] != evaluator_profile["expected_version_sha256"]:
+        raise FormalEvaluatorError(
+            f"{args.evaluator} executable fingerprint differs from the frozen "
+            "evaluator profile"
+        )
     regions = load_regions(args.regions)
     all_queries = load_vcf(args.query, prefix="query", allow_empty=True)
     queries = [

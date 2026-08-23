@@ -1,7 +1,7 @@
-schema_version: 1
+schema_version: 2
 
 profile:
-  id: pgbench_minigraph_novel_truth_v1
+  id: pgbench_minigraph_novel_truth_v2
   description: >-
     Exclude GIAB truth events already represented by frozen minigraph bubble
     alleles before scoring novel pangenome discovery.
@@ -12,11 +12,18 @@ source:
   allele_lengths_info: ALEN
   allele_walks_info: AWALK
   graph_reference_path: GRCh38
+  allele_lengths_role: audit_only_per_sample_call_report
+  allele_sequence_source: AWALK_resolved_from_frozen_GFA
+  sequence_alphabet: IUPAC_DNA
+  reference_sequence_source: frozen_GRCh38_FASTA_interval
+  reference_sample_genotype_role: audit_only
+  graph_link_overlap_contract: 0M
 
 exclusion:
   policy: any_compatible_graph_allele
-  require_reference_allele_length_match: true
-  require_graph_walk_sequence_length_match: true
+  size_source: reconstructed_AWALK_length_minus_GRCh38_interval_length
+  require_pure_ins_del_after_normalization: true
+  complex_allele_policy: exclude_not_decompose
   require_deleted_sequence_reference_match: true
   fail_on_missing_graph_segment: true
 
@@ -26,5 +33,7 @@ matching:
   max_breakpoint_distance: 500
   min_size_similarity: 0.70
   min_sequence_similarity: 0.70
+  sequence_similarity_algorithm: truvari_v5.4.0_best_seqsim_edlib_1.3.9.post1
+  sequence_roll_policy: enabled
   sequence_required_for_resolved_insertions: true
   one_to_one: true

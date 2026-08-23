@@ -34,7 +34,7 @@ from sv_matching import (
 
 
 WALK_SEGMENT = re.compile(r"([<>])([^<>]+)")
-DNA = re.compile(r"^[ACGTNacgtn]+$")
+IUPAC_DNA = re.compile(r"^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+$")
 
 
 class NovelTruthError(ValueError):
@@ -46,7 +46,7 @@ class GraphBubble:
     chrom: str
     start: int
     end: int
-    reference_allele: int
+    reference_allele: int | None
     allele_lengths: tuple[int, ...]
     allele_walks: tuple[str, ...]
     line_number: int
@@ -89,7 +89,9 @@ class IndexedReference:
                 pieces.append(handle.read(take))
                 cursor += take
         value = b"".join(pieces).decode("ascii").upper()
-        if len(value) != end - start or (value and not DNA.fullmatch(value)):
+        if len(value) != end - start or (
+            value and not IUPAC_DNA.fullmatch(value)
+        ):
             raise NovelTruthError(
                 f"reference sequence could not be read at {chrom}:{start}-{end}"
             )
@@ -101,8 +103,8 @@ def _load_profile(path: Path) -> dict[str, Any]:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise NovelTruthError(f"cannot load novel-truth profile {path}") from exc
-    if not isinstance(value, dict) or value.get("schema_version") != 1:
-        raise NovelTruthError("novel-truth profile schema_version must be 1")
+    if not isinstance(value, dict) or value.get("schema_version") != 2:
+        raise NovelTruthError("novel-truth profile schema_version must be 2")
     expected = {
         "source": {
             "format": "minigraph_call_bed_v0.17",
@@ -110,11 +112,20 @@ def _load_profile(path: Path) -> dict[str, Any]:
             "allele_lengths_info": "ALEN",
             "allele_walks_info": "AWALK",
             "graph_reference_path": "GRCh38",
+            "allele_lengths_role": "audit_only_per_sample_call_report",
+            "allele_sequence_source": "AWALK_resolved_from_frozen_GFA",
+            "sequence_alphabet": "IUPAC_DNA",
+            "reference_sequence_source": "frozen_GRCh38_FASTA_interval",
+            "reference_sample_genotype_role": "audit_only",
+            "graph_link_overlap_contract": "0M",
         },
         "exclusion": {
             "policy": "any_compatible_graph_allele",
-            "require_reference_allele_length_match": True,
-            "require_graph_walk_sequence_length_match": True,
+            "size_source": (
+                "reconstructed_AWALK_length_minus_GRCh38_interval_length"
+            ),
+            "require_pure_ins_del_after_normalization": True,
+            "complex_allele_policy": "exclude_not_decompose",
             "require_deleted_sequence_reference_match": True,
             "fail_on_missing_graph_segment": True,
         },
@@ -132,9 +143,11 @@ def _load_profile(path: Path) -> dict[str, Any]:
     return value
 
 
-def _reference_allele(raw_sample: str) -> int:
+def _reference_allele(raw_sample: str) -> int | None:
     gt = raw_sample.split(":", 1)[0]
     alleles = re.split(r"[/|]", gt)
+    if alleles and all(allele == "." for allele in alleles):
+        return None
     if not alleles or any(not allele.isdigit() for allele in alleles):
         raise NovelTruthError("graph call has no reference-sample genotype")
     unique = {int(allele) for allele in alleles}
@@ -171,12 +184,8 @@ def load_graph_bubbles(path: Path) -> list[GraphBubble]:
             if len(lengths) != len(walks) or len(lengths) < 1:
                 raise NovelTruthError("graph call ALEN/AWALK cardinality differs")
             reference_allele = _reference_allele(fields[5])
-            if reference_allele >= len(lengths):
+            if reference_allele is not None and reference_allele >= len(lengths):
                 raise NovelTruthError("reference genotype exceeds graph allele count")
-            if lengths[reference_allele] != end - start:
-                raise NovelTruthError(
-                    "graph reference allele length differs from its BED interval"
-                )
             bubbles.append(
                 GraphBubble(
                     chrom=fields[0],
@@ -206,12 +215,23 @@ def load_graph_segments(gfa: Path, required: set[str]) -> dict[str, str]:
     segments: dict[str, str] = {}
     with open_text(gfa) as handle:
         for raw in handle:
+            if raw.startswith("L\t"):
+                fields = raw.rstrip("\n").split("\t")
+                if len(fields) < 6 or fields[5] != "0M":
+                    raise NovelTruthError(
+                        "graph contains a link outside the frozen 0M overlap contract"
+                    )
+                continue
             if not raw.startswith("S\t"):
                 continue
             fields = raw.rstrip("\n").split("\t", 3)
             if len(fields) >= 3 and fields[1] in required:
+                if fields[1] in segments:
+                    raise NovelTruthError(
+                        f"graph contains duplicate required segment: {fields[1]}"
+                    )
                 sequence = fields[2].upper()
-                if sequence == "*" or not DNA.fullmatch(sequence):
+                if sequence == "*" or not IUPAC_DNA.fullmatch(sequence):
                     raise NovelTruthError(
                         f"required graph segment has no resolved sequence: {fields[1]}"
                     )
@@ -224,7 +244,9 @@ def load_graph_segments(gfa: Path, required: set[str]) -> dict[str, str]:
 
 
 def _reverse_complement(sequence: str) -> str:
-    return sequence.translate(str.maketrans("ACGTN", "TGCAN"))[::-1]
+    return sequence.translate(
+        str.maketrans("ACGTRYSWKMBDHVN", "TGCAYRSWMKVHDBN")
+    )[::-1]
 
 
 def _walk_sequence(walk: str, segments: Mapping[str, str]) -> str:
@@ -236,18 +258,11 @@ def _walk_sequence(walk: str, segments: Mapping[str, str]) -> str:
 
 
 def _eligible_length_delta(
-    bubble: GraphBubble,
-    allele_index: int,
+    delta: int,
     evaluator_profile: Mapping[str, Any],
 ) -> bool:
-    """Pre-filter graph alleles without reconstructing their sequence."""
+    """Return whether an exact reconstructed length delta is in scope."""
 
-    if allele_index == bubble.reference_allele:
-        return False
-    delta = (
-        bubble.allele_lengths[allele_index]
-        - bubble.allele_lengths[bubble.reference_allele]
-    )
     universe = evaluator_profile["universe"]
     return (
         delta != 0
@@ -277,11 +292,19 @@ def _normalized_alleles(
         pos = 1
         ref = reference_sequence + anchor
         alt = alternate_sequence + anchor
-    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
-        ref, alt = ref[:-1], alt[:-1]
-    while len(ref) > 1 and len(alt) > 1 and ref[0] == alt[0]:
-        ref, alt, pos = ref[1:], alt[1:], pos + 1
-    return pos, ref, alt
+    suffix = 0
+    maximum_suffix = min(len(ref), len(alt)) - 1
+    while suffix < maximum_suffix and ref[-1 - suffix] == alt[-1 - suffix]:
+        suffix += 1
+    remaining_ref = len(ref) - suffix
+    remaining_alt = len(alt) - suffix
+    prefix = 0
+    maximum_prefix = min(remaining_ref, remaining_alt) - 1
+    while prefix < maximum_prefix and ref[prefix] == alt[prefix]:
+        prefix += 1
+    ref_end = len(ref) - suffix if suffix else len(ref)
+    alt_end = len(alt) - suffix if suffix else len(alt)
+    return pos + prefix, ref[prefix:ref_end], alt[prefix:alt_end]
 
 
 def graph_alleles(
@@ -290,26 +313,67 @@ def graph_alleles(
     segments: Mapping[str, str],
     reference: IndexedReference,
     evaluator_profile: dict[str, Any],
-) -> list[SvRecord]:
+) -> tuple[list[SvRecord], dict[str, int]]:
     records: list[SvRecord] = []
     seen: set[tuple[Any, ...]] = set()
+    audit = {
+        "bubbles": len(bubbles),
+        "alleles": sum(len(bubble.allele_walks) for bubble in bubbles),
+        "missing_reference_genotype_bubbles": 0,
+        "bubbles_with_exact_reference_path": 0,
+        "multiple_exact_reference_path_bubbles": 0,
+        "declared_reference_length_mismatches": 0,
+        "declared_reference_sequence_mismatches": 0,
+        "declared_allele_length_mismatches": 0,
+        "reference_interval_bubbles": 0,
+        "reference_identical_alleles": 0,
+        "out_of_universe_length_alleles": 0,
+        "in_scope_length_changing_alleles": 0,
+        "complex_alleles_excluded": 0,
+        "duplicate_pure_sv_alleles": 0,
+    }
     for bubble in bubbles:
         reference_sequence = reference.sequence(
             bubble.chrom, bubble.start, bubble.end
         )
-        for allele_index, (length, walk) in enumerate(
-            zip(bubble.allele_lengths, bubble.allele_walks, strict=True)
-        ):
-            if not _eligible_length_delta(
-                bubble, allele_index, evaluator_profile
-            ):
+        allele_sequences = tuple(
+            _walk_sequence(walk, segments) for walk in bubble.allele_walks
+        )
+        audit["declared_allele_length_mismatches"] += sum(
+            len(sequence) != declared
+            for sequence, declared in zip(
+                allele_sequences, bubble.allele_lengths, strict=True
+            )
+        )
+        exact_reference_paths = tuple(
+            index
+            for index, sequence in enumerate(allele_sequences)
+            if sequence == reference_sequence
+        )
+        if exact_reference_paths:
+            audit["bubbles_with_exact_reference_path"] += 1
+        if len(exact_reference_paths) > 1:
+            audit["multiple_exact_reference_path_bubbles"] += 1
+        if bubble.reference_allele is None:
+            audit["missing_reference_genotype_bubbles"] += 1
+        else:
+            audit["declared_reference_sequence_mismatches"] += (
+                allele_sequences[bubble.reference_allele] != reference_sequence
+            )
+            audit["declared_reference_length_mismatches"] += (
+                bubble.allele_lengths[bubble.reference_allele]
+                != len(reference_sequence)
+            )
+        audit["reference_interval_bubbles"] += 1
+        for allele_index, alternate_sequence in enumerate(allele_sequences):
+            if alternate_sequence == reference_sequence:
+                audit["reference_identical_alleles"] += 1
                 continue
-            alternate_sequence = _walk_sequence(walk, segments)
-            if len(alternate_sequence) != length:
-                raise NovelTruthError(
-                    "graph walk sequence length differs from declared ALEN"
-                )
-            delta = length - len(reference_sequence)
+            delta = len(alternate_sequence) - len(reference_sequence)
+            if not _eligible_length_delta(delta, evaluator_profile):
+                audit["out_of_universe_length_alleles"] += 1
+                continue
+            audit["in_scope_length_changing_alleles"] += 1
             svtype = "INS" if delta > 0 else "DEL"
             pos, ref, alt = _normalized_alleles(
                 chrom=bubble.chrom,
@@ -324,10 +388,11 @@ def graph_alleles(
             if not (is_pure_insertion or is_pure_deletion):
                 # A length-changing graph allele can also contain substitutions.
                 # It is outside this benchmark's pure INS/DEL truth contract.
+                audit["complex_alleles_excluded"] += 1
                 continue
             if len(alt) - len(ref) != delta:
                 raise NovelTruthError(
-                    "normalized graph allele length differs from declared ALEN"
+                    "normalized graph allele length differs from reconstructed AWALK"
                 )
             record = SvRecord(
                 record_id=(
@@ -346,12 +411,14 @@ def graph_alleles(
             if not record_shape_in_universe(record, evaluator_profile):
                 continue
             if record.stable_key in seen:
+                audit["duplicate_pure_sv_alleles"] += 1
                 continue
             seen.add(record.stable_key)
             records.append(record)
     if not records:
         raise NovelTruthError("graph contains no eligible resolved SV alleles")
-    return records
+    audit["eligible_unique_pure_sv_alleles"] = len(records)
+    return records, audit
 
 
 def _graph_index(
@@ -438,7 +505,7 @@ def materialize_plain_novel_truth(
             if raw.startswith("#CHROM"):
                 output.write(
                     "##pgbench_novel_truth=graph_exclusion:"
-                    "pgbench_minigraph_novel_truth_v1\n"
+                    "pgbench_minigraph_novel_truth_v2\n"
                 )
                 output.write(raw)
                 saw_columns = True
@@ -456,6 +523,24 @@ def materialize_plain_novel_truth(
                 written += 1
     if written != counts["novel_truth_records"]:
         raise NovelTruthError("novel truth output count differs from its audit")
+
+    materialized = load_vcf(output_vcf, prefix="novel_truth")
+    leakage_count = sum(
+        bool(
+            compatible_graph_matches(
+                truth,
+                graph_records,
+                graph_index,
+                evaluator_profile,
+            )
+        )
+        for truth in materialized
+    )
+    counts["known_truth_leakage_count"] = leakage_count
+    if leakage_count:
+        raise NovelTruthError(
+            "materialized novel truth retains a compatible graph allele"
+        )
 
     exclusion_ledger.parent.mkdir(parents=True, exist_ok=True)
     with exclusion_ledger.open("w", encoding="utf-8", newline="") as output:
@@ -542,13 +627,12 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     required_segments = {
         name
         for bubble in bubbles
-        for allele_index, walk in enumerate(bubble.allele_walks)
-        if _eligible_length_delta(bubble, allele_index, evaluator_profile)
+        for walk in bubble.allele_walks
         for _, name in _walk_parts(walk)
     }
     segments = load_graph_segments(args.graph_gfa, required_segments)
     reference = IndexedReference(args.reference, args.reference_index)
-    graph_records = graph_alleles(
+    graph_records, graph_reconstruction = graph_alleles(
         bubbles=bubbles,
         segments=segments,
         reference=reference,
@@ -580,10 +664,11 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         shutil.copyfile(Path(f"{staged}.tbi"), output_index)
         shutil.copyfile(staged_ledger, args.exclusion_ledger)
         audit = {
-            "schema_version": 1,
-            "contract": "pgbench_novel_truth_audit_v1",
+            "schema_version": 2,
+            "contract": "pgbench_novel_truth_audit_v2",
             "profile_id": profile["profile"]["id"],
             "counts": counts,
+            "graph_reconstruction": graph_reconstruction,
             "truth_vcf_sha256": sha256_file(args.truth_vcf),
             "reference_sha256": sha256_file(args.reference),
             "reference_index_sha256": sha256_file(args.reference_index),
@@ -595,7 +680,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
             "output_vcf_sha256": sha256_file(args.output_vcf),
             "output_index_sha256": sha256_file(output_index),
             "exclusion_ledger_sha256": sha256_file(args.exclusion_ledger),
-            "known_truth_leakage_count": 0,
+            "known_truth_leakage_count": counts["known_truth_leakage_count"],
         }
         args.audit_json.parent.mkdir(parents=True, exist_ok=True)
         temporary = args.audit_json.with_name(f".{args.audit_json.name}.tmp")

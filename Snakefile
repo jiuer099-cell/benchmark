@@ -272,7 +272,7 @@ for registration in config["external_plugins"]:
 TOOL_SETTINGS_BY_ID = {
     settings["tool_id"]: settings for settings in EXTERNAL_SETTINGS
 }
-NOVEL_TRUTH_PROFILE_ID = "pgbench_minigraph_novel_truth_v1"
+NOVEL_TRUTH_PROFILE_ID = "pgbench_minigraph_novel_truth_v2"
 NOVEL_TRUTH_VCF = (
     f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
     f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.sv.truth.vcf.gz"

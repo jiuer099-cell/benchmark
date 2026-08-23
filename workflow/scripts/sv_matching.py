@@ -10,11 +10,15 @@ import heapq
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, TextIO
 
 import yaml  # type: ignore[import-untyped]
+
+try:
+    import edlib  # type: ignore[import-not-found]
+except ImportError:  # Windows development hosts may lack a compiled wheel.
+    edlib = None  # type: ignore[assignment]
 
 from build_pangenome_manifest import default_variant_end, infer_svtype, parse_info
 
@@ -145,6 +149,12 @@ def load_evaluator_profile(path: Path) -> dict[str, Any]:
         value = float(match.get(key, -1))
         if not 0.0 <= value <= 1.0:
             raise SvMatchError(f"{key} must be in [0,1]")
+    if match.get("sequence_similarity_algorithm") != (
+        "truvari_v5.4.0_best_seqsim_edlib_1.3.9.post1"
+    ):
+        raise SvMatchError("sequence_similarity_algorithm is not frozen")
+    if match.get("sequence_roll_policy") != "enabled":
+        raise SvMatchError("sequence_roll_policy must be enabled")
     for evaluator, option in (
         ("truvari", "--sizemax"),
         ("vcfdist", "--largest-variant"),
@@ -168,6 +178,28 @@ def load_evaluator_profile(path: Path) -> dict[str, Any]:
             raise SvMatchError(
                 f"{evaluator}.extra_args must freeze {option} "
                 f"{maximum_sv_size}"
+            )
+    expected_evaluator_fingerprints = {
+        "truvari": (
+            "6587f29d09e453ae50a398c79804f127"
+            "a615e76563f4c179ff7ae45fe750fad4"
+        ),
+        "aardvark": (
+            "fb6fda42c6d7b8f3baabdf027e9bde9"
+            "5a0114798673f84e676b1eff9b4c5c2ac"
+        ),
+        "vcfdist": (
+            "714eb9f5def97655ca3cd6704c2f5dc1"
+            "46604b2066f872e8f0a81d1239978c53"
+        ),
+    }
+    for evaluator, expected_sha256 in expected_evaluator_fingerprints.items():
+        observed = loaded["evaluators"].get(evaluator)
+        if not isinstance(observed, dict):
+            raise SvMatchError(f"evaluator profile is missing {evaluator}")
+        if observed.get("expected_version_sha256") != expected_sha256:
+            raise SvMatchError(
+                f"{evaluator}.expected_version_sha256 is not frozen"
             )
     vcfdist_args = loaded["evaluators"]["vcfdist"]["extra_args"]
     for option, expected in (
@@ -357,25 +389,82 @@ def _resolved_sequence(record: SvRecord) -> str | None:
     if record.svtype == "INS":
         if len(alt) <= len(record.ref):
             return None
-        return alt[len(record.ref) :]
+        return alt
     if record.svtype == "DEL":
         if len(record.ref) <= len(alt):
             return None
-        return record.ref[len(alt) :]
+        return record.ref
     return alt
 
 
+def _edlib_sequence_similarity(left: str, right: str) -> float:
+    """Match Truvari 5.4.0's public seqsim implementation exactly."""
+
+    if edlib is None:
+        raise SvMatchError(
+            "edlib 1.3.9.post1 is required for formal sequence matching"
+        )
+    left = left.upper()
+    right = right.upper()
+    total_length = len(left) + len(right)
+    if total_length == 0:
+        return 1.0
+    result = edlib.align(left, right, mode="NW", task="distance")
+    edit_distance = result.get("editDistance")
+    if not isinstance(edit_distance, int) or edit_distance < 0:
+        raise SvMatchError("edlib could not calculate global edit distance")
+    return (total_length - edit_distance) / total_length
+
+
+def _smallest_rotation(sequence: str) -> str:
+    doubled = sequence + sequence
+    return min(
+        doubled[index : index + len(sequence)]
+        for index in range(len(sequence))
+    )
+
+
+def _unrolled_sequence_similarity(left: str, right: str, distance: int) -> float:
+    offset = distance % len(right)
+    unrolled = right[-offset:] + right[:-offset] if offset else right
+    return _edlib_sequence_similarity(left, unrolled)
+
+
+def _best_sequence_similarity(left: str, right: str, distance: int) -> float:
+    """Match Truvari 5.4.0 best_seqsim, including default sequence rolling."""
+
+    rolled = 0.0
+    if len(left) < 500 and len(right) < 500:
+        rolled = _edlib_sequence_similarity(
+            _smallest_rotation(left),
+            _smallest_rotation(right),
+        )
+    return max(
+        rolled,
+        _unrolled_sequence_similarity(left, right, distance),
+        _unrolled_sequence_similarity(left, right, -distance),
+        _unrolled_sequence_similarity(right, left, distance),
+        _unrolled_sequence_similarity(right, left, -distance),
+        _edlib_sequence_similarity(left, right),
+    )
+
+
 def _sequence_similarity(query: SvRecord, truth: SvRecord) -> float | None:
+    if query.ref == truth.ref and query.alt == truth.alt:
+        return 1.0
     query_sequence = _resolved_sequence(query)
     truth_sequence = _resolved_sequence(truth)
     if query_sequence is None or truth_sequence is None:
         return None
-    return SequenceMatcher(
-        None,
-        query_sequence.upper(),
-        truth_sequence.upper(),
-        autojunk=False,
-    ).ratio()
+    start_distance = query.pos - truth.pos
+    end_distance = query.end - truth.end
+    if start_distance == 0 or end_distance == 0:
+        return _edlib_sequence_similarity(query_sequence, truth_sequence)
+    return _best_sequence_similarity(
+        query_sequence,
+        truth_sequence,
+        start_distance,
+    )
 
 
 def compatibility(

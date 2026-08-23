@@ -23,6 +23,7 @@ from run_formal_evaluator import (  # noqa: E402
 from sv_matching import (  # noqa: E402
     SvRecord,
     SvMatchError,
+    compatibility,
     load_evaluator_profile,
     load_vcf,
     one_to_one_match,
@@ -72,6 +73,36 @@ def test_matching_rejects_wrong_svtype_even_inside_tolerance() -> None:
     truth = [record("T1", pos=1000, end=1100)]
     query = [record("Q1", pos=1000, end=1100, svtype="INS", svlen=100)]
     assert one_to_one_match(query, truth, profile) == {}
+
+
+def test_sequence_similarity_matches_truvari_5_4_edlib_contract() -> None:
+    pytest.importorskip("edlib")
+    profile = load_evaluator_profile(ROOT / "config" / "evaluator_profile.yaml")
+    query = SvRecord(
+        "Q",
+        "chr1",
+        100,
+        100,
+        "INS",
+        50,
+        "A",
+        "A" + "G" * 50,
+        "0/1",
+    )
+    truth = SvRecord(
+        "T",
+        "chr1",
+        100,
+        100,
+        "INS",
+        50,
+        "A",
+        "A" + "G" * 47 + "CCC",
+        "0/1",
+    )
+    match = compatibility(query, truth, profile)
+    assert match is not None
+    assert match.sequence_similarity == pytest.approx(99 / 102)
 
 
 def test_global_matching_maximizes_cardinality_before_edge_score() -> None:
@@ -276,6 +307,17 @@ def test_profile_rejects_evaluator_size_flag_drift(tmp_path: Path) -> None:
     profile.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(SvMatchError, match="extra_args must freeze"):
+        load_evaluator_profile(profile)
+
+
+def test_profile_rejects_evaluator_fingerprint_drift(tmp_path: Path) -> None:
+    source = ROOT / "config" / "evaluator_profile.yaml"
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    payload["evaluators"]["truvari"]["expected_version_sha256"] = "0" * 64
+    profile = tmp_path / "drifted-evaluator-fingerprint.yaml"
+    profile.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(SvMatchError, match="expected_version_sha256"):
         load_evaluator_profile(profile)
 
 
