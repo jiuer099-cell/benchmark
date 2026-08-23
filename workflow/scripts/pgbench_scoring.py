@@ -336,8 +336,12 @@ def calculate_pgbench_score(
         score_profile_sha256=profile["_sha256"],
         evaluation_mode=evaluation_mode,
         score_status=score_status,
-        pgbench_score=(round(panel_score, decimals) if panel_score is not None else comparable_score),
-        pgbench_score_raw=(panel_score if panel_score is not None else comparable_raw),
+        # One primary definition is used for every tool contract: the mean of
+        # the three frozen evaluators' binary detection votes.  Panel GT and
+        # fixed-universe recovery remain explicit secondary diagnostics; they
+        # are not silently substituted into the primary score.
+        pgbench_score=consensus_score,
+        pgbench_score_raw=consensus_raw,
         consensus_score=consensus_score,
         comparable_score=comparable_score,
         comparable_score_raw=comparable_raw,

@@ -486,6 +486,7 @@ def _validate_metrics_records(
             raise FinalScoreSealError(
                 "score ComparableScore does not match the fixed-universe formula"
             )
+        consensus_raw = vote_points / (3.0 * total) * 100.0 if total else 0.0
         analysis = score.get("formal_analysis")
         panel_score = (
             analysis.get("pangenome_genotyping_score")
@@ -498,25 +499,24 @@ def _validate_metrics_records(
             else None
         )
         # Discovery-only adapters submit variant sites, not genotype calls.
-        # Their formal primary score is the global detection-recovery score;
-        # a zero panel macro-F1 is a non-applicable diagnostic, not evidence
-        # that the sealed primary score is inconsistent.
+        # A zero panel macro-F1 is therefore non-applicable, but the universal
+        # primary score is still the same equal-vote evaluator consensus used
+        # for every other tool contract.
         if (
             isinstance(candidate_summary, Mapping)
             and candidate_summary.get("candidate_output_contract")
             == "variant_sites"
         ):
             panel_score = None
-        expected_primary = panel_score if panel_score is not None else comparable_raw
         if (
-            score.get("pgbench_score_raw") != expected_primary
+            score.get("pgbench_score_raw") != consensus_raw
             or score.get("pangenome_genotyping_score")
             != (round(float(panel_score), 2) if panel_score is not None else None)
             or score.get("global_end_to_end_sv_recovery_score")
             != score.get("comparable_score")
         ):
             raise FinalScoreSealError(
-                "primary score does not match panel macro-F1 or its global fallback"
+                "primary score does not match equal-vote evaluator consensus"
             )
         return
 

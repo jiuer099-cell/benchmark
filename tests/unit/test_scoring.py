@@ -55,7 +55,7 @@ def test_equal_vote_consensus_formula_and_counts() -> None:
     assert result.total_evaluated == 100
     assert result.consensus_score == round(230 / 300 * 100, 2)
     assert result.comparable_score == round(2 * (230 / 3) / 200 * 100, 2)
-    assert result.pgbench_score == result.comparable_score
+    assert result.pgbench_score == result.consensus_score
     assert result.truth_eligible_count == 100
     assert result.comparable_precision == 230 / 3 / 100
     assert result.comparable_recall == 230 / 3 / 100
@@ -65,7 +65,7 @@ def test_equal_vote_consensus_formula_and_counts() -> None:
     assert result.resource_points is None
 
 
-def test_panel_macro_f1_is_primary_and_global_recovery_remains_secondary() -> None:
+def test_panel_macro_f1_and_global_recovery_are_secondary() -> None:
     payload = _payload()
     global_score = 2 * (230 / 3) / 200 * 100
     payload["analysis"] = {
@@ -77,14 +77,14 @@ def test_panel_macro_f1_is_primary_and_global_recovery_remains_secondary() -> No
 
     result = _calculate(payload)
 
-    assert result.pgbench_score == 86.10
+    assert result.pgbench_score == result.consensus_score
     assert result.pangenome_genotyping_score == 86.10
     assert result.non_reference_f1_score == 84.48
     assert result.panel_coverage == 0.0626
     assert result.global_end_to_end_sv_recovery_score == result.comparable_score
 
 
-def test_variant_sites_contract_uses_detection_score_not_no_call_genotype_zero() -> None:
+def test_variant_sites_contract_uses_universal_consensus_not_no_call_gt_zero() -> None:
     payload = _payload()
     global_score = 2 * (230 / 3) / 200 * 100
     payload["analysis"] = {
@@ -97,7 +97,7 @@ def test_variant_sites_contract_uses_detection_score_not_no_call_genotype_zero()
 
     result = _calculate(payload)
 
-    assert result.pgbench_score == round(global_score, 2)
+    assert result.pgbench_score == result.consensus_score
     assert result.pangenome_genotyping_score is None
 
 

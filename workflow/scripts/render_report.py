@@ -245,6 +245,7 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256",
         "evaluation_mode",
         "score_status",
+        "PGBenchConsensusScore",
         "PangenomeGenotypingScore",
         "NonReferenceF1",
         "PanelCoverage",
@@ -268,6 +269,7 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_profile_sha256": score["score_profile_sha256"],
         "evaluation_mode": score["evaluation_mode"],
         "score_status": score["score_status"],
+        "PGBenchConsensusScore": score.get("pgbench_score"),
         "PangenomeGenotypingScore": score.get("pangenome_genotyping_score"),
         "NonReferenceF1": score.get("non_reference_f1_score"),
         "PanelCoverage": score.get("panel_coverage"),
@@ -308,7 +310,12 @@ def _write_breakdown_tsv(path: Path, score: Mapping[str, Any]) -> None:
 
 def _html(score: Mapping[str, Any]) -> str:
     tuple_key = score["tuple_key"]
-    primary_value = (
+    pgbench_value = (
+        "not available"
+        if score.get("pgbench_score") is None
+        else f"{float(score['pgbench_score']):.2f}"
+    )
+    panel_value = (
         "not available"
         if score.get("pangenome_genotyping_score") is None
         else f"{float(score['pangenome_genotyping_score']):.2f}"
@@ -476,9 +483,9 @@ def _html(score: Mapping[str, Any]) -> str:
 </head>
 <body>
   <h1>PGBench 泛基因组结构变异工具得分卡</h1>
-  <p class="notice">ComparableScore 使用相同 HG002、GRCh38、GIAB truth 和
-  benchmark BED。每个 truth 事件最多只记一次；检测、基因型与 no-call
-  分开报告。综合分只使用三套冻结评测器的检测判断，不使用资源权重，也不生成排名。</p>
+  <p class="notice">PGBench Consensus Score 对所有工具采用同一公式：三套冻结
+  评测器各投一张等权的检测票。每个 truth 事件最多只记一次；全基因组召回、
+  基因型与 no-call 分开报告，不使用资源权重，也不生成排名。</p>
   <dl>
     <dt>Run</dt><dd>{escape(str(tuple_key["run_id"]))}</dd>
     <dt>Sample</dt><dd>{escape(str(tuple_key["sample"]))}</dd>
@@ -488,9 +495,12 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
-  <p class="score">Pangenome Genotyping Score: {primary_value} / 100</p>
-  <p>This primary score is genotype macro-F1 on the frozen, blinded panel
-  candidate universe. No-call genotypes count as incorrect.</p>
+  <p class="score">PGBench Consensus Score: {pgbench_value} / 100</p>
+  <p>This universal primary score is the mean of three frozen evaluators'
+  binary detection votes on submitted in-scope events.</p>
+  <p><strong>Pangenome Genotyping Score:</strong> {panel_value} / 100.
+  This secondary score is genotype macro-F1 on the frozen blinded panel;
+  it is not applicable to discovery-only output contracts.</p>
   <p><strong>Non-reference F1:</strong> {nonref_value} / 100;
   <strong>Panel coverage:</strong> {panel_coverage_text};
   <strong>No-call:</strong> {no_call_count}.</p>

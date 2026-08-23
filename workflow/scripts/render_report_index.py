@@ -80,6 +80,7 @@ def render_index(
             f"<td>{escape(str(manifest.get('paradigm', 'unknown')))}</td>"
             f"<td>{escape(', '.join(map(str, technologies)))}</td>"
             f"<td>{escape(str(tuple_key.get('official_score_mode', '')))}</td>"
+            f"<td>{_score_value(score, 'pgbench_score')}</td>"
             f"<td>{_score_value(score, 'pangenome_genotyping_score')}</td>"
             f"<td>{_score_value(score, 'non_reference_f1_score')}</td>"
             f"<td>{_score_value(score, 'panel_coverage')}</td>"
@@ -101,12 +102,12 @@ th { background: #eef2ff; }
 .notice { border-left: 4px solid #536dfe; background: #f3f5ff; padding: .8rem; }
 </style></head><body>
 <h1>PGBench 泛基因组结构变异工具比较</h1>
-<p class="notice">ComparableScore 在固定 HG002/GRCh38/GIAB truth universe
-上同时惩罚 FP 与 FN。跨长短读长时，该分数比较完整 pipeline 的实际效果；
-同一测序轨道内的比较才代表更严格的算法公平性。资源消耗不参与得分。</p>
+<p class="notice">PGBench Consensus Score 是所有工具统一的主分，三套冻结评测器
+各投一张等权检测票。Global End-to-End SV Recovery 在固定 truth universe 上
+同时惩罚 FP 与 FN，作为完整 pipeline 的独立召回诊断。资源消耗不参与得分。</p>
 <table><thead><tr>
 <th>工具</th><th>范式</th><th>测序技术</th><th>运行轨道</th>
-<th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
+<th>PGBench Consensus Score</th><th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
 <th>Panel coverage (fraction)</th><th>Global End-to-End SV Recovery</th>
 <th>ConsensusScore</th>
 <th>Truth 数量</th><th>输出数量</th><th>状态</th>
