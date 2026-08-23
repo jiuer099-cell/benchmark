@@ -190,21 +190,12 @@ properties:
         type: object
         minProperties: 1
         additionalProperties:
-          oneOf:
-            - type: string
-            - type: integer
-            - type: number
-            - type: boolean
+          type: [string, number, boolean]
       implicit:
         type: object
         minProperties: 1
         additionalProperties:
-          oneOf:
-            - type: string
-            - type: integer
-            - type: number
-            - type: boolean
-            - type: "null"
+          type: [string, number, boolean, "null"]
   supported_modes:
     type: object
     minProperties: 1

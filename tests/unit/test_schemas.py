@@ -42,6 +42,14 @@ def _assert_invalid(schema_path: Path, instance: dict) -> None:
     assert list(_validator(schema_path).iter_errors(instance))
 
 
+def test_all_registered_tool_manifests_match_schema() -> None:
+    schema = SCHEMAS / "tool.schema.yaml"
+    manifests = sorted((ROOT / "plugins").glob("*/tool.yaml"))
+    assert manifests
+    for path in manifests:
+        _assert_valid(schema, _load_yaml(path))
+
+
 def _valid_tool_manifest() -> dict:
     return {
         "interface_version": 1,
