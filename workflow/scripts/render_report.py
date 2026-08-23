@@ -477,6 +477,22 @@ def _html(score: Mapping[str, Any]) -> str:
             for name, values in sorted(native.items())
             if isinstance(values, Mapping)
         )
+    comparison_track = analysis.get("comparison_track")
+    comparison_track_id = (
+        comparison_track.get("id", "not available")
+        if isinstance(comparison_track, Mapping)
+        else "not available"
+    )
+    asset_hashes = analysis.get("asset_hashes")
+    asset_rows = ""
+    if isinstance(asset_hashes, Mapping):
+        asset_rows = "\n".join(
+            "<tr>"
+            f"<td>{escape(str(name))}</td>"
+            f"<td><code>{escape(str(value))}</code></td>"
+            "</tr>"
+            for name, value in sorted(asset_hashes.items())
+        )
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -501,6 +517,10 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Tool</dt><dd>{escape(str(tuple_key["tool"]))}</dd>
     <dt>Official mode</dt><dd>{escape(str(tuple_key["official_score_mode"]))}</dd>
     <dt>Truth profile</dt><dd>{escape(str(tuple_key["primary_truth_profile"]))}</dd>
+    <dt>Score profile</dt><dd>{escape(str(score.get("score_profile", "not available")))}</dd>
+    <dt>Score profile hash</dt><dd><code>{escape(str(score.get("score_profile_sha256", "not available")))}</code></dd>
+    <dt>Comparison track</dt><dd>{escape(str(comparison_track_id))}</dd>
+    <dt>Comparison track hash</dt><dd><code>{escape(str(analysis.get("comparison_track_sha256", "not available")))}</code></dd>
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
@@ -558,6 +578,11 @@ def _html(score: Mapping[str, Any]) -> str:
   </table>
   <h2>资源测量</h2>
   <p>{resource_text}</p>
+  <h2>冻结 benchmark 资源身份</h2>
+  <table>
+    <thead><tr><th>Asset</th><th>SHA-256 / null</th></tr></thead>
+    <tbody>{asset_rows}</tbody>
+  </table>
   <p>Evaluator profile: {escape(str(analysis.get("evaluator_profile_id", "not available")))};
   hash: <code>{escape(str(analysis.get("evaluator_profile_sha256", "not available")))}</code>.</p>
 </body>

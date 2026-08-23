@@ -4,6 +4,7 @@ name: SVarp external long-read pangenome SV discovery
 version: 1.2.0
 source: external
 paradigm: discovery_integration
+comparison_task: novel_pangenome_discovery
 
 tasks: [prepare_assets, mapping, discovery, assembly, postprocess]
 

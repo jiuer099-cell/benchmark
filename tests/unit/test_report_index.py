@@ -192,3 +192,28 @@ def test_render_index_uses_filename_order_not_score_order() -> None:
     html = render_index([Path("z_tool.html"), Path("a_tool.html")])
     assert html.index("a_tool") < html.index("z_tool")
     assert "no ranking" in html
+
+
+def test_render_index_displays_comparison_track_and_actual_technology() -> None:
+    score = _score()
+    score["formal_analysis"] = {
+        "evidence_profile": {"actual_technology": "hifi"},
+        "comparison_track": {"id": "panel-genotyping-hifi-track"},
+        "comparison_track_sha256": "c" * 64,
+    }
+    html = render_index(
+        [Path("tool_a.html")],
+        [score],
+        [
+            {
+                "id": "tool_a",
+                "paradigm": "graph",
+                "capabilities": {"technology": ["short_read"]},
+            }
+        ],
+    )
+    assert "panel-genotyping-hifi-track" in html
+    assert "c" * 64 in html
+    assert ">hifi<" in html
+    assert "short_read" not in html
+    assert "不生成跨轨道排名" in html

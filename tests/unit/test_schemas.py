@@ -50,6 +50,7 @@ def _valid_tool_manifest() -> dict:
         "version": "0.1.0",
         "source": "external",
         "paradigm": "genotyping_only",
+        "comparison_task": "panel_genotyping",
         "tasks": ["genotyping", "postprocess"],
         "inputs": {
             "reads": "bam",

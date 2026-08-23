@@ -36,6 +36,11 @@ class ConsensusMetricError(ValueError):
 
 
 EVALUATORS = ("truvari", "aardvark", "vcfdist")
+COMPARISON_TASKS = {
+    "panel_genotyping",
+    "wg_discovery",
+    "novel_pangenome_discovery",
+}
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EXTENDED_FIELDS = {
     "scope_eligible",
@@ -103,6 +108,101 @@ def semantic_asset_hash(
         ensure_ascii=False,
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def comparison_track_contract(
+    *,
+    tool_manifest: Path,
+    official_score_mode: str,
+    primary_truth_profile: str,
+    score_profile: Path,
+    evaluator_profile_sha256: str,
+    asset_hashes: dict[str, str | None],
+    evidence: dict[str, Any] | None,
+) -> tuple[dict[str, Any], str]:
+    """Freeze the complete boundary that makes formal results comparable."""
+
+    try:
+        manifest = yaml.safe_load(tool_manifest.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ConsensusMetricError(
+            f"cannot load comparison contract from {tool_manifest}"
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ConsensusMetricError("tool manifest must be a mapping")
+    task = manifest.get("comparison_task")
+    if task not in COMPARISON_TASKS:
+        raise ConsensusMetricError(
+            "tool manifest comparison_task must declare one supported task"
+        )
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, dict):
+        raise ConsensusMetricError("tool manifest has no outputs contract")
+    candidate_contract = outputs.get("candidate_output_contract")
+    if candidate_contract not in {"all_sites", "variant_sites"}:
+        raise ConsensusMetricError("invalid candidate_output_contract")
+    expected_contract = (
+        "all_sites" if task == "panel_genotyping" else "variant_sites"
+    )
+    if candidate_contract != expected_contract:
+        raise ConsensusMetricError(
+            f"comparison task {task} requires {expected_contract} output"
+        )
+    if not isinstance(evidence, dict):
+        raise ConsensusMetricError(
+            "formal comparison track requires a frozen evidence profile"
+        )
+    if evidence.get("official_score_mode") != official_score_mode:
+        raise ConsensusMetricError(
+            "evidence profile official mode differs from the score mode"
+        )
+    actual_technology = evidence.get("actual_technology")
+    input_evidence_sha256 = evidence.get("resolved_inputs_sha256")
+    if not isinstance(actual_technology, str) or not actual_technology:
+        raise ConsensusMetricError(
+            "comparison track requires actual sequencing technology"
+        )
+    if (
+        not isinstance(input_evidence_sha256, str)
+        or len(input_evidence_sha256) != 64
+    ):
+        raise ConsensusMetricError(
+            "comparison track requires resolved input evidence SHA-256"
+        )
+
+    boundaries = {
+        "contract": "pgbench_comparison_track_v1",
+        "task": task,
+        "official_score_mode": official_score_mode,
+        "candidate_output_contract": candidate_contract,
+        "actual_technology": actual_technology,
+        "primary_truth_profile": primary_truth_profile,
+        "score_profile_sha256": sha256_file(score_profile),
+        "evaluator_profile_sha256": evaluator_profile_sha256,
+        "reference_sha256": asset_hashes["reference"],
+        "truth_vcf_sha256": asset_hashes["truth_vcf"],
+        "benchmark_bed_sha256": asset_hashes["benchmark_bed"],
+        "pangenome_manifest_sha256": asset_hashes["pangenome_manifest"],
+        "candidate_universe_sha256": asset_hashes[
+            "challenge_hidden_ledger"
+        ],
+        "input_evidence_sha256": input_evidence_sha256,
+    }
+    canonical = json.dumps(
+        boundaries,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    track = {
+        "id": (
+            f"{task}.{official_score_mode}.{actual_technology}."
+            f"{candidate_contract}.{digest[:12]}"
+        ),
+        **boundaries,
+    }
+    return track, digest
 
 
 def load_benchmark_regions(path: Path) -> dict[str, tuple[list[int], list[int]]]:
@@ -1436,6 +1536,19 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         if getattr(args, "resolved_inputs", None) is not None
         else None
     )
+    if extended:
+        comparison_track, comparison_track_sha256 = comparison_track_contract(
+            tool_manifest=args.tool_manifest,
+            official_score_mode=args.official_score_mode,
+            primary_truth_profile=args.primary_truth_profile,
+            score_profile=args.score_profile,
+            evaluator_profile_sha256=evaluator_profile["_sha256"],
+            asset_hashes=asset_hashes,
+            evidence=frozen_evidence,
+        )
+    else:
+        comparison_track = None
+        comparison_track_sha256 = None
     return {
         "schema_version": 1,
         "dictionary_id": "pgbench_metrics_v1",
@@ -1457,6 +1570,8 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "evaluator_native_metrics": evaluator_native_metrics,
             "asset_hashes": asset_hashes,
             "evidence_profile": frozen_evidence,
+            "comparison_track": comparison_track,
+            "comparison_track_sha256": comparison_track_sha256,
             "universe": evaluator_profile["universe"],
             "matching": {
                 "algorithm": (

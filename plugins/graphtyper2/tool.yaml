@@ -4,6 +4,7 @@ name: GraphTyper2 external short-read SV genotyper
 version: 2.7.7
 source: external
 paradigm: short_read_pangenome_genotyping
+comparison_task: panel_genotyping
 
 tasks: [mapping, prepare_assets, genotyping, postprocess]
 

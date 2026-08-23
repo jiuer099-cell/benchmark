@@ -4,6 +4,7 @@ name: Varigraph external short-read pangenome SV genotyper
 version: 1.0.8
 source: external
 paradigm: short_read_pangenome_genotyping
+comparison_task: panel_genotyping
 
 tasks: [prepare_assets, genotyping, postprocess]
 

@@ -4,6 +4,7 @@ name: KanPIG long-read SV genotyper
 version: 2.0.2
 source: external
 paradigm: genotyping_only
+comparison_task: panel_genotyping
 
 tasks:
   - genotyping

@@ -4,6 +4,7 @@ name: vg Giraffe short-read pangenome SV calling
 version: "2"
 source: external
 paradigm: graph_pangenome
+comparison_task: wg_discovery
 
 tasks: [mapping, calling, postprocess]
 

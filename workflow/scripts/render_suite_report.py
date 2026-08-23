@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -203,6 +204,124 @@ def _evidence_contract(score: Mapping) -> tuple | None:
     return observed[0]
 
 
+def _comparison_track_contract(
+    score: Mapping,
+) -> tuple[str, str, str, str, str, str] | None:
+    observed: list[tuple[str, str, str, str, str, str]] = []
+    for field, analysis in _formal_analysis(score):
+        track = analysis.get("comparison_track")
+        digest = analysis.get("comparison_track_sha256")
+        if track is None and digest is None:
+            continue
+        if not isinstance(track, Mapping):
+            raise SuiteReportError(f"{field}.comparison_track must be a mapping")
+        if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+            raise SuiteReportError(
+                f"{field}.comparison_track_sha256 must be a SHA-256"
+            )
+        required = {
+            "id",
+            "contract",
+            "task",
+            "official_score_mode",
+            "candidate_output_contract",
+            "actual_technology",
+            "primary_truth_profile",
+            "score_profile_sha256",
+            "evaluator_profile_sha256",
+            "reference_sha256",
+            "truth_vcf_sha256",
+            "benchmark_bed_sha256",
+            "pangenome_manifest_sha256",
+            "candidate_universe_sha256",
+            "input_evidence_sha256",
+        }
+        if set(track) != required:
+            raise SuiteReportError(
+                f"{field}.comparison_track does not contain the exact boundary fields"
+            )
+        if track["contract"] != "pgbench_comparison_track_v1":
+            raise SuiteReportError(f"{field}.comparison_track.contract is invalid")
+        for key in required:
+            if key.endswith("_sha256"):
+                value = track[key]
+                if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+                    raise SuiteReportError(
+                        f"{field}.comparison_track.{key} is not a SHA-256"
+                    )
+        tuple_key = score.get("tuple_key")
+        assets = analysis.get("asset_hashes")
+        evidence = analysis.get("evidence_profile")
+        if not isinstance(tuple_key, Mapping):
+            raise SuiteReportError("score is missing tuple_key")
+        if not isinstance(assets, Mapping) or not isinstance(evidence, Mapping):
+            raise SuiteReportError(
+                f"{field}.comparison_track requires asset and evidence contracts"
+            )
+        evaluator_hash = analysis.get(
+            "evaluator_profile_sha256",
+            analysis.get("evaluator_profile_hash"),
+        )
+        expected_bindings = {
+            "official_score_mode": tuple_key.get("official_score_mode"),
+            "primary_truth_profile": tuple_key.get("primary_truth_profile"),
+            "score_profile_sha256": score.get("score_profile_sha256"),
+            "evaluator_profile_sha256": evaluator_hash,
+            "reference_sha256": assets.get("reference"),
+            "truth_vcf_sha256": assets.get("truth_vcf"),
+            "benchmark_bed_sha256": assets.get("benchmark_bed"),
+            "pangenome_manifest_sha256": assets.get("pangenome_manifest"),
+            "candidate_universe_sha256": assets.get(
+                "challenge_hidden_ledger"
+            ),
+            "input_evidence_sha256": evidence.get("resolved_inputs_sha256"),
+            "actual_technology": evidence.get("actual_technology"),
+        }
+        for key, expected in expected_bindings.items():
+            if track[key] != expected:
+                raise SuiteReportError(
+                    f"{field}.comparison_track.{key} differs from score evidence"
+                )
+        boundaries = {key: track[key] for key in sorted(required - {"id"})}
+        calculated = hashlib.sha256(
+            json.dumps(
+                boundaries,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        if calculated != digest:
+            raise SuiteReportError(
+                f"{field}.comparison_track_sha256 does not match its boundaries"
+            )
+        track_id = track["id"]
+        task = track["task"]
+        if not isinstance(track_id, str) or not track_id:
+            raise SuiteReportError(f"{field}.comparison_track.id is invalid")
+        if task not in {
+            "panel_genotyping",
+            "wg_discovery",
+            "novel_pangenome_discovery",
+        }:
+            raise SuiteReportError(f"{field}.comparison_track.task is invalid")
+        observed.append(
+            (
+                digest,
+                track_id,
+                str(task),
+                str(track["official_score_mode"]),
+                str(track["candidate_output_contract"]),
+                str(track["actual_technology"]),
+            )
+        )
+    if not observed:
+        return None
+    if len(set(observed)) != 1:
+        raise SuiteReportError("score contains conflicting comparison tracks")
+    return observed[0]
+
+
 def _require_uniform_optional_contract(
     values: Sequence[object | None],
     *,
@@ -217,6 +336,20 @@ def _require_uniform_optional_contract(
         raise SuiteReportError(mismatch_message)
 
 
+def _candidate_output_contract(manifest: Mapping) -> str | None:
+    outputs = manifest.get("outputs")
+    if outputs is None:
+        return None
+    if not isinstance(outputs, Mapping):
+        raise SuiteReportError("tool manifest outputs must be a mapping")
+    contract = outputs.get("candidate_output_contract")
+    if contract not in {"all_sites", "variant_sites"}:
+        raise SuiteReportError(
+            "tool manifest outputs.candidate_output_contract must be all_sites or variant_sites"
+        )
+    return str(contract)
+
+
 def render_suite(entries: Sequence[tuple[Mapping, Mapping]]) -> str:
     if not entries:
         raise SuiteReportError("at least one suite entry is required")
@@ -226,6 +359,48 @@ def render_suite(entries: Sequence[tuple[Mapping, Mapping]]) -> str:
         first_tuple["sample"],
         first_tuple["primary_truth_profile"],
         first_score["score_profile_sha256"],
+    )
+    score_statuses = [score.get("score_status") for score, _ in entries]
+    if any(status != "valid" for status in score_statuses):
+        raise SuiteReportError("suite accepts only score_status=valid results")
+    score_modes = [
+        score.get("tuple_key", {}).get("official_score_mode")
+        if isinstance(score.get("tuple_key"), Mapping)
+        else None
+        for score, _ in entries
+    ]
+    if any(
+        mode not in {"caller_only_shared_alignment", "end_to_end_from_reads"}
+        for mode in score_modes
+    ):
+        raise SuiteReportError("suite scores must declare a supported official score mode")
+    if len(set(score_modes)) != 1:
+        raise SuiteReportError(
+            "suite scores must share one execution mode; caller-only and end-to-end runs are separate tracks"
+        )
+    output_contracts = [
+        _candidate_output_contract(manifest) for _, manifest in entries
+    ]
+    _require_uniform_optional_contract(
+        output_contracts,
+        missing_message=(
+            "suite cannot mix manifests with and without a candidate output contract"
+        ),
+        mismatch_message=(
+            "suite scores must share one candidate output contract; all-sites genotyping and variant-sites discovery are separate tracks"
+        ),
+    )
+    comparison_tracks = [
+        _comparison_track_contract(score) for score, _ in entries
+    ]
+    _require_uniform_optional_contract(
+        comparison_tracks,
+        missing_message=(
+            "suite cannot mix scores with and without a comparison track"
+        ),
+        mismatch_message=(
+            "suite scores must share one comparison track boundary hash"
+        ),
     )
 
     evaluator_hashes = [_evaluator_profile_hash(score) for score, _ in entries]
@@ -272,6 +447,15 @@ def render_suite(entries: Sequence[tuple[Mapping, Mapping]]) -> str:
         raise SuiteReportError(
             "suite cannot mix scores with and without evidence profiles"
         )
+    _require_uniform_optional_contract(
+        [evidence[1] if evidence is not None else None for evidence in evidence_contracts],
+        missing_message=(
+            "suite cannot mix scores with and without actual sequencing technology evidence"
+        ),
+        mismatch_message=(
+            "suite scores must share one actual sequencing technology; cross-technology runs are separate tracks"
+        ),
+    )
 
     graph_contracts: dict[tuple[object, object], str | None] = {}
     evidence_by_technology_and_mode: dict[tuple[object, object], tuple] = {}
@@ -302,7 +486,25 @@ def render_suite(entries: Sequence[tuple[Mapping, Mapping]]) -> str:
                 )
 
         evidence = evidence_contracts[index]
+        comparison_track = comparison_tracks[index]
+        if comparison_track is not None:
+            if manifest.get("comparison_task") != comparison_track[2]:
+                raise SuiteReportError(
+                    "tool manifest comparison task differs from the score track"
+                )
+            if output_contracts[index] != comparison_track[4]:
+                raise SuiteReportError(
+                    "tool manifest output contract differs from the score track"
+                )
+            if tuple_key.get("official_score_mode") != comparison_track[3]:
+                raise SuiteReportError(
+                    "score mode differs from the comparison track"
+                )
         if evidence is not None:
+            if comparison_track is not None and evidence[1] != comparison_track[5]:
+                raise SuiteReportError(
+                    "actual sequencing technology differs from the score track"
+                )
             evidence_key = (evidence[1], evidence[5])
             previous_evidence = evidence_by_technology_and_mode.setdefault(
                 evidence_key, evidence
@@ -351,6 +553,13 @@ def render_suite(entries: Sequence[tuple[Mapping, Mapping]]) -> str:
         if evaluator_hashes[0] is not None
         else "这些旧式或合成结果未声明正式评测器 profile。"
     )
+    track_notice = (
+        " Comparison track："
+        f"<code>{escape(comparison_tracks[0][1])}</code>；边界 hash："
+        f"<code>{escape(comparison_tracks[0][0])}</code>。"
+        if comparison_tracks[0] is not None
+        else " 这些旧式结果未声明 comparison track，不能与正式结果混合。"
+    )
     return """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <title>PGBench unified pangenome SV report</title>
@@ -362,9 +571,9 @@ th { background: #eef2ff; }
 .notice { border-left: 4px solid #536dfe; background: #f3f5ff; padding: .8rem; }
 </style></head><body>
 <h1>HG002/GRCh38 泛基因组结构变异综合比较</h1>
-<p class="notice">所有分数使用同一样本、truth profile 和冻结评分合同。""" + evaluator_notice + """
-ComparableScore 比较完整 pipeline 的实际检测结果；跨测序技术的差异同时包含
-测序证据与算法影响，因此必须结合“实际测序证据”和“工具范式”解释。</p>
+<p class="notice">所有分数使用同一样本、truth profile 和冻结评分合同。""" + evaluator_notice + track_notice + """
+正式 suite 仅聚合相同任务、运行模式、实际测序技术、候选 universe、输入证据和
+profile/resource hash 的结果；不同轨道必须生成独立报告。</p>
 <table><thead><tr><th>工具</th><th>范式</th><th>实际测序技术</th><th>冻结输入证据</th><th>评分模式</th>
 <th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
 <th>Panel coverage</th><th>Global End-to-End SV Recovery</th>

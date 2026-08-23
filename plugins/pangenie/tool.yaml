@@ -4,6 +4,7 @@ name: PanGenie short-read pangenome genotyper
 version: 4.2.1
 source: external
 paradigm: short_read_pangenome_genotyping
+comparison_task: panel_genotyping
 
 tasks: [prepare_assets, index, genotyping, postprocess]
 

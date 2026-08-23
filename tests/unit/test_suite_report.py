@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -33,7 +35,9 @@ def _manifest(tool: str, paradigm: str, technology: str) -> dict:
     return {
         "id": tool,
         "paradigm": paradigm,
+        "comparison_task": "panel_genotyping",
         "capabilities": {"technology": [technology]},
+        "outputs": {"candidate_output_contract": "all_sites"},
     }
 
 
@@ -111,6 +115,49 @@ def _with_evidence(
     return score
 
 
+def _with_comparison_track(score: dict) -> dict:
+    if "formal_analysis" not in score:
+        _with_evaluator_profile(score)
+    if "evidence_profile" not in score["formal_analysis"]:
+        _with_evidence(score)
+    analysis = score["formal_analysis"]
+    assets = analysis["asset_hashes"]
+    evidence = analysis["evidence_profile"]
+    boundaries = {
+        "contract": "pgbench_comparison_track_v1",
+        "task": "panel_genotyping",
+        "official_score_mode": score["tuple_key"]["official_score_mode"],
+        "candidate_output_contract": "all_sites",
+        "actual_technology": evidence["actual_technology"],
+        "primary_truth_profile": score["tuple_key"]["primary_truth_profile"],
+        "score_profile_sha256": score["score_profile_sha256"],
+        "evaluator_profile_sha256": analysis["evaluator_profile_sha256"],
+        "reference_sha256": assets["reference"],
+        "truth_vcf_sha256": assets["truth_vcf"],
+        "benchmark_bed_sha256": assets["benchmark_bed"],
+        "pangenome_manifest_sha256": assets["pangenome_manifest"],
+        "candidate_universe_sha256": assets["challenge_hidden_ledger"],
+        "input_evidence_sha256": evidence["resolved_inputs_sha256"],
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            boundaries,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    analysis["comparison_track"] = {
+        "id": (
+            "panel_genotyping.end_to_end_from_reads."
+            f"{evidence['actual_technology']}.all_sites.{digest[:12]}"
+        ),
+        **boundaries,
+    }
+    analysis["comparison_track_sha256"] = digest
+    return score
+
+
 def test_unified_suite_accepts_same_sample_truth_and_profile() -> None:
     html = render_suite(
         [
@@ -123,21 +170,21 @@ def test_unified_suite_accepts_same_sample_truth_and_profile() -> None:
                 ),
             ),
             (
-                _score("kanpig", "caller_only_shared_alignment", 80.0),
+                _score("kanpig", "end_to_end_from_reads", 80.0),
                 _manifest("kanpig", "genotyping_only", "pacbio_clr"),
             ),
         ]
     )
     assert "PanGenie".casefold() in html.casefold()
     assert "kanpig" in html
-    assert "ComparableScore" in html
+    assert "ConsensusScore" in html
     assert "illumina_short_read" in html
     assert "pacbio_clr" in html
 
 
 def test_unified_suite_rejects_different_truth_profile() -> None:
     first = _score("a", "end_to_end_from_reads", 70.0)
-    second = _score("b", "caller_only_shared_alignment", 80.0)
+    second = _score("b", "end_to_end_from_reads", 80.0)
     second["tuple_key"]["primary_truth_profile"] = "different"
     with pytest.raises(SuiteReportError, match="share sample, truth profile"):
         render_suite(
@@ -145,6 +192,77 @@ def test_unified_suite_rejects_different_truth_profile() -> None:
                 (first, _manifest("a", "mapping_based", "illumina_short_read")),
                 (second, _manifest("b", "mapping_based", "pacbio_clr")),
             ]
+        )
+
+
+def test_unified_suite_rejects_mixed_execution_modes() -> None:
+    first = _score("a", "end_to_end_from_reads", 70.0)
+    second = _score("b", "end_to_end_from_reads", 80.0)
+    second["tuple_key"]["official_score_mode"] = "caller_only_shared_alignment"
+    with pytest.raises(SuiteReportError, match="one execution mode"):
+        render_suite(
+            [
+                (first, _manifest("a", "mapping_based", "illumina_short_read")),
+                (second, _manifest("b", "mapping_based", "illumina_short_read")),
+            ]
+        )
+
+
+def test_unified_suite_rejects_mixed_output_contracts() -> None:
+    first = _score("a", "end_to_end_from_reads", 70.0)
+    second = _score("b", "end_to_end_from_reads", 80.0)
+    first_manifest = _manifest("a", "mapping_based", "illumina_short_read")
+    second_manifest = _manifest("b", "mapping_based", "illumina_short_read")
+    first_manifest["outputs"] = {"candidate_output_contract": "all_sites"}
+    second_manifest["outputs"] = {"candidate_output_contract": "variant_sites"}
+    with pytest.raises(SuiteReportError, match="candidate output contract"):
+        render_suite([(first, first_manifest), (second, second_manifest)])
+
+
+def test_suite_accepts_and_displays_one_frozen_comparison_track() -> None:
+    first = _with_comparison_track(
+        _score("a", "end_to_end_from_reads", 70.0)
+    )
+    second = _with_comparison_track(
+        _score("b", "end_to_end_from_reads", 80.0)
+    )
+    html = render_suite(
+        [
+            (first, _manifest("a", "mapping_based", "illumina_short_read")),
+            (second, _manifest("b", "mapping_based", "illumina_short_read")),
+        ]
+    )
+    assert "Comparison track" in html
+    assert first["formal_analysis"]["comparison_track"]["id"] in html
+
+
+def test_suite_rejects_mixed_comparison_track_presence() -> None:
+    tracked = _with_comparison_track(
+        _score("a", "end_to_end_from_reads", 70.0)
+    )
+    untracked = _with_evidence(
+        _score("b", "end_to_end_from_reads", 80.0)
+    )
+    with pytest.raises(SuiteReportError, match="with and without a comparison"):
+        render_suite(
+            [
+                (tracked, _manifest("a", "mapping_based", "illumina_short_read")),
+                (
+                    untracked,
+                    _manifest("b", "mapping_based", "illumina_short_read"),
+                ),
+            ]
+        )
+
+
+def test_suite_rejects_tampered_comparison_track_hash() -> None:
+    score = _with_comparison_track(
+        _score("a", "end_to_end_from_reads", 70.0)
+    )
+    score["formal_analysis"]["comparison_track_sha256"] = "f" * 64
+    with pytest.raises(SuiteReportError, match="does not match its boundaries"):
+        render_suite(
+            [(score, _manifest("a", "mapping_based", "illumina_short_read"))]
         )
 
 
@@ -160,7 +278,7 @@ def test_suite_accepts_legacy_scores_when_all_lack_evaluator_hash() -> None:
                 ),
             ),
             (
-                _score("legacy-b", "caller_only_shared_alignment", 80.0),
+                _score("legacy-b", "end_to_end_from_reads", 80.0),
                 _manifest("legacy-b", "genotyping_only", "pacbio_clr"),
             ),
         ]
@@ -199,14 +317,14 @@ def test_suite_accepts_matching_formal_evaluator_hashes() -> None:
             ),
             (
                 _with_evaluator_profile(
-                    _score("kanpig", "caller_only_shared_alignment", 80.0),
+                    _score("kanpig", "end_to_end_from_reads", 80.0),
                     transitional_field_names=True,
                 ),
                 _manifest("kanpig", "genotyping_only", "pacbio_clr"),
             ),
         ]
     )
-    assert "ComparableScore" in html
+    assert "ConsensusScore" in html
     assert "b" * 64 in html
 
 
@@ -225,7 +343,7 @@ def test_suite_rejects_mixed_presence_of_evaluator_hash() -> None:
                     ),
                 ),
                 (
-                    _score("legacy", "caller_only_shared_alignment", 80.0),
+                    _score("legacy", "end_to_end_from_reads", 80.0),
                     _manifest("legacy", "genotyping_only", "pacbio_clr"),
                 ),
             ]
@@ -249,7 +367,7 @@ def test_suite_rejects_different_evaluator_hashes() -> None:
                 ),
                 (
                     _with_evaluator_profile(
-                        _score("b", "caller_only_shared_alignment", 80.0),
+                        _score("b", "end_to_end_from_reads", 80.0),
                         "b" * 64,
                     ),
                     _manifest("b", "genotyping_only", "pacbio_clr"),
@@ -263,7 +381,7 @@ def test_suite_rejects_different_evaluator_versions() -> None:
         _score("a", "end_to_end_from_reads", 75.0)
     )
     second = _with_evaluator_profile(
-        _score("b", "caller_only_shared_alignment", 80.0)
+        _score("b", "end_to_end_from_reads", 80.0)
     )
     second["formal_analysis"]["evaluator_versions"]["truvari"]["sha256"] = (
         "f" * 64
@@ -288,7 +406,7 @@ def test_suite_rejects_different_benchmark_asset_hashes() -> None:
         _score("a", "end_to_end_from_reads", 75.0)
     )
     second = _with_evaluator_profile(
-        _score("b", "caller_only_shared_alignment", 80.0)
+        _score("b", "end_to_end_from_reads", 80.0)
     )
     second["formal_analysis"]["asset_hashes"]["reference"] = "9" * 64
     with pytest.raises(
@@ -318,7 +436,7 @@ def test_suite_rejects_different_shared_pangenome_assets(field: str) -> None:
         _score("a", "end_to_end_from_reads", 75.0)
     )
     second = _with_evaluator_profile(
-        _score("b", "caller_only_shared_alignment", 80.0)
+        _score("b", "end_to_end_from_reads", 80.0)
     )
     second["formal_analysis"]["asset_hashes"][field] = "9" * 64
     with pytest.raises(SuiteReportError, match="pangenome manifest"):
@@ -438,7 +556,7 @@ def test_suite_rejects_different_evidence_for_same_technology_and_mode() -> None
         )
 
 
-def test_suite_allows_different_evidence_across_actual_technologies() -> None:
+def test_suite_rejects_different_evidence_across_actual_technologies() -> None:
     short = _with_evidence(
         _score("pangenie", "end_to_end_from_reads", 75.0),
         technology="illumina_short_read",
@@ -450,11 +568,10 @@ def test_suite_allows_different_evidence_across_actual_technologies() -> None:
         source="PACBIO",
         digest="f" * 64,
     )
-    html = render_suite(
-        [
-            (short, _manifest("pangenie", "panel", "illumina_short_read")),
-            (long, _manifest("vg", "graph", "pacbio_clr")),
-        ]
-    )
-    assert "ILLUMINA" in html
-    assert "PACBIO" in html
+    with pytest.raises(SuiteReportError, match="one actual sequencing technology"):
+        render_suite(
+            [
+                (short, _manifest("pangenie", "panel", "illumina_short_read")),
+                (long, _manifest("vg", "graph", "pacbio_clr")),
+            ]
+        )

@@ -35,6 +35,24 @@ def _score_value(score: Mapping[str, object], field: str) -> str:
     return "N/A" if value is None else f"{float(value):.2f}"
 
 
+def _track_fields(score: Mapping[str, object]) -> tuple[str, str, str]:
+    analysis = score.get("formal_analysis")
+    if not isinstance(analysis, Mapping):
+        return "untracked", "untracked", "unknown"
+    track = analysis.get("comparison_track")
+    evidence = analysis.get("evidence_profile")
+    technology = (
+        str(evidence.get("actual_technology", "unknown"))
+        if isinstance(evidence, Mapping)
+        else "unknown"
+    )
+    if not isinstance(track, Mapping):
+        return "untracked", "untracked", technology
+    track_id = str(track.get("id", "untracked"))
+    track_sha256 = str(analysis.get("comparison_track_sha256", "untracked"))
+    return track_id, track_sha256, technology
+
+
 def render_index(
     card_paths: Sequence[Path],
     scores: Sequence[Mapping[str, object]] | None = None,
@@ -85,13 +103,20 @@ def render_index(
             if isinstance(capabilities, Mapping)
             else []
         )
+        track_id, track_sha256, actual_technology = _track_fields(score)
+        technology_text = (
+            actual_technology
+            if actual_technology != "unknown"
+            else ", ".join(map(str, technologies))
+        )
         rows.append(
             "<tr>"
             f'<td><a href="tool_cards/{escape(card.name, quote=True)}">'
             f"{escape(tool)}</a></td>"
             f"<td>{escape(str(manifest.get('paradigm', 'unknown')))}</td>"
-            f"<td>{escape(', '.join(map(str, technologies)))}</td>"
-            f"<td>{escape(str(tuple_key.get('official_score_mode', '')))}</td>"
+            f"<td>{escape(technology_text)}</td>"
+            f"<td>{escape(track_id)}</td>"
+            f"<td><code>{escape(track_sha256)}</code></td>"
             f"<td>{_score_value(score, 'pgbench_score')}</td>"
             f"<td>{_score_value(score, 'pangenome_genotyping_score')}</td>"
             f"<td>{_score_value(score, 'non_reference_f1_score')}</td>"
@@ -116,9 +141,10 @@ th { background: #eef2ff; }
 <h1>PGBench 泛基因组结构变异工具比较</h1>
 <p class="notice">PGBench Consensus Score 是所有工具统一的主分，三套冻结评测器
 各投一张等权检测票。Global End-to-End SV Recovery 在固定 truth universe 上
-同时惩罚 FP 与 FN，作为完整 pipeline 的独立召回诊断。资源消耗不参与得分。</p>
+同时惩罚 FP 与 FN，作为完整 pipeline 的独立召回诊断。资源消耗不参与得分。
+比较只能在完全相同的运行轨道内进行；本表不生成跨轨道排名。</p>
 <table><thead><tr>
-<th>工具</th><th>范式</th><th>测序技术</th><th>运行轨道</th>
+<th>工具</th><th>范式</th><th>实际测序技术</th><th>运行轨道</th><th>轨道 SHA-256</th>
 <th>PGBench Consensus Score</th><th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
 <th>Panel coverage (fraction)</th><th>Global End-to-End SV Recovery</th>
 <th>ConsensusScore</th>

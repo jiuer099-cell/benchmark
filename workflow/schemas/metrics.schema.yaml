@@ -172,6 +172,8 @@ $defs:
       - evaluator_native_metrics
       - asset_hashes
       - evidence_profile
+      - comparison_track
+      - comparison_track_sha256
       - universe
       - matching
       - evaluator_event_mapping
@@ -350,6 +352,68 @@ $defs:
               - type: "null"
           quantitative_metadata_complete:
             type: boolean
+      comparison_track:
+        type: object
+        additionalProperties: false
+        required:
+          - id
+          - contract
+          - task
+          - official_score_mode
+          - candidate_output_contract
+          - actual_technology
+          - primary_truth_profile
+          - score_profile_sha256
+          - evaluator_profile_sha256
+          - reference_sha256
+          - truth_vcf_sha256
+          - benchmark_bed_sha256
+          - pangenome_manifest_sha256
+          - candidate_universe_sha256
+          - input_evidence_sha256
+        properties:
+          id:
+            type: string
+            minLength: 1
+          contract:
+            const: pgbench_comparison_track_v1
+          task:
+            enum: [panel_genotyping, wg_discovery, novel_pangenome_discovery]
+          official_score_mode:
+            enum: [caller_only_shared_alignment, end_to_end_from_reads]
+          candidate_output_contract:
+            enum: [all_sites, variant_sites]
+          actual_technology:
+            enum: [pacbio_clr, pacbio_hifi, ont, illumina_short_read]
+          primary_truth_profile:
+            $ref: "#/$defs/identifier"
+          score_profile_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          evaluator_profile_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          reference_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          truth_vcf_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          benchmark_bed_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          pangenome_manifest_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          candidate_universe_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          input_evidence_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      comparison_track_sha256:
+        type: string
+        pattern: "^[0-9a-f]{64}$"
       universe:
         type: object
         additionalProperties: false

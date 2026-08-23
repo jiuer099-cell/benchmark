@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from materialize_formal_consensus_metrics import (  # noqa: E402
     candidate_genotype_summary,
+    comparison_track_contract,
     ConsensusMetricError,
     materialize,
     resource_summary,
@@ -587,6 +588,15 @@ def test_semantic_materialization_has_unique_truth_ci_and_strata(
         "chr1\t190\tC\tA\t<INS>\t.\tPASS\tSVTYPE=INS;SVLEN=80\tGT\t./.\n",
         encoding="utf-8",
     )
+    hidden = tmp_path / "hidden-candidates.tsv"
+    hidden.write_text(
+        "candidate_id\tpangenome_allele_id\ttruth_gt\ttruth_label\t"
+        "truth_scorable\ttruth_event_id\n"
+        "A\tALLELE_A\t0/1\tpositive\t1\tT1\n"
+        "B\tALLELE_B\t0/1\tpositive\t1\tT2\n"
+        "C\tALLELE_C\t./.\tunscorable\t0\t\n",
+        encoding="utf-8",
+    )
     resolved_inputs = tmp_path / "resolved-inputs.json"
     resolved_inputs.write_text(
         json.dumps(
@@ -632,8 +642,9 @@ def test_semantic_materialization_has_unique_truth_ci_and_strata(
             benchmark_bed=regions,
             reference=truth,
             pangenome_manifest=manifests[0],
-            hidden_truth_ledger=manifests[0],
+            hidden_truth_ledger=hidden,
             graph_asset_lock=None,
+            tool_manifest=ROOT / "plugins" / "kanpig" / "tool.yaml",
             query_vcf=query,
             resolved_inputs=resolved_inputs,
             sample_technology="pacbio_clr",
@@ -674,6 +685,25 @@ def test_semantic_materialization_has_unique_truth_ci_and_strata(
     assert analysis["evidence_profile"]["actual_technology"] == "pacbio_clr"
     assert analysis["evidence_profile"]["evidence_kind"] == "shared_alignment"
     assert analysis["evidence_profile"]["quantitative_metadata_complete"] is True
+    track = analysis["comparison_track"]
+    assert track["contract"] == "pgbench_comparison_track_v1"
+    assert track["task"] == "panel_genotyping"
+    assert track["candidate_output_contract"] == "all_sites"
+    assert track["actual_technology"] == "pacbio_clr"
+    assert track["primary_truth_profile"] == "giab_hg002_grch38_v5_0q"
+    assert len(analysis["comparison_track_sha256"]) == 64
+    changed_evidence = deepcopy(analysis["evidence_profile"])
+    changed_evidence["resolved_inputs_sha256"] = "f" * 64
+    _, changed_digest = comparison_track_contract(
+        tool_manifest=ROOT / "plugins" / "kanpig" / "tool.yaml",
+        official_score_mode="caller_only_shared_alignment",
+        primary_truth_profile="giab_hg002_grch38_v5_0q",
+        score_profile=ROOT / "config" / "consensus_scoring.yaml",
+        evaluator_profile_sha256=analysis["evaluator_profile_sha256"],
+        asset_hashes=analysis["asset_hashes"],
+        evidence=changed_evidence,
+    )
+    assert changed_digest != analysis["comparison_track_sha256"]
     metrics_schema = yaml.safe_load(
         (ROOT / "workflow" / "schemas" / "metrics.schema.yaml").read_text(
             encoding="utf-8"

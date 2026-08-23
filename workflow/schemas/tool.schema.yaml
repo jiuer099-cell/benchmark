@@ -9,6 +9,7 @@ required:
   - version
   - source
   - paradigm
+  - comparison_task
   - tasks
   - inputs
   - capabilities
@@ -36,6 +37,11 @@ properties:
       - discovery_integration
       - genotyping_only
       - short_read_pangenome_genotyping
+  comparison_task:
+    enum:
+      - panel_genotyping
+      - wg_discovery
+      - novel_pangenome_discovery
   tasks:
     type: array
     minItems: 1
