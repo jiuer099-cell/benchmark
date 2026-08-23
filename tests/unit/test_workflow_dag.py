@@ -12,6 +12,16 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_rules_resolve_python_from_the_activated_environment() -> None:
+    for path in (
+        ROOT / "Snakefile",
+        ROOT / "workflow" / "modules" / "generic_external" / "Snakefile",
+    ):
+        source = path.read_text(encoding="utf-8")
+        assert 'PYTHON_EXECUTABLE = "python"' in source
+        assert "PYTHON_EXECUTABLE = sys.executable" not in source
+
+
 @pytest.mark.skipif(
     importlib.util.find_spec("snakemake") is None,
     reason="Snakemake is required for workflow DAG integration tests",

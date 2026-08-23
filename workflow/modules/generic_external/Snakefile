@@ -6,7 +6,6 @@ is launched only by ``pgbench_exec.py``.
 """
 
 from pathlib import Path
-import sys
 
 import yaml
 
@@ -21,7 +20,8 @@ RULE_EXECUTOR = SETTINGS["rule_executor"]
 RULE_SOURCE = "workflow/modules/generic_external/Snakefile"
 CORE_ENVIRONMENT = "workflow/envs/core.yaml"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
-PYTHON_EXECUTABLE = sys.executable
+# Resolve Python after Snakemake activates the plugin's declared environment.
+PYTHON_EXECUTABLE = "python"
 GRAPH_ASSET_MANIFEST = SETTINGS.get("graph_asset_manifest")
 GRAPH_ASSET_LOCK = SETTINGS.get("graph_asset_lock")
 
