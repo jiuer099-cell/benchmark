@@ -152,3 +152,26 @@ def test_vg_requires_accepted_graph_profile(tmp_path: Path) -> None:
             tool_schema_path=ROOT / "workflow" / "schemas" / "tool.schema.yaml",
             repo_root=ROOT,
         )
+
+
+def test_novel_truth_profile_must_exist(tmp_path: Path) -> None:
+    config = _example_config()
+    config["catalogs"]["novel_truth_profile"] = "config/missing-novel.yaml"
+    config["development"] = {
+        "synthetic_mode": True,
+        "canonical_fastq": "tests/fixtures/synthetic/reads.fastq",
+        "population_vcf": "tests/fixtures/synthetic/population.vcf",
+        "truth_vcf": "tests/fixtures/synthetic/truth.vcf",
+        "benchmark_bed": "tests/fixtures/synthetic/benchmark.bed",
+        "evaluator_fixture_dir": "tests/fixtures/synthetic/evaluators",
+        "allow_missing_bam": True,
+    }
+    config_path = tmp_path / "missing-novel.yaml"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="novel_truth_profile"):
+        validate_configuration(
+            config_path,
+            config_schema_path=ROOT / "config" / "config.schema.yaml",
+            tool_schema_path=ROOT / "workflow" / "schemas" / "tool.schema.yaml",
+            repo_root=ROOT,
+        )

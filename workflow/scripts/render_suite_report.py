@@ -27,7 +27,7 @@ SHARED_ASSET_KEYS = (
     "pangenome_manifest",
     "challenge_hidden_ledger",
 )
-ALL_ASSET_KEYS = (*SHARED_ASSET_KEYS, "graph_asset_lock")
+ALL_ASSET_KEYS = (*SHARED_ASSET_KEYS, "tool_manifest", "graph_asset_lock")
 
 
 def _manifest(path: Path) -> dict:
@@ -116,7 +116,7 @@ def _asset_hashes(score: Mapping) -> tuple[tuple[str, str | None], ...] | None:
             raise SuiteReportError(
                 f"{field}.asset_hashes must contain exactly reference, truth_vcf, "
                 "benchmark_bed, pangenome_manifest, challenge_hidden_ledger, "
-                "and graph_asset_lock"
+                "tool_manifest, and graph_asset_lock"
             )
         normalized: list[tuple[str, str | None]] = []
         for name in ALL_ASSET_KEYS:
@@ -233,7 +233,8 @@ def _comparison_track_contract(
             "truth_vcf_sha256",
             "benchmark_bed_sha256",
             "pangenome_manifest_sha256",
-            "candidate_universe_sha256",
+            "tool_manifest_sha256",
+            "evaluation_universe_sha256",
             "input_evidence_sha256",
         }
         if set(track) != required:
@@ -271,12 +272,15 @@ def _comparison_track_contract(
             "truth_vcf_sha256": assets.get("truth_vcf"),
             "benchmark_bed_sha256": assets.get("benchmark_bed"),
             "pangenome_manifest_sha256": assets.get("pangenome_manifest"),
-            "candidate_universe_sha256": assets.get(
-                "challenge_hidden_ledger"
-            ),
+            "tool_manifest_sha256": assets.get("tool_manifest"),
             "input_evidence_sha256": evidence.get("resolved_inputs_sha256"),
             "actual_technology": evidence.get("actual_technology"),
         }
+        expected_bindings["evaluation_universe_sha256"] = (
+            assets.get("challenge_hidden_ledger")
+            if track["task"] == "panel_genotyping"
+            else assets.get("truth_vcf")
+        )
         for key, expected in expected_bindings.items():
             if track[key] != expected:
                 raise SuiteReportError(

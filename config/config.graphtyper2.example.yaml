@@ -53,6 +53,7 @@ catalogs:
   stratifications: config/stratifications.yaml
   score_weights: config/consensus_scoring.yaml
   evaluator_profile: config/evaluator_profile.yaml
+  novel_truth_profile: config/novel_truth_profile.yaml
   metric_dictionary: config/metric_dictionary.yaml
 
 execution:

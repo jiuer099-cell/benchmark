@@ -128,6 +128,7 @@ for registration in config["external_plugins"]:
         "semantic_rule_name": f"tool__{tool_id}__execute",
         "job_key": f"{SAMPLE_ID}.{OFFICIAL_MODE}",
         "tool_manifest": manifest_path,
+        "comparison_task": tool_manifest["comparison_task"],
         "executor": "workflow/scripts/pgbench_exec.py",
         "schema": "workflow/schemas/tool.schema.yaml",
         "rule_executor": RULE_EXECUTOR,
@@ -267,6 +268,66 @@ for registration in config["external_plugins"]:
         settings["graph_profile"] = GRAPH_PROFILE
         settings["upstream_manifests"].append(GRAPH_ASSET_RULE_MANIFEST)
     EXTERNAL_SETTINGS.append(settings)
+
+TOOL_SETTINGS_BY_ID = {
+    settings["tool_id"]: settings for settings in EXTERNAL_SETTINGS
+}
+NOVEL_TRUTH_PROFILE_ID = "pgbench_minigraph_novel_truth_v1"
+NOVEL_TRUTH_VCF = (
+    f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
+    f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.sv.truth.vcf.gz"
+)
+NOVEL_TRUTH_INDEX = f"{NOVEL_TRUTH_VCF}.tbi"
+NOVEL_TRUTH_AUDIT = (
+    f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
+    f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.audit.json"
+)
+NOVEL_TRUTH_EXCLUSION_LEDGER = (
+    f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
+    f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.graph-exclusion.tsv"
+)
+NOVEL_TRUTH_RULE_MANIFEST = semantic_rule_manifest(
+    "prepare_novel_truth",
+    f"{config['truth']['primary']}.{PANGENOME_ID}",
+)
+NOVEL_DISCOVERY_TOOL_IDS = {
+    settings["tool_id"]
+    for settings in EXTERNAL_SETTINGS
+    if settings["comparison_task"] == "novel_pangenome_discovery"
+}
+
+
+def tool_comparison_task(wildcards):
+    try:
+        return TOOL_SETTINGS_BY_ID[wildcards.tool]["comparison_task"]
+    except KeyError as error:
+        raise WorkflowError(
+            f"no comparison task for tool {wildcards.tool!r}"
+        ) from error
+
+
+def evaluation_truth_vcf(wildcards):
+    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
+        return NOVEL_TRUTH_VCF
+    return PRIMARY_TRUTH_VCF
+
+
+def evaluation_truth_index(wildcards):
+    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
+        return NOVEL_TRUTH_INDEX
+    return PRIMARY_TRUTH_INDEX
+
+
+def evaluation_truth_rule_manifest(wildcards):
+    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
+        return NOVEL_TRUTH_RULE_MANIFEST
+    return PRIMARY_TRUTH_RULE_MANIFEST
+
+
+def evaluation_truth_profile(wildcards):
+    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
+        return NOVEL_TRUTH_PROFILE_ID
+    return config["truth"]["primary"]
 
 RAW_OUTPUT_BY_TOOL = {
     settings["tool_id"]: settings["raw_output"]

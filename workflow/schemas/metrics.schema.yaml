@@ -248,6 +248,7 @@ $defs:
           - benchmark_bed
           - pangenome_manifest
           - challenge_hidden_ledger
+          - tool_manifest
           - graph_asset_lock
         properties:
           reference:
@@ -268,6 +269,9 @@ $defs:
             type: string
             pattern: "^[0-9a-f]{64}$"
           challenge_hidden_ledger:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          tool_manifest:
             type: string
             pattern: "^[0-9a-f]{64}$"
           graph_asset_lock:
@@ -369,7 +373,8 @@ $defs:
           - truth_vcf_sha256
           - benchmark_bed_sha256
           - pangenome_manifest_sha256
-          - candidate_universe_sha256
+          - tool_manifest_sha256
+          - evaluation_universe_sha256
           - input_evidence_sha256
         properties:
           id:
@@ -405,7 +410,10 @@ $defs:
           pangenome_manifest_sha256:
             type: string
             pattern: "^[0-9a-f]{64}$"
-          candidate_universe_sha256:
+          tool_manifest_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          evaluation_universe_sha256:
             type: string
             pattern: "^[0-9a-f]{64}$"
           input_evidence_sha256:

@@ -48,6 +48,7 @@ def _asset_hashes() -> dict:
         "benchmark_bed": "6" * 64,
         "pangenome_manifest": "7" * 64,
         "challenge_hidden_ledger": "8" * 64,
+        "tool_manifest": "9" * 64,
         "graph_asset_lock": None,
     }
 
@@ -136,7 +137,8 @@ def _with_comparison_track(score: dict) -> dict:
         "truth_vcf_sha256": assets["truth_vcf"],
         "benchmark_bed_sha256": assets["benchmark_bed"],
         "pangenome_manifest_sha256": assets["pangenome_manifest"],
-        "candidate_universe_sha256": assets["challenge_hidden_ledger"],
+        "tool_manifest_sha256": assets["tool_manifest"],
+        "evaluation_universe_sha256": assets["challenge_hidden_ledger"],
         "input_evidence_sha256": evidence["resolved_inputs_sha256"],
     }
     digest = hashlib.sha256(

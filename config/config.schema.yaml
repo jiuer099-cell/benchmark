@@ -183,6 +183,10 @@ properties:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
               - type: "null"
+          variation_calls:
+            oneOf:
+              - $ref: "#/$defs/nonEmptyPath"
+              - type: "null"
           xg:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
@@ -226,6 +230,7 @@ properties:
       - stratifications
       - score_weights
       - evaluator_profile
+      - novel_truth_profile
       - metric_dictionary
     properties:
       truthsets:
@@ -235,6 +240,8 @@ properties:
       score_weights:
         $ref: "#/$defs/nonEmptyPath"
       evaluator_profile:
+        $ref: "#/$defs/nonEmptyPath"
+      novel_truth_profile:
         $ref: "#/$defs/nonEmptyPath"
       metric_dictionary:
         $ref: "#/$defs/nonEmptyPath"

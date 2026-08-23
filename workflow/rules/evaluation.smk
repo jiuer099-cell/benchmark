@@ -95,6 +95,120 @@ if not SYNTHETIC_MODE:
               > {log:q} 2>&1
             """
 
+    if NOVEL_DISCOVERY_TOOL_IDS:
+        rule prepare_novel_truth:
+            input:
+                truth=PRIMARY_TRUTH_VCF,
+                truth_index=PRIMARY_TRUTH_INDEX,
+                truth_rule_manifest=PRIMARY_TRUTH_RULE_MANIFEST,
+                graph_gfa=config["pangenome"]["graph_assets"]["gfa"],
+                variation_calls=(
+                    config["pangenome"]["graph_assets"]["variation_calls"]
+                ),
+                graph_asset_lock=GRAPH_ASSET_LOCK,
+                graph_rule_manifest=GRAPH_ASSET_RULE_MANIFEST,
+                pangenome_manifest=(
+                    f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml"
+                ),
+                pangenome_rule_manifest=PANGENOME_RULE_MANIFEST,
+                novel_truth_profile=config["catalogs"]["novel_truth_profile"],
+                evaluator_profile=config["catalogs"]["evaluator_profile"],
+                reference=config["reference"]["fasta"],
+                reference_index=config["reference"]["fai"],
+                context=RESULTS_ROOT + "/provenance/run-context.json",
+                config=CONFIG_PATH,
+                score_profile=config["catalogs"]["score_weights"],
+                rule_source="workflow/rules/evaluation.smk",
+                rule_executor=RULE_EXECUTOR,
+                script="workflow/scripts/prepare_novel_truth.py",
+                environment=CORE_ENV_SPEC,
+                provenance_library=PROVENANCE_LIBRARY,
+            output:
+                truth=NOVEL_TRUTH_VCF,
+                index=NOVEL_TRUTH_INDEX,
+                audit=NOVEL_TRUTH_AUDIT,
+                exclusion_ledger=NOVEL_TRUTH_EXCLUSION_LEDGER,
+                rule_manifest=NOVEL_TRUTH_RULE_MANIFEST,
+            log:
+                (
+                    f"{LOG_ROOT}/rules/prepare_novel_truth/"
+                    f"{config['truth']['primary']}.{PANGENOME_ID}.log"
+                ),
+            benchmark:
+                (
+                    f"{BENCHMARK_ROOT}/rules/prepare_novel_truth/"
+                    f"{config['truth']['primary']}.{PANGENOME_ID}.jsonl"
+                ),
+            threads:
+                1
+            resources:
+                mem_mb=16384
+            conda:
+                "../envs/core.yaml"
+            shell:
+                """
+                {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
+                  --rule-name prepare_novel_truth \
+                  --job-key {config[truth][primary]}.{PANGENOME_ID} \
+                  --run-id {RUN_ID:q} \
+                  --module-or-tool-id pgbench-core \
+                  --snakefile-path {input.rule_source:q} \
+                  --rule-source-path {input.rule_source:q} \
+                  --script-or-wrapper-path {input.script:q} \
+                  --config-snapshot {input.config:q} \
+                  --score-profile {input.score_profile:q} \
+                  --run-context {input.context:q} \
+                  --pangenome-manifest {input.pangenome_manifest:q} \
+                  --reference {input.reference:q} \
+                  --truth-profile {NOVEL_TRUTH_PROFILE_ID:q} \
+                  --snakemake-version {SNAKEMAKE_VERSION:q} \
+                  --execution-profile local \
+                  --random-seed {config[execution][random_seed]} \
+                  --threads {threads} \
+                  --resource mem_mb={resources.mem_mb} \
+                  --param exclusion_policy=any_compatible_graph_allele \
+                  --input {input.truth:q} \
+                  --input {input.truth_index:q} \
+                  --input {input.graph_gfa:q} \
+                  --input {input.variation_calls:q} \
+                  --input {input.graph_asset_lock:q} \
+                  --input {input.pangenome_manifest:q} \
+                  --input {input.novel_truth_profile:q} \
+                  --input {input.evaluator_profile:q} \
+                  --input {input.reference:q} \
+                  --input {input.reference_index:q} \
+                  --input {input.context:q} \
+                  --input {input.config:q} \
+                  --input {input.score_profile:q} \
+                  --input {input.rule_source:q} \
+                  --input {input.rule_executor:q} \
+                  --input {input.script:q} \
+                  --input {input.environment:q} \
+                  --input {input.provenance_library:q} \
+                  --output {output.truth:q} \
+                  --output {output.index:q} \
+                  --output {output.audit:q} \
+                  --output {output.exclusion_ledger:q} \
+                  --upstream-manifest {input.truth_rule_manifest:q} \
+                  --upstream-manifest {input.graph_rule_manifest:q} \
+                  --upstream-manifest {input.pangenome_rule_manifest:q} \
+                  --manifest-output {output.rule_manifest:q} \
+                  -- \
+                  {PYTHON_EXECUTABLE:q} {input.script:q} \
+                    --truth-vcf {input.truth:q} \
+                    --reference {input.reference:q} \
+                    --reference-index {input.reference_index:q} \
+                    --graph-gfa {input.graph_gfa:q} \
+                    --variation-calls {input.variation_calls:q} \
+                    --graph-asset-lock {input.graph_asset_lock:q} \
+                    --novel-truth-profile {input.novel_truth_profile:q} \
+                    --evaluator-profile {input.evaluator_profile:q} \
+                    --output-vcf {output.truth:q} \
+                    --exclusion-ledger {output.exclusion_ledger:q} \
+                    --audit-json {output.audit:q} \
+                  > {log:q} 2>&1
+                """
+
     rule run_formal_evaluator:
         input:
             query=(
@@ -105,9 +219,9 @@ if not SYNTHETIC_MODE:
                 RESULTS_ROOT + "/provenance/rules/link_pangenome_alleles/"
                 f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
             ),
-            truth=PRIMARY_TRUTH_VCF,
-            truth_index=PRIMARY_TRUTH_INDEX,
-            truth_rule_manifest=PRIMARY_TRUTH_RULE_MANIFEST,
+            truth=evaluation_truth_vcf,
+            truth_index=evaluation_truth_index,
+            truth_rule_manifest=evaluation_truth_rule_manifest,
             regions=config["evaluation"]["benchmark_bed"],
             reference=config["reference"]["fasta"],
             pangenome_manifest=(
@@ -150,6 +264,7 @@ if not SYNTHETIC_MODE:
             output_dir=lambda wildcards: (
                 f"{RESULTS_ROOT}/evaluation/{wildcards.tool}/{wildcards.evaluator}"
             ),
+            truth_profile=evaluation_truth_profile,
         conda:
             "../envs/core.yaml"
         shell:
@@ -167,7 +282,7 @@ if not SYNTHETIC_MODE:
               --run-context {input.context:q} \
               --pangenome-manifest {input.pangenome_manifest:q} \
               --reference {input.reference:q} \
-              --truth-profile {config[truth][primary]:q} \
+              --truth-profile {params.truth_profile:q} \
               --snakemake-version {SNAKEMAKE_VERSION:q} \
               --execution-profile local \
               --random-seed {config[execution][random_seed]} \

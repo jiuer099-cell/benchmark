@@ -170,6 +170,11 @@ def comparison_track_contract(
             "comparison track requires resolved input evidence SHA-256"
         )
 
+    evaluation_universe_sha256 = (
+        asset_hashes["challenge_hidden_ledger"]
+        if task == "panel_genotyping"
+        else asset_hashes["truth_vcf"]
+    )
     boundaries = {
         "contract": "pgbench_comparison_track_v1",
         "task": task,
@@ -183,9 +188,8 @@ def comparison_track_contract(
         "truth_vcf_sha256": asset_hashes["truth_vcf"],
         "benchmark_bed_sha256": asset_hashes["benchmark_bed"],
         "pangenome_manifest_sha256": asset_hashes["pangenome_manifest"],
-        "candidate_universe_sha256": asset_hashes[
-            "challenge_hidden_ledger"
-        ],
+        "tool_manifest_sha256": asset_hashes["tool_manifest"],
+        "evaluation_universe_sha256": evaluation_universe_sha256,
         "input_evidence_sha256": input_evidence_sha256,
     }
     canonical = json.dumps(
@@ -1437,6 +1441,11 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             ),
         ),
         "challenge_hidden_ledger": sha256_file(args.hidden_truth_ledger),
+        "tool_manifest": (
+            sha256_file(args.tool_manifest)
+            if getattr(args, "tool_manifest", None) is not None
+            else None
+        ),
         "graph_asset_lock": (
             semantic_asset_hash(args.graph_asset_lock)
             if getattr(args, "graph_asset_lock", None) is not None

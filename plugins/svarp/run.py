@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import BinaryIO, Iterable
@@ -93,48 +92,6 @@ def find_svtigs(output_dir: Path, sample: str) -> Path | None:
     return merged
 
 
-def find_reusable_work_dir(output_dir: Path, sample: str) -> Path | None:
-    """Find a completed immutable work checkpoint from an earlier attempt.
-
-    PGBench executes every formal attempt in a fresh output directory.  SVarp's
-    FASTQ conversion, graph mapping and local assemblies are deterministic but
-    expensive, so a subsequent adapter-only attempt may reuse a *complete*
-    checkpoint under the same tool/run output root.  The runner never writes
-    into that checkpoint: it only reuses it when the svtigs and their existing
-    reference PAF are both present, and writes the new VCF to the fresh attempt.
-    """
-
-    attempts_root = output_dir.parent.parent
-    if attempts_root.name != ".pgbench_attempts" or not attempts_root.is_dir():
-        return None
-    candidates: list[Path] = []
-    for attempt in attempts_root.iterdir():
-        work = attempt / "output" / "work"
-        if work == output_dir / "work" or not work.is_dir():
-            continue
-        if is_completed_work_checkpoint(work, sample):
-            candidates.append(work)
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime_ns)
-
-
-def is_completed_work_checkpoint(work: Path, sample: str) -> bool:
-    """Return whether *work* contains all immutable SVarp reuse artefacts."""
-
-    required_paths = (
-        f"{sample}.clr.fasta.gz",
-        f"{sample}.clr.fasta.gz.fai",
-        f"{sample}.svarp.gaf",
-        f"{sample}.svtigs.paf",
-        f"svarp/{sample}_svtigs.fa",
-    )
-    return work.is_dir() and all(
-        (work / relative).is_file() and (work / relative).stat().st_size > 0
-        for relative in required_paths
-    )
-
-
 def _header_from_fai(reference_fai: Path) -> Iterable[str]:
     for raw_line in reference_fai.read_text(encoding="utf-8").splitlines():
         fields = raw_line.split("\t")
@@ -173,6 +130,16 @@ class IndexedFasta:
             value = handle.read(1).decode("ascii").upper()
         return value if value in {"A", "C", "G", "T", "N"} else None
 
+    def sequence(self, contig: str, start: int, end: int) -> str | None:
+        """Return the inclusive 1-based reference interval, or None."""
+
+        if start < 1 or end < start:
+            return None
+        values = [self.base(contig, position) for position in range(start, end + 1)]
+        if any(value is None for value in values):
+            return None
+        return "".join(str(value) for value in values)
+
 
 def _tag_value(tags: list[str], prefix: str) -> str | None:
     for tag in tags:
@@ -184,7 +151,7 @@ def _tag_value(tags: list[str], prefix: str) -> str | None:
 def _paf_events(
     paf_line: str,
     reference: IndexedFasta,
-) -> Iterable[tuple[str, int, str, str, str, int]]:
+) -> Iterable[tuple[str, int, str, str, str, int, int]]:
     """Yield sequence-resolved INS/DEL calls from one primary minimap2 PAF row."""
 
     fields = paf_line.rstrip("\n").split("\t")
@@ -215,31 +182,59 @@ def _paf_events(
         elif kind == "skip":
             target_position += int(value)
         elif kind == "insertion":
-            if len(value) < MINIMUM_SV_SIZE or target_position == 0:
+            if len(value) < MINIMUM_SV_SIZE:
                 continue
             # cs is in reference alignment orientation, including reverse PAF rows.
-            anchor = reference.base(contig, target_position)
+            if target_position == 0:
+                anchor = reference.base(contig, 1)
+                pos = 1
+                ref = anchor
+                alt = value.upper() + str(anchor) if anchor is not None else None
+            else:
+                anchor = reference.base(contig, target_position)
+                pos = target_position
+                ref = anchor
+                alt = str(anchor) + value.upper() if anchor is not None else None
             if anchor is not None:
                 yield (
                     contig,
-                    target_position,
-                    anchor,
-                    anchor + value.upper(),
+                    pos,
+                    str(ref),
+                    str(alt),
                     "INS",
                     len(value),
+                    pos,
                 )
         elif kind == "deletion":
-            if len(value) >= MINIMUM_SV_SIZE and target_position > 0:
-                anchor = reference.base(contig, target_position)
-                if anchor is not None:
-                    yield (
-                        contig,
-                        target_position,
-                        anchor + value.upper(),
-                        anchor,
-                        "DEL",
-                        -len(value),
-                    )
+            if len(value) >= MINIMUM_SV_SIZE:
+                deleted = reference.sequence(
+                    contig,
+                    target_position + 1,
+                    target_position + len(value),
+                )
+                if deleted is not None and deleted.upper() == value.upper():
+                    if target_position == 0:
+                        anchor = reference.base(contig, len(value) + 1)
+                        pos = 1
+                        ref = deleted + str(anchor) if anchor is not None else None
+                        alt = anchor
+                        end = len(value)
+                    else:
+                        anchor = reference.base(contig, target_position)
+                        pos = target_position
+                        ref = str(anchor) + deleted if anchor is not None else None
+                        alt = anchor
+                        end = target_position + len(value)
+                    if anchor is not None:
+                        yield (
+                            contig,
+                            pos,
+                            str(ref),
+                            str(alt),
+                            "DEL",
+                            -len(value),
+                            end,
+                        )
             target_position += len(value)
     if cursor != len(cs):
         return
@@ -284,30 +279,38 @@ def write_discovery_vcf(
         )
         indexed_reference = IndexedFasta(reference, reference_fai)
         seen: set[tuple[str, int, str, str]] = set()
+        primary_rows: dict[str, list[str]] = {}
         with paf.open("r", encoding="utf-8") as source:
             for raw_line in source:
-                for chrom, pos, ref, alt, svtype, svlen in _paf_events(
-                    raw_line, indexed_reference
-                ):
-                    key = (chrom, pos, ref, alt)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    end = pos if svtype == "INS" else pos + len(ref) - 1
-                    record = [
-                        chrom,
-                        str(pos),
-                        f"SVARP_{emitted + 1:09d}",
-                        ref,
-                        alt,
-                        ".",
-                        "PASS",
-                        f"SVTYPE={svtype};END={end};SVLEN={svlen};SVARP_SOURCE=svtig",
-                        "GT",
-                        "./.",
-                    ]
-                    output.write("\t".join(record) + "\n")
-                    emitted += 1
+                fields = raw_line.rstrip("\n").split("\t")
+                if len(fields) >= 12 and "tp:A:P" in fields[12:]:
+                    primary_rows.setdefault(fields[0], []).append(raw_line)
+        for rows in primary_rows.values():
+            # Multiple primary rows mean that the local assembly does not have
+            # one auditable linear projection. Secondary rows are ignored.
+            if len(rows) != 1:
+                continue
+            for chrom, pos, ref, alt, svtype, svlen, end in _paf_events(
+                rows[0], indexed_reference
+            ):
+                key = (chrom, pos, ref, alt)
+                if key in seen:
+                    continue
+                seen.add(key)
+                record = [
+                    chrom,
+                    str(pos),
+                    f"SVARP_{emitted + 1:09d}",
+                    ref,
+                    alt,
+                    ".",
+                    "PASS",
+                    f"SVTYPE={svtype};END={end};SVLEN={svlen};SVARP_SOURCE=svtig",
+                    "GT",
+                    "./.",
+                ]
+                output.write("\t".join(record) + "\n")
+                emitted += 1
     return emitted
 
 
@@ -328,15 +331,11 @@ def main() -> int:
         raise RuntimeError(f"SVarp adapter requires reference index {reference_fai}")
 
     work = output_dir / "work"
-    # A failed PGBench attempt leaves an empty ``work`` directory behind.
-    # Treating existence as completion would accidentally restart the multi-day
-    # assembly instead of selecting a verified earlier checkpoint.
-    reused_work = None if is_completed_work_checkpoint(work, sample) else find_reusable_work_dir(output_dir, sample)
-    if reused_work is not None:
-        work = reused_work
-        print(f"+ reusing completed SVarp work checkpoint {work}", flush=True)
-    else:
-        work.mkdir(parents=True, exist_ok=True)
+    # Cross-attempt checkpoint reuse is intentionally forbidden here. A work
+    # directory is reusable only after a separate migration step has sealed all
+    # input, parameter and artifact hashes into provenance; mere file presence
+    # is never sufficient evidence.
+    work.mkdir(parents=True, exist_ok=True)
     reads_fasta = work / f"{sample}.clr.fasta.gz"
     reads_fai = Path(f"{reads_fasta}.fai")
     if not reads_fasta.is_file() or not reads_fai.is_file():
@@ -376,6 +375,18 @@ def main() -> int:
                 str(graph),
                 "--fasta",
                 str(reads_fasta),
+                "--assembler",
+                "wtdbg2",
+                "--support",
+                "5",
+                "--dist-threshold",
+                "100",
+                "--as",
+                "5000",
+                "--pc",
+                "0.97",
+                "--map-ratio",
+                "0.90",
                 "--sample",
                 sample,
                 "--out",

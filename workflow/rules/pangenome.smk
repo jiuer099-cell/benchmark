@@ -43,6 +43,7 @@ rule lock_graph_assets:
         dist=optional_graph_asset("dist"),
         sample_list=optional_graph_asset("sample_list"),
         gfa=optional_graph_asset("gfa"),
+        variation_calls=optional_graph_asset("variation_calls"),
         rule_source="workflow/rules/pangenome.smk",
         rule_executor=RULE_EXECUTOR,
         script="workflow/scripts/validate_graph_assets.py",
@@ -68,7 +69,7 @@ rule lock_graph_assets:
             [
                 config["pangenome"]["graph_assets"][name]
                 for name in (
-                    "manifest", "gbz", "xg", "min", "zipcodes", "dist", "sample_list", "gfa"
+                    "manifest", "gbz", "xg", "min", "zipcodes", "dist", "sample_list", "gfa", "variation_calls"
                 )
                 if config["pangenome"]["graph_assets"].get(name)
             ],
@@ -106,6 +107,14 @@ rule lock_graph_assets:
         gfa_script_arguments=(
             ["--gfa", config["pangenome"]["graph_assets"]["gfa"]]
             if config["pangenome"]["graph_assets"].get("gfa")
+            else []
+        ),
+        variation_calls_script_arguments=(
+            [
+                "--variation-calls",
+                config["pangenome"]["graph_assets"]["variation_calls"],
+            ]
+            if config["pangenome"]["graph_assets"].get("variation_calls")
             else []
         ),
     shell:
@@ -151,6 +160,7 @@ rule lock_graph_assets:
             --source-manifest {input.source_manifest:q} \
             --profile {GRAPH_PROFILE:q} \
             {params.gfa_script_arguments:q} \
+            {params.variation_calls_script_arguments:q} \
             {params.gbz_script_arguments:q} \
             {params.xg_script_arguments:q} \
             {params.min_script_arguments:q} \

@@ -17,6 +17,7 @@ EXPECTED_RULE_IDS = {
     "inspect_input_bam",
     "prepare_reference",
     "prepare_primary_truth",
+    "prepare_novel_truth",
     "prepare_legacy_truth",
     "prepare_stratifications",
     "extract_canonical_reads",
@@ -81,7 +82,7 @@ def test_registry_matches_schema_and_confirmed_rule_catalog() -> None:
     schema = _load_yaml(SCHEMA_PATH)
     Draft202012Validator(schema).validate(registry)
     ids = [entry["id"] for entry in registry["rules"]]
-    assert len(ids) == len(set(ids)) == 54
+    assert len(ids) == len(set(ids)) == 55
     assert set(ids) == EXPECTED_RULE_IDS
 
 

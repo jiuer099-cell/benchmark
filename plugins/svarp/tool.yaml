@@ -38,6 +38,29 @@ execution:
   trust_level: untrusted
   sandbox_backend: bwrap
 
+parameter_contract:
+  contract: pgbench_tool_parameters_v1
+  source_release:
+    tag: v1.2.0
+    commit: 9fc34f848bd6506b4fbe6283e44c55b0a691519d
+    source_url: https://github.com/asylvz/SVarp/archive/refs/tags/v1.2.0.tar.gz
+    archive_sha256: 17203cbd36a138dec8b4fae9b3afdc7fef45f3289661d0ad1336e81886163f50
+  explicit:
+    assembler: wtdbg2
+    support: 5
+    dist_threshold: 100
+    min_alignment_score: 5000
+    min_precise_clipping: 0.97
+    min_map_ratio: 0.90
+    threads: PGBENCH_THREADS
+  implicit:
+    phase_tags: null
+    skip_untagged: false
+    no_remap: false
+    assembly_mode: false
+    debug: false
+    read_type_option: unsupported_in_v1.2.0
+
 supported_modes:
   end_to_end_from_reads:
     required_inputs:

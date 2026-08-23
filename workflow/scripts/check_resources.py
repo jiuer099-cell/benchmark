@@ -285,7 +285,17 @@ def build_inventory(
     graph_assets = pangenome.get("graph_assets", {})
     graph_profile = graph_assets.get("profile", "none")
     required_graph_assets = set(GRAPH_PROFILE_ASSETS.get(graph_profile, ()))
-    for asset_name in ("manifest", "gbz", "xg", "min", "dist", "sample_list"):
+    for asset_name in (
+        "manifest",
+        "gbz",
+        "gfa",
+        "variation_calls",
+        "xg",
+        "min",
+        "zipcodes",
+        "dist",
+        "sample_list",
+    ):
         assets.append(
             _inspect_file(
                 resource_id=f"pangenome.graph_assets.{asset_name}",

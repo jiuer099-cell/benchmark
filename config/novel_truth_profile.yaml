@@ -1,0 +1,30 @@
+schema_version: 1
+
+profile:
+  id: pgbench_minigraph_novel_truth_v1
+  description: >-
+    Exclude GIAB truth events already represented by frozen minigraph bubble
+    alleles before scoring novel pangenome discovery.
+
+source:
+  format: minigraph_call_bed_v0.17
+  reference_sample_column: 0
+  allele_lengths_info: ALEN
+  allele_walks_info: AWALK
+  graph_reference_path: GRCh38
+
+exclusion:
+  policy: any_compatible_graph_allele
+  require_reference_allele_length_match: true
+  require_graph_walk_sequence_length_match: true
+  require_deleted_sequence_reference_match: true
+  fail_on_missing_graph_segment: true
+
+matching:
+  source: evaluator_profile.sv_match
+  require_same_svtype: true
+  max_breakpoint_distance: 500
+  min_size_similarity: 0.70
+  min_sequence_similarity: 0.70
+  sequence_required_for_resolved_insertions: true
+  one_to_one: true

@@ -21,6 +21,7 @@ ASSET_FILENAMES = {
     "dist": "graph.dist",
     "sample_list": "samples.txt",
     "gfa": "graph.gfa.gz",
+    "variation_calls": "graph.variation.calls.bed.gz",
 }
 PROFILE_ASSETS = {
     "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
@@ -28,7 +29,7 @@ PROFILE_ASSETS = {
         "gbz", "min", "zipcodes", "dist", "sample_list"
     },
     "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
-    "svarp_minigraph_longread": {"gfa"},
+    "svarp_minigraph_longread": {"gfa", "variation_calls"},
 }
 
 
@@ -127,6 +128,20 @@ def _validate_declared_lock(
                 f"source manifest checksum mismatch for {name}: "
                 f"expected {expected_sha}, observed {actual['sha256']}"
             )
+        expected_size = declared.get("size_bytes")
+        if expected_size is not None and expected_size != actual["size_bytes"]:
+            raise GraphAssetError(
+                f"source manifest size mismatch for {name}: "
+                f"expected {expected_size}, observed {actual['size_bytes']}"
+            )
+        expected_filename = declared.get("filename")
+        if expected_filename is not None and expected_filename != Path(
+            str(actual["path"])
+        ).name:
+            raise GraphAssetError(
+                f"source manifest filename mismatch for {name}: "
+                f"expected {expected_filename!r}"
+            )
 
 
 def _validate_declared_exclusions(
@@ -165,6 +180,7 @@ def lock_graph_assets(
     reference_path: str,
     zipcodes: Path | None = None,
     gfa: Path | None = None,
+    variation_calls: Path | None = None,
     profile: str = "vg_legacy_xg",
     excluded_samples: tuple[str, ...] = ("HG002", "NA24385"),
 ) -> dict[str, Any]:
@@ -183,6 +199,7 @@ def lock_graph_assets(
         "dist": dist,
         "sample_list": sample_list,
         "gfa": gfa,
+        "variation_calls": variation_calls,
     }
     missing = sorted(
         name for name in PROFILE_ASSETS[profile] if supplied_paths.get(name) is None
@@ -264,6 +281,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dist", type=Path)
     parser.add_argument("--sample-list", type=Path)
     parser.add_argument("--gfa", type=Path)
+    parser.add_argument("--variation-calls", type=Path)
     parser.add_argument("--reference-path", required=True)
     parser.add_argument(
         "--profile",
@@ -290,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             min_index=args.min_index,
             zipcodes=args.zipcodes,
             gfa=args.gfa,
+            variation_calls=args.variation_calls,
             dist=args.dist,
             sample_list=args.sample_list,
             reference_path=args.reference_path,

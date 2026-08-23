@@ -89,6 +89,20 @@ def test_source_lock_checksum_mismatch_is_rejected(tmp_path: Path) -> None:
         lock_graph_assets(**paths, reference_path="GRCh38")
 
 
+def test_source_lock_size_mismatch_is_rejected(tmp_path: Path) -> None:
+    paths = _write_bundle(tmp_path)
+    paths["source_manifest"].write_text(
+        "reference_path: GRCh38\n"
+        "assets:\n"
+        "  gbz:\n"
+        "    filename: graph.gbz\n"
+        "    size_bytes: 999999\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(GraphAssetError, match="size mismatch"):
+        lock_graph_assets(**paths, reference_path="GRCh38")
+
+
 def test_assets_must_use_one_conventional_directory(tmp_path: Path) -> None:
     paths = _write_bundle(tmp_path)
     outside = tmp_path / "graph.xg"
@@ -127,16 +141,19 @@ def test_svarp_rgfa_profile_uses_declared_leave_out_manifest(tmp_path: Path) -> 
     )
     gfa = root / "graph.gfa.gz"
     gfa.write_bytes(b"synthetic-rgfa")
+    variation_calls = root / "graph.variation.calls.bed.gz"
+    variation_calls.write_bytes(b"synthetic-calls")
 
     lock = lock_graph_assets(
         source_manifest=source,
         gfa=gfa,
+        variation_calls=variation_calls,
         reference_path="GRCh38",
         profile="svarp_minigraph_longread",
     )
 
     assert lock["sample_count"] is None
-    assert set(lock["assets"]) == {"gfa"}
+    assert set(lock["assets"]) == {"gfa", "variation_calls"}
 
 
 def test_svarp_rgfa_profile_requires_leave_out_declaration(tmp_path: Path) -> None:
@@ -146,11 +163,14 @@ def test_svarp_rgfa_profile_requires_leave_out_declaration(tmp_path: Path) -> No
     source.write_text("reference_path: GRCh38\n", encoding="utf-8")
     gfa = root / "graph.gfa.gz"
     gfa.write_bytes(b"synthetic-rgfa")
+    variation_calls = root / "graph.variation.calls.bed.gz"
+    variation_calls.write_bytes(b"synthetic-calls")
 
     with pytest.raises(GraphAssetError, match="excluded_samples"):
         lock_graph_assets(
             source_manifest=source,
             gfa=gfa,
+            variation_calls=variation_calls,
             reference_path="GRCh38",
             profile="svarp_minigraph_longread",
         )
@@ -170,9 +190,12 @@ def test_svarp_rgfa_lock_is_rechecked_before_manifest_embedding(
     )
     gfa = root / "graph.gfa.gz"
     gfa.write_bytes(b"synthetic-rgfa")
+    variation_calls = root / "graph.variation.calls.bed.gz"
+    variation_calls.write_bytes(b"synthetic-calls")
     payload = lock_graph_assets(
         source_manifest=source,
         gfa=gfa,
+        variation_calls=variation_calls,
         reference_path="GRCh38",
         profile="svarp_minigraph_longread",
     )
@@ -184,6 +207,7 @@ def test_svarp_rgfa_lock_is_rechecked_before_manifest_embedding(
     assert embedded["profile"] == "svarp_minigraph_longread"
     assert embedded["sample_count"] is None
     assert embedded["gfa"]["sha256"] == sha256_file(gfa)
+    assert embedded["variation_calls"]["sha256"] == sha256_file(variation_calls)
 
 
 def test_pangenome_embedding_rechecks_locked_content(tmp_path: Path) -> None:

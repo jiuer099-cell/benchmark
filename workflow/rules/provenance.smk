@@ -20,9 +20,15 @@ def pre_score_manifest_paths(wildcards):
         # and the fused metrics manifest depends on every evaluator manifest.
         # Include the complete ancestry so lineage validation does not mistake
         # these deliberately generated upstream records for missing nodes.
+        selected_truth_manifest = evaluation_truth_rule_manifest(wildcards)
         manifests.extend(
             [
                 PRIMARY_TRUTH_RULE_MANIFEST,
+                *(
+                    [selected_truth_manifest]
+                    if selected_truth_manifest != PRIMARY_TRUTH_RULE_MANIFEST
+                    else []
+                ),
                 *[
                     semantic_rule_manifest(
                         f"evaluate_{evaluator}",
@@ -54,9 +60,19 @@ def expected_pre_score_jobs(wildcards):
         f"fuse_evaluator_metrics={core_job}",
     ]
     if not SYNTHETIC_MODE:
+        novel_truth_jobs = (
+            [
+                "prepare_novel_truth="
+                f"{config['truth']['primary']}.{PANGENOME_ID}"
+            ]
+            if tool_comparison_task(wildcards)
+            == "novel_pangenome_discovery"
+            else []
+        )
         jobs.extend(
             [
                 f"prepare_primary_truth={config['truth']['primary']}",
+                *novel_truth_jobs,
                 *[
                     f"evaluate_{evaluator}={core_job}"
                     for evaluator in FORMAL_EVALUATORS
@@ -80,6 +96,11 @@ def pre_score_artifact_paths(wildcards):
         f"{tool_root}/canonical/calls.vcf",
         f"{tool_root}/canonical/linked.vcf",
         f"{RESULTS_ROOT}/summary/{wildcards.tool}/metrics.json",
+        *(
+            [evaluation_truth_vcf(wildcards)]
+            if not SYNTHETIC_MODE
+            else []
+        ),
     ]
 
 

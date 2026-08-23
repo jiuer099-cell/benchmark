@@ -39,7 +39,7 @@ GRAPH_PROFILE_ASSETS = {
     "vg_legacy_xg": {"manifest", "gbz", "xg", "min", "dist", "sample_list"},
     # SVarp maps long reads to an rGFA minigraph graph.  Unlike vg's GBZ
     # profiles, no minimizer/distance index is involved.
-    "svarp_minigraph_longread": {"manifest", "gfa"},
+    "svarp_minigraph_longread": {"manifest", "gfa", "variation_calls"},
 }
 
 
@@ -259,6 +259,15 @@ def _validate_plugin_compatibility(
                     f"tool {plugin_id} rejects graph profile {graph_profile}; "
                     f"accepted={sorted(accepted)}"
                 )
+        if (
+            not synthetic
+            and manifest["comparison_task"] == "novel_pangenome_discovery"
+            and graph_profile != "svarp_minigraph_longread"
+        ):
+            raise ConfigValidationError(
+                f"tool {plugin_id} novel discovery requires the frozen "
+                "svarp_minigraph_longread graph-call profile"
+            )
 
 
 def validate_configuration(
@@ -277,11 +286,12 @@ def validate_configuration(
     )
     _validate_graph_profile(config)
     _validate_plugin_compatibility(config, plugins)
-    evaluator_profile = (repo_root / config["catalogs"]["evaluator_profile"]).resolve()
-    if not evaluator_profile.is_file():
-        raise ConfigValidationError(
-            f"evaluator profile does not exist: {evaluator_profile}"
-        )
+    for catalog_name in ("evaluator_profile", "novel_truth_profile"):
+        catalog_path = (repo_root / config["catalogs"][catalog_name]).resolve()
+        if not catalog_path.is_file():
+            raise ConfigValidationError(
+                f"{catalog_name} does not exist: {catalog_path}"
+            )
     development = config.get("development", {})
     needs_bam = (
         config["execution"]["official_score_mode"]

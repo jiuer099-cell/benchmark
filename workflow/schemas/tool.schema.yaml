@@ -162,6 +162,49 @@ properties:
       - required: [runner]
         not:
           required: [module]
+  parameter_contract:
+    type: object
+    additionalProperties: false
+    required: [contract, source_release, explicit, implicit]
+    properties:
+      contract:
+        const: pgbench_tool_parameters_v1
+      source_release:
+        type: object
+        additionalProperties: false
+        required: [tag, commit, source_url, archive_sha256]
+        properties:
+          tag:
+            type: string
+            minLength: 1
+          commit:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+          source_url:
+            type: string
+            minLength: 1
+          archive_sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      explicit:
+        type: object
+        minProperties: 1
+        additionalProperties:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+      implicit:
+        type: object
+        minProperties: 1
+        additionalProperties:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+            - type: "null"
   supported_modes:
     type: object
     minProperties: 1

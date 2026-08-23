@@ -61,7 +61,7 @@ def load_graph_assets_lock(path: Path) -> dict:
         # its released leave-one-out graph does not carry a separate sample
         # list, so the source lock declaration is the auditable exclusion
         # evidence and sample_count is intentionally unavailable.
-        "svarp_minigraph_longread": {"gfa"},
+        "svarp_minigraph_longread": {"gfa", "variation_calls"},
     }
     if profile not in profile_assets:
         raise PangenomeManifestError("graph assets lock has unsupported profile")

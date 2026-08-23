@@ -85,7 +85,7 @@ def metrics_materializer(wildcards):
 
 
 def scoring_truth_input(wildcards):
-    return PRIMARY_TRUTH_VCF
+    return evaluation_truth_vcf(wildcards)
 
 
 def scoring_regions_input(wildcards):
@@ -186,7 +186,7 @@ def materializer_arguments(wildcards):
         "--primary-truth-profile",
         config["truth"]["primary"],
         "--truth-vcf",
-        PRIMARY_TRUTH_VCF,
+        evaluation_truth_vcf(wildcards),
         "--benchmark-bed",
         config["evaluation"]["benchmark_bed"],
         "--reference",

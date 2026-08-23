@@ -80,6 +80,22 @@ rules:
     environment: workflow/envs/core.yaml
     resource_class: local_medium
 
+  - id: prepare_novel_truth
+    description: Materialize the GIAB truth subset absent from every compatible frozen minigraph allele.
+    phase: truth
+    kind: core
+    inputs: [primary_truth_vcf, graph_gfa, graph_variation_calls, graph_assets_lock_yaml, reference_fasta, evaluator_profile]
+    outputs: [novel_truth_vcf, novel_truth_tbi, novel_truth_audit, graph_exclusion_ledger]
+    upstream: [prepare_primary_truth, lock_graph_assets, build_pangenome_manifest]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: workflow/scripts/prepare_novel_truth.py
+    environment: workflow/envs/core.yaml
+    resource_class: compute_large
+
   - id: prepare_legacy_truth
     description: Prepare the independent legacy GIAB v0.6 truth profile.
     phase: truth
@@ -596,9 +612,9 @@ rules:
     description: Run Truvari bench and emit one binary vote for every canonical query result.
     phase: evaluation
     kind: core
-    inputs: [linked_vcf, primary_truth_vcf, primary_truth_bed, reference_fasta]
+    inputs: [linked_vcf, evaluation_truth_vcf, primary_truth_bed, reference_fasta]
     outputs: [truvari_vote_ledger, truvari_artifacts, evaluator_complete_json]
-    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_reference]
+    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_novel_truth, prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
@@ -612,9 +628,9 @@ rules:
     description: Run Aardvark haplotype comparison and emit one binary vote for every canonical query result.
     phase: evaluation
     kind: core
-    inputs: [linked_vcf, primary_truth_vcf, primary_truth_bed, reference_fasta]
+    inputs: [linked_vcf, evaluation_truth_vcf, primary_truth_bed, reference_fasta]
     outputs: [aardvark_vote_ledger, aardvark_artifacts, evaluator_complete_json]
-    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_reference]
+    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_novel_truth, prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
@@ -628,9 +644,9 @@ rules:
     description: Run vcfdist representation and phase comparison and threshold credit into one equal binary vote per result.
     phase: evaluation
     kind: core
-    inputs: [linked_vcf, primary_truth_vcf, primary_truth_bed, reference_fasta]
+    inputs: [linked_vcf, evaluation_truth_vcf, primary_truth_bed, reference_fasta]
     outputs: [vcfdist_vote_ledger, vcfdist_artifacts, evaluator_complete_json]
-    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_reference]
+    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_novel_truth, prepare_reference]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
