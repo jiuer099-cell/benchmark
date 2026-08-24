@@ -26,6 +26,8 @@ def test_manifest_freezes_long_read_discovery_contract() -> None:
     assert "candidate_output_contract: variant_sites" in manifest
     assert "- svarp=1.2.0" in environment
     assert "- wtdbg=2.5" in environment
+    assert "- pyyaml>=6,<7" in environment
+    assert "- jsonschema>=4.23,<5" in environment
     assert '"--reads"' not in RUNNER.read_text(encoding="utf-8")
     parsed = yaml.safe_load(manifest)
     parameters = parsed["parameter_contract"]
@@ -138,3 +140,15 @@ def test_runner_forbids_unsealed_cross_attempt_checkpoint_reuse() -> None:
     source = RUNNER.read_text(encoding="utf-8")
     assert "find_reusable_work_dir" not in source
     assert "reusing completed SVarp work checkpoint" not in source
+
+
+def test_find_svtigs_merges_multiple_supported_outputs(tmp_path: Path) -> None:
+    first = tmp_path / "HG002_svtigs_H1.fa"
+    second = tmp_path / "HG002_svtigs_H2.fa"
+    first.write_text(">h1\nACGT\n", encoding="utf-8")
+    second.write_text(">h2\nTGCA\n", encoding="utf-8")
+
+    merged = MODULE.find_svtigs(tmp_path, "HG002")
+
+    assert merged == tmp_path / "HG002_svtigs.merged.fa"
+    assert merged.read_text(encoding="utf-8") == ">h1\nACGT\n>h2\nTGCA\n"

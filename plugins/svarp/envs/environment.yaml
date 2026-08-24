@@ -3,6 +3,10 @@ channels:
   - bioconda
 dependencies:
   - python=3.12
+  # The isolated tool wrapper validates the tool manifest before executing
+  # SVarp, so these are runtime dependencies of this environment as well.
+  - pyyaml>=6,<7
+  - jsonschema>=4.23,<5
   - svarp=1.2.0
   - graphaligner=1.0.20
   - minigraph=0.21
