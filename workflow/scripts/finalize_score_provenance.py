@@ -175,12 +175,39 @@ def _validate_score(
 ) -> tuple[str, str, dict[str, str]]:
     _reject_forbidden_fields(score)
     score_status = score.get("score_status")
-    if score_status not in {"valid", "provisional"}:
+    if score_status not in {"valid", "provisional", "invalid"}:
         raise FinalScoreSealError(
-            "only valid or provisional numeric scores can be sealed"
+            "score_status must be valid, provisional, or invalid"
         )
     score_value = score.get("pgbench_score")
-    if (
+    if score_status == "invalid":
+        if score_value is not None:
+            raise FinalScoreSealError(
+                "invalid scores must set pgbench_score to null"
+            )
+        reason = score.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise FinalScoreSealError(
+                "invalid scores must include a non-empty reason"
+            )
+        # An invalid result may retain diagnostic evidence inside
+        # ``formal_analysis``, but no top-level score-like value may be
+        # promoted into the sealed result.  In particular, this prevents a
+        # diagnostic recovery statistic from being rendered as a formal score.
+        for field in (
+            "pgbench_score_raw",
+            "consensus_score",
+            "comparable_score",
+            "comparable_score_raw",
+            "pangenome_genotyping_score",
+            "non_reference_f1_score",
+            "global_end_to_end_sv_recovery_score",
+        ):
+            if score.get(field) is not None:
+                raise FinalScoreSealError(
+                    f"invalid scores must set {field} to null"
+                )
+    elif (
         isinstance(score_value, bool)
         or not isinstance(score_value, int | float)
         or not math.isfinite(float(score_value))
@@ -215,8 +242,13 @@ def _validate_score(
         raise FinalScoreSealError(
             "score_profile_sha256 must be a lowercase 64-character SHA-256"
         )
-    if evaluation_mode == "synthetic_smoke" and score_status != "provisional":
-        raise FinalScoreSealError("synthetic_smoke scores must remain provisional")
+    if evaluation_mode == "synthetic_smoke" and score_status not in {
+        "provisional",
+        "invalid",
+    }:
+        raise FinalScoreSealError(
+            "synthetic_smoke scores must be provisional or invalid"
+        )
     if score_status == "valid" and evaluation_mode != "formal":
         raise FinalScoreSealError("only formal evaluation_mode may seal as valid")
     return str(score_status), str(evaluation_mode), normalized_tuple
@@ -409,6 +441,35 @@ def _validate_metrics_records(
                     f"metrics has duplicate empty-strata aggregate {metric_id}"
                 )
             aggregates[metric_id] = record
+
+    if score.get("score_status") == "invalid":
+        score_analysis = score.get("formal_analysis")
+        metrics_analysis = metrics.get("analysis")
+        if not isinstance(score_analysis, Mapping) or not isinstance(
+            metrics_analysis, Mapping
+        ):
+            raise FinalScoreSealError(
+                "invalid score requires attested formal-analysis diagnostics"
+            )
+        if dict(score_analysis) != dict(metrics_analysis):
+            raise FinalScoreSealError(
+                "invalid score formal_analysis does not match fused metrics"
+            )
+        status = metrics_analysis.get("formal_score_status")
+        reason = metrics_analysis.get("formal_score_reason")
+        if not isinstance(status, str) or not status.startswith("invalid_"):
+            raise FinalScoreSealError(
+                "invalid score requires an invalid formal_score_status"
+            )
+        if not isinstance(reason, str) or not reason.strip():
+            raise FinalScoreSealError(
+                "invalid score requires a non-empty formal_score_reason"
+            )
+        if score.get("reason") != reason:
+            raise FinalScoreSealError(
+                "invalid score reason does not match fused metrics"
+            )
+        return
 
     if score.get("score_profile") in {"pgbench_consensus_v2", "pgbench_consensus_v3"}:
         consensus_counts = score.get("consensus_counts")
@@ -1036,7 +1097,9 @@ def finalize_score_provenance(
             score.get("score_profile") not in {"pgbench_consensus_v2", "pgbench_consensus_v3"}
         ),
         "consensus_counts_verified": (
-            score.get("score_profile") in {"pgbench_consensus_v2", "pgbench_consensus_v3"}
+            score_status != "invalid"
+            and score.get("score_profile")
+            in {"pgbench_consensus_v2", "pgbench_consensus_v3"}
         ),
         "upstream_relationships_verified": True,
         "valid_score_gates": valid_gates,

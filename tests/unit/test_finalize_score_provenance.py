@@ -443,6 +443,80 @@ def test_seals_synthetic_score_as_provisional_without_environment_lock(
     assert package["gates"]["environment_complete"] is False
 
 
+def test_seals_attested_invalid_formal_score_without_numeric_promotion(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    reason = "evaluator unresolved mapping exceeds 1.00%: vcfdist=4/346 (1.16%)"
+    formal_analysis = {
+        "formal_score_status": "invalid_evaluator_mapping",
+        "formal_score_reason": reason,
+        "diagnostic_recovery_score": 3.678256645152335,
+    }
+
+    def invalidate_score(score: dict[str, Any]) -> None:
+        score.update(
+            {
+                "score_status": "invalid",
+                "pgbench_score": None,
+                "reason": reason,
+                "formal_analysis": dict(formal_analysis),
+            }
+        )
+
+    fixture = _seal_fixture(
+        root,
+        score_status="invalid",
+        score_mutator=invalidate_score,
+        metrics_mutator=lambda metrics: metrics.update(
+            {"analysis": dict(formal_analysis)}
+        ),
+    )
+
+    assert _run_seal(root, fixture) == 0
+
+    package = json.loads(fixture["outputs"]["package"].read_text(encoding="utf-8"))
+    audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
+    assert package["seal_status"] == "invalid"
+    assert package["score"]["pgbench_score"] is None
+    assert package["score"]["reason"] == reason
+    assert audit["seal_status"] == "invalid"
+
+
+def test_rejects_invalid_score_that_promotes_diagnostic_as_numeric_score(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    reason = "evaluator unresolved mapping exceeds 1.00%: vcfdist=4/346 (1.16%)"
+    formal_analysis = {
+        "formal_score_status": "invalid_evaluator_mapping",
+        "formal_score_reason": reason,
+    }
+
+    def invalidate_score(score: dict[str, Any]) -> None:
+        score.update(
+            {
+                "score_status": "invalid",
+                "pgbench_score": None,
+                "comparable_score": 3.678256645152335,
+                "reason": reason,
+                "formal_analysis": dict(formal_analysis),
+            }
+        )
+
+    fixture = _seal_fixture(
+        root,
+        score_status="invalid",
+        score_mutator=invalidate_score,
+        metrics_mutator=lambda metrics: metrics.update(
+            {"analysis": dict(formal_analysis)}
+        ),
+    )
+
+    assert _run_seal(root, fixture) == 2
+    _assert_no_outputs(fixture)
+
+
 def test_rejects_valid_score_when_environment_gate_is_incomplete(
     tmp_path: Path,
 ) -> None:
