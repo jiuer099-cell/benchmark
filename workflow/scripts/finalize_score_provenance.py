@@ -712,12 +712,74 @@ def _expected_jobs(
     ]
 
 
+def _derived_truth_profile_audit_reconciliation(
+    stored: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    mismatches: Sequence[str],
+) -> dict[str, Any] | None:
+    """Recognize the one audited correction for derived novel-truth profiles.
+
+    Older audits incorrectly made every manifest's ``truth_profile`` a frozen
+    execution-context field. A primary-truth manifest and a hash-bound
+    derived-novel-truth manifest therefore produced an invalid pre-score audit
+    even when their lineage and every artifact hash were intact. This is not a
+    general escape hatch for historical audit drift: accept only that exact
+    obsolete error, and preserve the stored artifact hash plus a machine-
+    readable reconciliation record in the final seal.
+    """
+
+    if set(mismatches) != {
+        "status",
+        "run_context_complete",
+        "core_provenance_valid",
+    }:
+        return None
+    if (
+        stored.get("status") != "invalid"
+        or stored.get("run_context_complete") is not False
+        or stored.get("core_provenance_valid") is not False
+        or replay.get("status") != "valid"
+        or replay.get("run_context_complete") is not True
+        or replay.get("core_provenance_valid") is not True
+    ):
+        return None
+    stored_issues = stored.get("issues")
+    replay_issues = replay.get("issues")
+    if not isinstance(stored_issues, list) or not isinstance(replay_issues, list):
+        return None
+    stored_errors = [
+        issue
+        for issue in stored_issues
+        if isinstance(issue, Mapping) and issue.get("severity") == "error"
+    ]
+    if len(stored_errors) != 1 or (
+        stored_errors[0].get("code") != "run_context_mismatch"
+        or stored_errors[0].get("field") != "truth_profile"
+    ):
+        return None
+    if any(
+        isinstance(issue, Mapping) and issue.get("severity") == "error"
+        for issue in replay_issues
+    ):
+        return None
+    return {
+        "kind": "derived_truth_profile_execution_context_correction",
+        "reconciled_fields": sorted(mismatches),
+        "stored_status": stored["status"],
+        "replayed_status": replay["status"],
+        "superseded_error": {
+            "code": "run_context_mismatch",
+            "field": "truth_profile",
+        },
+    }
+
+
 def _replay_pre_score_audit(
     pre_score_audit: Mapping[str, Any],
     manifest_by_id: Mapping[str, Mapping[str, Any]],
     *,
     workspace_root: Path,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     pre_score_ids = _pre_score_manifest_ids(pre_score_audit)
     missing_ids = sorted(pre_score_ids - set(manifest_by_id))
     if missing_ids:
@@ -749,7 +811,12 @@ def _replay_pre_score_audit(
         for field in AUDIT_REPLAY_FIELDS
         if pre_score_audit.get(field) != replay.get(field)
     ]
-    if mismatches:
+    reconciliation = _derived_truth_profile_audit_reconciliation(
+        pre_score_audit,
+        replay,
+        mismatches,
+    )
+    if mismatches and reconciliation is None:
         raise FinalScoreSealError(
             "pre-score audit does not reproduce from supplied manifests: "
             + ", ".join(mismatches)
@@ -758,7 +825,7 @@ def _replay_pre_score_audit(
         raise FinalScoreSealError("pre-score core/hash provenance gate failed")
     if replay["manifest_completeness"] != 1.0:
         raise FinalScoreSealError("pre-score manifest completeness must equal 1.0")
-    return replay
+    return replay, reconciliation
 
 
 def _validate_upstream_relationships(
@@ -1006,7 +1073,7 @@ def finalize_score_provenance(
         _manifest_id(manifest, label="supporting manifest"): manifest
         for manifest in supporting_manifests
     }
-    replay = _replay_pre_score_audit(
+    replay, pre_score_audit_reconciliation = _replay_pre_score_audit(
         stored_pre_score_audit,
         manifest_by_id,
         workspace_root=root,
@@ -1089,7 +1156,8 @@ def finalize_score_provenance(
         "metrics_artifact_sha256": metrics_hash,
         "score_manifest_id": score_manifest_id,
         "audit_manifest_id": audit_manifest_id,
-        "pre_score_audit_reproduced": True,
+        "pre_score_audit_reproduced": pre_score_audit_reconciliation is None,
+        "pre_score_audit_reconciled": pre_score_audit_reconciliation is not None,
         "score_artifact_hash_verified": True,
         "metrics_artifact_hash_verified": True,
         "metrics_provenance_ids_verified": True,
@@ -1104,6 +1172,10 @@ def finalize_score_provenance(
         "upstream_relationships_verified": True,
         "valid_score_gates": valid_gates,
     }
+    if pre_score_audit_reconciliation is not None:
+        final_audit_payload["pre_score_audit_reconciliation"] = (
+            pre_score_audit_reconciliation
+        )
     lineage_json_text = _json_text(final_lineage)
     lineage_tsv_text = lineage_tsv(final_lineage)
     audit_json_text = _json_text(final_audit_payload)

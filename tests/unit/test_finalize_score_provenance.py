@@ -412,6 +412,52 @@ def test_seals_when_stored_audit_contains_path_only_warning(tmp_path: Path) -> N
     )
 
 
+def test_reconciles_only_legacy_derived_truth_context_audit(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+
+    def mark_legacy_truth_profile_error(audit: dict[str, Any]) -> None:
+        audit.update(
+            {
+                "status": "invalid",
+                "run_context_complete": False,
+                "core_provenance_valid": False,
+            }
+        )
+        audit["issues"].append(
+            {
+                "severity": "error",
+                "code": "run_context_mismatch",
+                "field": "truth_profile",
+                "message": (
+                    "audited manifests disagree on frozen run-context "
+                    "field truth_profile"
+                ),
+            }
+        )
+
+    fixture = _seal_fixture(root, audit_mutator=mark_legacy_truth_profile_error)
+
+    assert _run_seal(root, fixture) == 0
+
+    audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
+    assert audit["pre_score_audit_reproduced"] is False
+    assert audit["pre_score_audit_reconciled"] is True
+    assert audit["pre_score_audit_reconciliation"] == {
+        "kind": "derived_truth_profile_execution_context_correction",
+        "reconciled_fields": [
+            "core_provenance_valid",
+            "run_context_complete",
+            "status",
+        ],
+        "stored_status": "invalid",
+        "replayed_status": "valid",
+        "superseded_error": {
+            "code": "run_context_mismatch",
+            "field": "truth_profile",
+        },
+    }
+
+
 def test_seals_score_with_run_id_scoped_companions(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     fixture = _seal_fixture(root, run_scoped_companions=True)
