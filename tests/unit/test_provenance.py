@@ -777,6 +777,59 @@ def test_audit_requires_one_consistent_frozen_run_context(tmp_path: Path) -> Non
     assert any(issue["code"] == "run_context_mismatch" for issue in audit["issues"])
 
 
+def test_audit_allows_hash_bound_derived_truth_profile(tmp_path: Path) -> None:
+    primary_truth = tmp_path / "primary-truth.vcf.gz"
+    novel_truth = tmp_path / "novel-truth.vcf.gz"
+    primary_truth.write_text("primary", encoding="utf-8")
+    novel_truth.write_text("derived", encoding="utf-8")
+    primary = _prepared_manifest(
+        rule_name="prepare_primary_truth",
+        job_key="giab_hg002_grch38_v5_0q",
+        attempt_id="primary",
+        inputs=[],
+        outputs=[primary_truth],
+    )
+    derived = _prepared_manifest(
+        rule_name="prepare_novel_truth",
+        job_key="giab_hg002_grch38_v5_0q.graph",
+        attempt_id="derived",
+        inputs=[primary_truth],
+        outputs=[novel_truth],
+        upstream_manifest_ids=[primary["manifest_id"]],
+    )
+    # The derived VCF is independently content-bound by the manifest lineage;
+    # its profile is not the primary-truth identity used by the formal score.
+    derived["truth_profile"] = "pgbench_minigraph_novel_truth_v2"
+    _write_companions(tmp_path, primary)
+    _write_companions(tmp_path, derived)
+
+    audit = audit_manifests(
+        [primary, derived],
+        expected_jobs=[
+            {
+                "rule_name": "prepare_primary_truth",
+                "job_key": primary["job_key"],
+            },
+            {
+                "rule_name": "prepare_novel_truth",
+                "job_key": derived["job_key"],
+            },
+        ],
+        target_manifest_ids=[derived["manifest_id"]],
+        workspace_root=tmp_path,
+        require_companions=True,
+    )
+
+    assert audit["status"] == "valid"
+    assert audit["run_context_complete"] is True
+    assert audit["hash_lineage_complete"] is True
+    assert not any(
+        issue.get("code") == "run_context_mismatch"
+        and issue.get("field") == "truth_profile"
+        for issue in audit["issues"]
+    )
+
+
 def test_audit_requires_nonempty_snakemake_version(tmp_path: Path) -> None:
     result = tmp_path / "result"
     result.write_text("ok", encoding="utf-8")

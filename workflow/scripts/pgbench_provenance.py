@@ -1603,14 +1603,15 @@ def audit_manifests(
     )
     if run_context_complete:
         # Every audited job must describe the same frozen *execution* context.
-        # The scoring profile is intentionally excluded: immutable tool and
-        # evaluator outputs may be rescored under a newer profile.  Score and
-        # audit manifests still bind that profile's exact hash, and the final
-        # sealing step verifies those bindings.
+        # Both score_profile_sha256 and truth_profile are deliberately excluded:
+        # immutable outputs may be rescored under a newer score profile, and
+        # evaluator jobs consume a derived novel-truth profile while the formal
+        # score remains bound to the primary truth profile.  Each manifest still
+        # binds its own truth inputs by hash; final sealing verifies the primary
+        # truth profile on the score, audit, and metrics tuple.
         context_fields = (
             "run_id",
             "config_snapshot_sha256",
-            "truth_profile",
             "git_head",
             "git_dirty",
             "git_diff_sha256",
