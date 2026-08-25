@@ -258,11 +258,19 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "query_result_count",
         "comparable_precision",
         "comparable_recall",
+        "DiagnosticGlobalEndToEndSVRecoveryScore",
+        "DiagnosticEligibleTruthCount",
+        "DiagnosticQueryEventCount",
+        "DiagnosticCreditedTruthEvents",
+        "DiagnosticGlobalRecoveryStatus",
     ]
     analysis = score.get("formal_analysis")
     analysis = analysis if isinstance(analysis, Mapping) else {}
     interval = analysis.get("comparable_score_confidence_interval")
     interval = interval if isinstance(interval, Mapping) else {}
+    matching = analysis.get("matching")
+    matching = matching if isinstance(matching, Mapping) else {}
+    invalid_formal_score = score.get("score_status") == "invalid"
     row = {
         **tuple_key,
         "score_profile": score["score_profile"],
@@ -280,10 +288,29 @@ def _write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "ComparableScore_CI95_lower": interval.get("lower"),
         "ComparableScore_CI95_upper": interval.get("upper"),
         "ConsensusScore": score.get("consensus_score"),
-        "truth_eligible_count": score.get("truth_eligible_count"),
-        "query_result_count": score.get("total_evaluated"),
-        "comparable_precision": score.get("comparable_precision"),
-        "comparable_recall": score.get("comparable_recall"),
+        # A fail-closed score intentionally has no official denominator or
+        # precision/recall.  Leave those TSV cells empty instead of showing
+        # structural zero placeholders from the score object; diagnostics are
+        # supplied in separately named, non-ranking fields below.
+        "truth_eligible_count": (
+            None if invalid_formal_score else score.get("truth_eligible_count")
+        ),
+        "query_result_count": (
+            None if invalid_formal_score else score.get("total_evaluated")
+        ),
+        "comparable_precision": (
+            None if invalid_formal_score else score.get("comparable_precision")
+        ),
+        "comparable_recall": (
+            None if invalid_formal_score else score.get("comparable_recall")
+        ),
+        "DiagnosticGlobalEndToEndSVRecoveryScore": analysis.get(
+            "global_end_to_end_sv_recovery_score"
+        ),
+        "DiagnosticEligibleTruthCount": matching.get("eligible_truth_event_count"),
+        "DiagnosticQueryEventCount": matching.get("query_event_count"),
+        "DiagnosticCreditedTruthEvents": matching.get("credited_truth_events"),
+        "DiagnosticGlobalRecoveryStatus": analysis.get("global_recovery_status"),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -335,6 +362,33 @@ def _html(score: Mapping[str, Any]) -> str:
         if score.get("comparable_score", score.get("pgbench_score")) is None
         else f"{float(score.get('comparable_score', score.get('pgbench_score'))):.2f}"
     )
+    matching = analysis.get("matching")
+    matching = matching if isinstance(matching, Mapping) else {}
+    diagnostic_global_score = analysis.get("global_end_to_end_sv_recovery_score")
+    diagnostic_global_text = "not available"
+    if isinstance(diagnostic_global_score, int | float) and not isinstance(
+        diagnostic_global_score, bool
+    ):
+        diagnostic_global_text = f"{float(diagnostic_global_score):.2f}"
+    diagnostic_truth_count = matching.get("eligible_truth_event_count")
+    diagnostic_query_count = matching.get("query_event_count")
+    diagnostic_credited_count = matching.get("credited_truth_events")
+    formal_score_status = analysis.get("formal_score_status", "not available")
+    invalid_formal_score = score.get("score_status") == "invalid"
+    if invalid_formal_score:
+        formal_count_text = (
+            "正式计分计数不可用，因为结果已被 fail-closed 门控。"
+            f"诊断性全局回收分母：eligible truth={diagnostic_truth_count if diagnostic_truth_count is not None else 'not available'}；"
+            f"submitted events={diagnostic_query_count if diagnostic_query_count is not None else 'not available'}；"
+            f"credited truth={diagnostic_credited_count if diagnostic_credited_count is not None else 'not available'}。"
+        )
+    else:
+        formal_count_text = (
+            f"固定 truth 数量：{score.get('truth_eligible_count', '')}；"
+            f"检测事件数量：{score.get('total_evaluated', '')}；"
+            f"comparable precision：{score.get('comparable_precision', '')}；"
+            f"comparable recall：{score.get('comparable_recall', '')}。"
+        )
     consensus_value = (
         "not available"
         if score.get("consensus_score") is None
@@ -524,7 +578,7 @@ def _html(score: Mapping[str, Any]) -> str:
     <dt>Evaluation mode</dt><dd>{escape(str(score["evaluation_mode"]))}</dd>
     <dt>Status</dt><dd>{escape(str(score["score_status"]))}</dd>
   </dl>
-  <p><strong>Formal score gate:</strong> {escape(str(analysis.get('formal_score_status', 'not available')))};
+  <p><strong>Formal score gate:</strong> {escape(str(formal_score_status))};
   {escape(str(analysis.get('formal_score_reason') or 'no blocking reason recorded'))}.</p>
   <p class="score">PGBench Consensus Score: {pgbench_value} / 100</p>
   <p>This universal primary score is the mean of three frozen evaluators'
@@ -538,13 +592,13 @@ def _html(score: Mapping[str, Any]) -> str:
   <p><strong>Global End-to-End SV Recovery Score (ComparableScore):</strong>
   {comparable_value} / 100. This secondary score measures recovery against the
   full eligible HG002 truth set and is not the primary panel-genotyping score.</p>
+  <p><strong>Diagnostic Global Recovery:</strong> {diagnostic_global_text} / 100;
+  status={escape(str(analysis.get('global_recovery_status', 'not available')))}.
+  This diagnostic is never promoted to a formal score when the formal gate is invalid.</p>
   <p>ComparableScore: {comparable_value} / 100 (legacy field name).</p>
   <p>{interval_text}</p>
   <p>ConsensusScore: {consensus_value} / 100</p>
-  <p>固定 truth 数量：{score.get("truth_eligible_count", "")}；
-  检测事件数量：{score.get("total_evaluated", "")}；
-  comparable precision：{score.get("comparable_precision", "")}；
-  comparable recall：{score.get("comparable_recall", "")}。</p>
+  <p>{escape(formal_count_text)}</p>
   <p>All three correct: {score.get("consensus_counts", {}).get("all_three_correct", "")}; exactly two: {score.get("consensus_counts", {}).get("exactly_two_correct", "")}; exactly one: {score.get("consensus_counts", {}).get("exactly_one_correct", "")}; none: {score.get("consensus_counts", {}).get("none_correct", "")}.</p>
   <h2>Consensus counts</h2>
   <table>

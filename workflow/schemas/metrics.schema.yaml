@@ -460,7 +460,13 @@ $defs:
       matching:
         type: object
         additionalProperties: false
-        required: [algorithm, unique_truth_accounting, credited_truth_events]
+        required:
+          - algorithm
+          - unique_truth_accounting
+          - credited_truth_events
+          - eligible_truth_event_count
+          - query_event_count
+          - soft_true_positive_count
         properties:
           algorithm:
             const: deterministic_max_cardinality_max_weight_one_to_one_v1
@@ -468,6 +474,15 @@ $defs:
             type: boolean
           credited_truth_events:
             type: integer
+            minimum: 0
+          eligible_truth_event_count:
+            type: integer
+            minimum: 0
+          query_event_count:
+            type: integer
+            minimum: 0
+          soft_true_positive_count:
+            type: number
             minimum: 0
       evaluator_event_mapping:
         type: object

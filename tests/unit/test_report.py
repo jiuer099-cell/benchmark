@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import sys
@@ -234,6 +235,69 @@ def test_detection_only_genotype_metrics_render_as_not_applicable(
         manifests=[{"id": "example", "capabilities": {"technology": []}}],
     )
     assert index.count("N/A") >= 2
+
+
+def test_invalid_score_renders_diagnostic_global_denominators_not_zeroes(
+    tmp_path: Path,
+) -> None:
+    score = _renderable_score()
+    score.update(
+        {
+            "score_status": "invalid",
+            "pgbench_score": None,
+            "consensus_score": None,
+            "comparable_score": None,
+            "global_end_to_end_sv_recovery_score": None,
+            "pangenome_genotyping_score": None,
+            "non_reference_f1_score": None,
+            "truth_eligible_count": 0,
+            "total_evaluated": 0,
+            "reason": "evaluator unresolved mapping exceeds 1.00%",
+            "formal_analysis": {
+                "formal_score_status": "invalid_evaluator_mapping",
+                "formal_score_reason": "evaluator unresolved mapping exceeds 1.00%",
+                "global_recovery_status": "invalid_unresolved_mapping",
+                "global_end_to_end_sv_recovery_score": 3.678256645152335,
+                "matching": {
+                    "eligible_truth_event_count": 10910,
+                    "query_event_count": 346,
+                    "credited_truth_events": 207,
+                },
+                "candidate_genotype_summary": {
+                    "candidate_output_contract": "variant_sites",
+                },
+            },
+        }
+    )
+    score_path = tmp_path / "score.json"
+    score_path.write_text(json.dumps(score), encoding="utf-8")
+    package_path = _write_package(score_path, score)
+    manifest_path = _write_finalizer_manifest(score_path, package_path, score)
+    html = tmp_path / "index.html"
+    score_tsv = tmp_path / "score.tsv"
+    render_report(
+        score_path,
+        score_package=package_path,
+        finalizer_manifest=manifest_path,
+        html_output=html,
+        score_tsv=score_tsv,
+        point_breakdown_tsv=tmp_path / "points.tsv",
+    )
+
+    text = html.read_text(encoding="utf-8")
+    assert "Diagnostic Global Recovery:</strong> 3.68 / 100" in text
+    assert "eligible truth=10910" in text
+    assert "submitted events=346" in text
+    assert "credited truth=207" in text
+    assert "固定 truth 数量：0" not in text
+    row = next(csv.DictReader(score_tsv.read_text(encoding="utf-8").splitlines(), delimiter="\t"))
+    assert row["truth_eligible_count"] == ""
+    assert row["query_result_count"] == ""
+    assert row["DiagnosticGlobalEndToEndSVRecoveryScore"] == "3.678256645152335"
+    assert row["DiagnosticEligibleTruthCount"] == "10910"
+    assert row["DiagnosticQueryEventCount"] == "346"
+    assert row["DiagnosticCreditedTruthEvents"] == "207"
+    assert row["DiagnosticGlobalRecoveryStatus"] == "invalid_unresolved_mapping"
 
 
 def test_report_rejects_ranking_fields(tmp_path: Path) -> None:

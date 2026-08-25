@@ -661,6 +661,9 @@ def test_semantic_materialization_has_unique_truth_ci_and_strata(
     analysis = payload["analysis"]
     assert analysis["matching"]["unique_truth_accounting"] is True
     assert analysis["matching"]["credited_truth_events"] == 1
+    assert analysis["matching"]["eligible_truth_event_count"] == 2
+    assert analysis["matching"]["query_event_count"] == 2
+    assert analysis["matching"]["soft_true_positive_count"] == pytest.approx(2 / 3)
     assert analysis["formal_score_status"] == "valid"
     assert analysis["formal_score_reason"] is None
     assert analysis["semantic_summary"]["truvari"]["no_call"] == 1

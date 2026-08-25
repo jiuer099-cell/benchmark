@@ -1588,6 +1588,12 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 "unique_truth_accounting": extended,
                 "credited_truth_events": len(credits),
+                # These are diagnostic denominators for Global Recovery.  They
+                # remain available even when the formal score is fail-closed
+                # (and its top-level counts are deliberately unset/zeroed).
+                "eligible_truth_event_count": truth_total,
+                "query_event_count": len(event_ids),
+                "soft_true_positive_count": soft_tp,
             },
             "evaluator_event_mapping": mapping_summary,
             "maximum_unresolved_mapping_fraction": max_unresolved_fraction,
