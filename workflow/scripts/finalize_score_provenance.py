@@ -738,7 +738,7 @@ def _derived_truth_profile_audit_reconciliation(
         stored.get("status") != "invalid"
         or stored.get("run_context_complete") is not False
         or stored.get("core_provenance_valid") is not False
-        or replay.get("status") != "valid"
+        or replay.get("status") not in {"valid", "provisional"}
         or replay.get("run_context_complete") is not True
         or replay.get("core_provenance_valid") is not True
     ):

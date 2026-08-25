@@ -435,7 +435,13 @@ def test_reconciles_only_legacy_derived_truth_context_audit(tmp_path: Path) -> N
             }
         )
 
-    fixture = _seal_fixture(root, audit_mutator=mark_legacy_truth_profile_error)
+    fixture = _seal_fixture(
+        root,
+        score_status="provisional",
+        evaluation_mode="synthetic_smoke",
+        environment_complete=False,
+        audit_mutator=mark_legacy_truth_profile_error,
+    )
 
     assert _run_seal(root, fixture) == 0
 
@@ -450,7 +456,7 @@ def test_reconciles_only_legacy_derived_truth_context_audit(tmp_path: Path) -> N
             "status",
         ],
         "stored_status": "invalid",
-        "replayed_status": "valid",
+        "replayed_status": "provisional",
         "superseded_error": {
             "code": "run_context_mismatch",
             "field": "truth_profile",
