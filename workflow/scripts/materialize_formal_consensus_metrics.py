@@ -429,8 +429,10 @@ def load_completions(
             raise ConsensusMetricError(
                 f"{evaluator} used a different evaluator profile"
             )
-        if payload.get("schema_version") != 3:
-            raise ConsensusMetricError(f"{evaluator} completion schema is not frozen v3")
+        if payload.get("schema_version") not in {3, 4}:
+            raise ConsensusMetricError(
+                f"{evaluator} completion schema is not a supported frozen version"
+            )
         version = payload.get("version")
         if not isinstance(version, dict) or not version.get("sha256"):
             raise ConsensusMetricError(f"{evaluator} version was not recorded")
@@ -1571,7 +1573,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         },
         "records": records,
         "analysis": {
-            "contract_version": "formal_detection_consensus_v3",
+            "contract_version": "formal_detection_consensus_v4",
             "evaluator_profile_id": evaluator_profile["profile"]["id"],
             "evaluator_profile_sha256": evaluator_profile["_sha256"],
             "evaluator_bundle_sha256": provenance_id,

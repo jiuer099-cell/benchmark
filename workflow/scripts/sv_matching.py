@@ -155,6 +155,21 @@ def load_evaluator_profile(path: Path) -> dict[str, Any]:
         raise SvMatchError("sequence_similarity_algorithm is not frozen")
     if match.get("sequence_roll_policy") != "enabled":
         raise SvMatchError("sequence_roll_policy must be enabled")
+    semantics = loaded["semantics"]
+    recovery = semantics.get("vcfdist_unresolved_recovery")
+    if not isinstance(recovery, dict):
+        raise SvMatchError("semantics.vcfdist_unresolved_recovery is required")
+    expected_recovery = {
+        "enabled": True,
+        "contract": "isolated_single_query_event_v1",
+        "selection": "every_bulk_unresolved_submitted_event",
+        "aggregation": "mean_all_native_query_credits",
+    }
+    if recovery != expected_recovery:
+        raise SvMatchError(
+            "semantics.vcfdist_unresolved_recovery does not match the frozen "
+            "event-identity contract"
+        )
     for evaluator, option in (
         ("truvari", "--sizemax"),
         ("vcfdist", "--largest-variant"),

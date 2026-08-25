@@ -352,7 +352,7 @@ properties:
     required: [profile, final_score_name, produce_ranking]
     properties:
       profile:
-        const: pgbench_consensus_v3
+        const: pgbench_consensus_v4
       final_score_name:
         const: PGBenchConsensusScore
       produce_ranking:

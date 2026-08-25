@@ -389,7 +389,7 @@ def build_score_payload_from_metrics(
             )
 
     aggregates = _aggregate_records(records)
-    if score_profile_id == "pgbench_consensus_v3":
+    if score_profile_id in {"pgbench_consensus_v3", "pgbench_consensus_v4"}:
         truth_metric_id = "benchmark.truth.eligible.count"
         consensus_metrics = {
             "all_three_correct": "consensus.all_three_correct.count",

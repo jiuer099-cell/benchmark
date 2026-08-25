@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import gzip
 import json
+import os
 import sys
 from argparse import Namespace
 from copy import deepcopy
@@ -33,6 +34,7 @@ from run_formal_evaluator import (  # noqa: E402
     command_prefix,
     parse_aardvark,
     parse_vcfdist,
+    parse_vcfdist_isolated_event,
     write_variant_query,
 )
 from sv_matching import SvRecord, load_evaluator_profile  # noqa: E402
@@ -415,6 +417,66 @@ def test_vcfdist_partial_complex_component_is_resolved_at_event_level(
     assert votes == {"CANON_COMPLEX": True}
 
 
+def test_vcfdist_isolated_event_uses_only_its_native_query_rows(
+    tmp_path: Path,
+) -> None:
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tCANON_ISOLATED\tA\tAT\t.\tPASS\tSVTYPE=INS\tGT\t0|1\n",
+        encoding="utf-8",
+    )
+    vcfdist = tmp_path / "vcfdist"
+    vcfdist.mkdir()
+    # The native representation is intentionally not the source REF/ALT key.
+    # It is still attributable because this recovery query has exactly one ID.
+    (vcfdist / "query.tsv").write_text(
+        "CONTIG\tPOS\tHAP\tREF\tALT\tCREDIT\n"
+        "chr1\t101\t1\t\tTG\t0.8\n",
+        encoding="utf-8",
+    )
+
+    diagnostics: dict[str, object] = {}
+    order, votes = parse_vcfdist_isolated_event(
+        query, vcfdist, credit_threshold=0.7, diagnostics=diagnostics
+    )
+
+    assert order == ["CANON_ISOLATED"]
+    assert votes == {"CANON_ISOLATED": True}
+    assert diagnostics["native_query_row_count"] == 1
+    assert diagnostics["mean_credit"] == 0.8
+    assert diagnostics["status_counts"] == {"isolated_native_query_rows": 1}
+
+
+def test_vcfdist_isolated_event_keeps_empty_native_output_unresolved(
+    tmp_path: Path,
+) -> None:
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tCANON_EMPTY\tA\tAT\t.\tPASS\tSVTYPE=INS\tGT\t0|1\n",
+        encoding="utf-8",
+    )
+    vcfdist = tmp_path / "vcfdist"
+    vcfdist.mkdir()
+    (vcfdist / "query.tsv").write_text(
+        "CONTIG\tPOS\tHAP\tREF\tALT\tCREDIT\n",
+        encoding="utf-8",
+    )
+
+    diagnostics: dict[str, object] = {}
+    order, votes = parse_vcfdist_isolated_event(
+        query, vcfdist, credit_threshold=0.7, diagnostics=diagnostics
+    )
+
+    assert order == ["CANON_EMPTY"]
+    assert votes == {}
+    assert diagnostics["unresolved_events"] == 1
+    assert diagnostics["status_counts"] == {"isolated_empty_native_output": 1}
+
+
 def test_evaluator_commands_freeze_the_common_maximum_size(
     tmp_path: Path,
 ) -> None:
@@ -449,6 +511,7 @@ def test_evaluator_commands_freeze_the_common_maximum_size(
     assert vcfdist[vcfdist.index("--largest-variant") + 1] == "10000"
     assert vcfdist[vcfdist.index("--max-supercluster-size") + 1] == "20000"
     assert vcfdist[vcfdist.index("--max-threads") + 1] == "4"
+    assert vcfdist[vcfdist.index("-p") + 1] == str(common["artifacts"]) + os.sep
     assert "--sizemax" not in aardvark
     assert "--largest-variant" not in aardvark
 

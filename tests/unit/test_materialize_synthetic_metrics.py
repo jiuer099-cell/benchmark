@@ -93,7 +93,7 @@ def test_complete_fixture_materializes_to_valid_metrics_contract() -> None:
         "tool_id": "example_genotyper",
         "official_score_mode": "end_to_end_from_reads",
         "primary_truth_profile": "giab_hg002_grch38_v5_0q",
-        "score_profile": "pgbench_consensus_v3",
+        "score_profile": "pgbench_consensus_v4",
     }
     assert score_payload["consensus"] == fixture["consensus"]
     assert records["vcfdist.phase.accuracy"]["status"] == (

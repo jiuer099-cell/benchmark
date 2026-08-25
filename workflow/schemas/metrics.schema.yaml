@@ -37,7 +37,7 @@ properties:
       primary_truth_profile:
         $ref: "#/$defs/identifier"
       score_profile:
-        const: pgbench_consensus_v3
+        const: pgbench_consensus_v4
   records:
     type: array
     minItems: 1
@@ -194,7 +194,7 @@ $defs:
       - resource_summary
     properties:
       contract_version:
-        const: formal_detection_consensus_v3
+        const: formal_detection_consensus_v4
       evaluator_profile_id:
         $ref: "#/$defs/identifier"
       evaluator_profile_sha256:

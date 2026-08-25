@@ -294,23 +294,10 @@ def parse_vcfdist(
     credit_threshold: float,
     diagnostics: dict[str, Any] | None = None,
 ) -> tuple[list[str], dict[str, bool]]:
-    path = artifacts / "query.tsv"
-    if not path.is_file():
-        raise FormalEvaluatorError(f"vcfdist output is absent: {path}")
+    rows = vcfdist_query_rows(artifacts)
     credits: dict[tuple[str, int, str, str], list[float]] = defaultdict(list)
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        required = {"CONTIG", "POS", "REF", "ALT", "CREDIT"}
-        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
-            raise FormalEvaluatorError("vcfdist query.tsv has an unsupported header")
-        for row in reader:
-            key = (
-                row["CONTIG"],
-                int(row["POS"]),
-                row["REF"],
-                row["ALT"],
-            )
-            credits[key].append(float(row["CREDIT"]))
+    for key, credit in rows:
+        credits[key].append(credit)
     order: list[str] = []
     votes: dict[str, bool] = {}
     status_counts: dict[str, int] = defaultdict(int)
@@ -364,6 +351,101 @@ def parse_vcfdist(
             }
         )
     return order, votes
+
+
+def vcfdist_query_rows(
+    artifacts: Path,
+) -> list[tuple[tuple[str, int, str, str], float]]:
+    """Load vcfdist's native per-query credits without assigning them to IDs."""
+
+    path = artifacts / "query.tsv"
+    if not path.is_file():
+        raise FormalEvaluatorError(f"vcfdist output is absent: {path}")
+    rows: list[tuple[tuple[str, int, str, str], float]] = []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {"CONTIG", "POS", "REF", "ALT", "CREDIT"}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise FormalEvaluatorError("vcfdist query.tsv has an unsupported header")
+        for row in reader:
+            try:
+                key = (
+                    row["CONTIG"],
+                    int(row["POS"]),
+                    row["REF"],
+                    row["ALT"],
+                )
+                credit = float(row["CREDIT"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise FormalEvaluatorError(
+                    f"vcfdist query.tsv has an invalid data row: {row!r}"
+                ) from exc
+            if not 0.0 <= credit <= 1.0:
+                raise FormalEvaluatorError(
+                    f"vcfdist query credit is outside [0, 1]: {credit}"
+                )
+            rows.append((key, credit))
+    return rows
+
+
+def parse_vcfdist_isolated_event(
+    query: Path,
+    artifacts: Path,
+    *,
+    credit_threshold: float,
+    diagnostics: dict[str, Any] | None = None,
+) -> tuple[list[str], dict[str, bool]]:
+    """Map a native result from a VCF that contains exactly one query event.
+
+    vcfdist standardizes *all* query calls in a supercluster and does not retain
+    input IDs.  When the bulk output has fewer rows than submitted calls, a
+    direct key remap would reuse a native vote.  This parser is deliberately
+    narrower: it is valid only for a one-event query VCF, where every native
+    ``query.tsv`` row is provenance-bound to that one submitted event.  Multiple
+    rows are vcfdist components/haplotypes of the same event and are averaged,
+    consistent with the bulk component aggregation policy.
+    """
+
+    fields = vcf_records(query)
+    if len(fields) != 1:
+        raise FormalEvaluatorError(
+            "isolated vcfdist recovery requires exactly one query event"
+        )
+    result_id = fields[0][2]
+    if not result_id or result_id == ".":
+        raise FormalEvaluatorError("isolated vcfdist query VCF contains an empty ID")
+    rows = vcfdist_query_rows(artifacts)
+    if not rows:
+        if diagnostics is not None:
+            diagnostics.update(
+                {
+                    "algorithm": "vcfdist_isolated_single_event_v1",
+                    "query_events": 1,
+                    "resolved_events": 0,
+                    "unresolved_events": 1,
+                    "mapping_coverage": 0.0,
+                    "status_counts": {"isolated_empty_native_output": 1},
+                    "native_query_row_count": 0,
+                    "mean_credit": None,
+                }
+            )
+        return [result_id], {}
+    mean_credit = sum(credit for _, credit in rows) / len(rows)
+    if diagnostics is not None:
+        diagnostics.update(
+            {
+                "algorithm": "vcfdist_isolated_single_event_v1",
+                "query_events": 1,
+                "resolved_events": 1,
+                "unresolved_events": 0,
+                "mapping_coverage": 1.0,
+                "status_counts": {"isolated_native_query_rows": 1},
+                "native_query_row_count": len(rows),
+                "mean_credit": mean_credit,
+                "native_query_keys": [list(key) for key, _ in rows],
+            }
+        )
+    return [result_id], {result_id: mean_credit >= credit_threshold}
 
 
 def parse_vcfdist_native_summary(artifacts: Path) -> dict[str, Any]:
@@ -725,6 +807,150 @@ def store_native_cache(source_artifacts: Path, source_log: Path, cache: Path, ma
         shutil.rmtree(temporary, ignore_errors=True)
 
 
+def recover_vcfdist_unresolved_events(
+    *,
+    source_query: Path,
+    unresolved_ids: set[str],
+    work: Path,
+    artifacts: Path,
+    output_dir: Path,
+    bcftools_prefix: list[str],
+    tabix_prefix: list[str],
+    vcfdist_prefix: list[str],
+    vcfdist_extra_args: list[str],
+    truth: Path,
+    reference: Path,
+    regions: Path,
+    threads: int,
+    version_sha256: str,
+    credit_threshold: float,
+    project_detection_genotypes: bool,
+) -> tuple[dict[str, bool], list[dict[str, Any]]]:
+    """Recover only bulk-unresolved vcfdist events by isolated execution.
+
+    Each recovery VCF contains one submitted event, so its native output cannot
+    be shared with another result ID.  The formal ledger's pre-existing global
+    one-to-one truth assignment remains authoritative for detection credit;
+    isolated execution therefore cannot create duplicate true-positive credit.
+    """
+
+    source_ids = {fields[2] for fields in vcf_records(source_query)}
+    unknown = sorted(unresolved_ids - source_ids)
+    if unknown:
+        raise FormalEvaluatorError(
+            "vcfdist recovery requested IDs absent from the source query: "
+            + ", ".join(unknown[:5])
+        )
+    recovered: dict[str, bool] = {}
+    details: list[dict[str, Any]] = []
+    recovery_root = artifacts / "isolated-unresolved-v1"
+    prepared_root = work / "input" / "isolated-unresolved-v1"
+    cache_root = (
+        output_dir.parent / ".vcfdist.native-cache" / "isolated-unresolved-v1"
+    )
+    recovery_root.mkdir(parents=True, exist_ok=True)
+    prepared_root.mkdir(parents=True, exist_ok=True)
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    for result_id in sorted(unresolved_ids):
+        token = hashlib.sha256(result_id.encode("utf-8")).hexdigest()[:20]
+        plain = prepared_root / f"{token}.vcf"
+        prepared = prepared_root / f"{token}.vcf.gz"
+        event_artifacts = recovery_root / token
+        event_log = recovery_root / f"{token}.log"
+        write_variant_query(
+            source_query,
+            plain,
+            {result_id},
+            reference=reference,
+            phase_unphased_genotypes=True,
+            project_detection_genotypes=project_detection_genotypes,
+        )
+        if len(vcf_records(plain)) != 1:
+            raise FormalEvaluatorError(
+                f"isolated vcfdist recovery did not write exactly one event: {result_id}"
+            )
+        subprocess.run(
+            [*bcftools_prefix, "view", "-Oz", "-o", str(prepared), str(plain)],
+            check=True,
+        )
+        subprocess.run([*tabix_prefix, "-f", "-p", "vcf", str(prepared)], check=True)
+        native_key, native_manifest = native_evaluator_cache_key(
+            evaluator="vcfdist",
+            prepared_query=prepared,
+            truth=truth,
+            reference=reference,
+            regions=regions,
+            version_sha256=version_sha256,
+            prefix=vcfdist_prefix,
+            extra_args=vcfdist_extra_args,
+            threads=threads,
+        )
+        cache = cache_root / native_key
+        cache_hit = False
+        if (
+            (cache / "native-run.json").is_file()
+            and (cache / "artifacts").is_dir()
+            and (cache / "evaluator.log").is_file()
+        ):
+            shutil.copytree(cache / "artifacts", event_artifacts)
+            shutil.copy2(cache / "evaluator.log", event_log)
+            cache_hit = True
+        else:
+            command = build_command(
+                "vcfdist",
+                vcfdist_prefix,
+                vcfdist_extra_args,
+                query=prepared,
+                truth=truth,
+                reference=reference,
+                regions=regions,
+                artifacts=event_artifacts,
+                threads=threads,
+            )
+            with event_log.open("w", encoding="utf-8") as handle:
+                try:
+                    subprocess.run(
+                        command,
+                        check=True,
+                        stdout=handle,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                except subprocess.CalledProcessError as error:
+                    raise FormalEvaluatorError(
+                        f"isolated vcfdist recovery failed for {result_id} "
+                        f"with exit status {error.returncode}"
+                    ) from error
+            store_native_cache(event_artifacts, event_log, cache, native_manifest)
+        event_diagnostics: dict[str, Any] = {}
+        order, votes = parse_vcfdist_isolated_event(
+            prepared,
+            event_artifacts,
+            credit_threshold=credit_threshold,
+            diagnostics=event_diagnostics,
+        )
+        if order != [result_id]:
+            raise FormalEvaluatorError(
+                f"isolated vcfdist recovery returned an unexpected event: {order!r}"
+            )
+        if result_id in votes:
+            recovered[result_id] = votes[result_id]
+        details.append(
+            {
+                "result_id": result_id,
+                "artifact_token": token,
+                "prepared_query_sha256": sha256_file(prepared),
+                "native_cache_key": native_key,
+                "native_cache_hit": cache_hit,
+                "resolved": result_id in votes,
+                "vote": votes.get(result_id),
+                "diagnostics": event_diagnostics,
+            }
+        )
+    return recovered, details
+
+
 def event_query_indices(
     queries: list[SvRecord],
     *,
@@ -948,6 +1174,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
         evaluator_votes: dict[str, bool] = {}
         native_cache_hit = False
         native_cache_key_value: str | None = None
+        isolated_recovery_details: list[dict[str, Any]] = []
         mapping_diagnostics: dict[str, Any] = {
             "algorithm": "native_record_identity",
             "query_events": len(event_ids),
@@ -1050,6 +1277,74 @@ def run_evaluator(args: argparse.Namespace) -> None:
                     credit_threshold=float(evaluator_profile["credit_threshold"]),
                     diagnostics=mapping_diagnostics,
                 )
+                recovery = profile["semantics"]["vcfdist_unresolved_recovery"]
+                unresolved_ids = event_ids - set(evaluator_votes)
+                if unresolved_ids and recovery["enabled"]:
+                    bulk_diagnostics = mapping_diagnostics
+                    recovered, isolated_recovery_details = (
+                        recover_vcfdist_unresolved_events(
+                            source_query=args.query,
+                            unresolved_ids=unresolved_ids,
+                            work=work,
+                            artifacts=artifacts,
+                            output_dir=args.output_dir,
+                            bcftools_prefix=bcftools,
+                            tabix_prefix=tabix,
+                            vcfdist_prefix=prefix,
+                            vcfdist_extra_args=list(
+                                evaluator_profile.get("extra_args", [])
+                            ),
+                            truth=args.truth,
+                            reference=args.reference,
+                            regions=args.regions,
+                            threads=args.threads,
+                            version_sha256=version["sha256"],
+                            credit_threshold=float(
+                                evaluator_profile["credit_threshold"]
+                            ),
+                            project_detection_genotypes=(
+                                str(candidate_output_contract) == "variant_sites"
+                            ),
+                        )
+                    )
+                    duplicate_recovered_ids = set(recovered) & set(evaluator_votes)
+                    if duplicate_recovered_ids:
+                        raise FormalEvaluatorError(
+                            "vcfdist isolated recovery attempted to overwrite an "
+                            "already-resolved bulk event: "
+                            f"{sorted(duplicate_recovered_ids)}"
+                        )
+                    evaluator_votes.update(recovered)
+                    status_counts = dict(bulk_diagnostics["status_counts"])
+                    status_counts["isolated_unresolved_attempted"] = len(
+                        isolated_recovery_details
+                    )
+                    status_counts["isolated_unresolved_resolved"] = len(recovered)
+                    status_counts["isolated_unresolved_unresolved"] = (
+                        len(unresolved_ids) - len(recovered)
+                    )
+                    mapping_diagnostics = {
+                        "algorithm": "vcfdist_bulk_plus_isolated_unresolved_v1",
+                        "query_events": len(event_ids),
+                        "resolved_events": len(evaluator_votes),
+                        "unresolved_events": len(event_ids) - len(evaluator_votes),
+                        "mapping_coverage": (
+                            len(evaluator_votes) / len(event_ids)
+                            if event_ids
+                            else 1.0
+                        ),
+                        "status_counts": dict(sorted(status_counts.items())),
+                        "bulk": bulk_diagnostics,
+                        "isolated_unresolved_recovery": {
+                            "contract": recovery["contract"],
+                            "selection": recovery["selection"],
+                            "aggregation": recovery["aggregation"],
+                            "attempted_events": len(isolated_recovery_details),
+                            "resolved_events": len(recovered),
+                            "unresolved_events": len(unresolved_ids) - len(recovered),
+                            "events": isolated_recovery_details,
+                        },
+                    }
         else:
             (work / "evaluator.log").write_text(
                 "No non-reference query events in benchmark regions; evaluator skipped.\n",
@@ -1071,7 +1366,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
             ),
         )
         complete = {
-            "schema_version": 3,
+            "schema_version": 4,
             "evaluator": args.evaluator,
             "command": command,
             "version": version,
@@ -1100,6 +1395,13 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 "key": native_cache_key_value,
                 "hit": native_cache_hit,
                 "contract": "content_addressed_native_evaluator_v1",
+                "isolated_unresolved_recovery": {
+                    "attempted_events": len(isolated_recovery_details),
+                    "resolved_events": sum(
+                        int(item["resolved"])
+                        for item in isolated_recovery_details
+                    ),
+                },
             },
             "semantics": {
                 "primary_vote": "detection",

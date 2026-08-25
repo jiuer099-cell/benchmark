@@ -23,7 +23,7 @@ def _payload() -> dict:
             "official_score_mode": "end_to_end_from_reads",
             "primary_truth_profile": "giab_hg002_grch38_v5_0q",
         },
-        "score_profile": "pgbench_consensus_v3",
+        "score_profile": "pgbench_consensus_v4",
         "eligibility_status": "eligible",
         "infrastructure_valid": True,
         "truth_eligible_count": 100,

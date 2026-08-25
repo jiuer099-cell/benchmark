@@ -471,7 +471,11 @@ def _validate_metrics_records(
             )
         return
 
-    if score.get("score_profile") in {"pgbench_consensus_v2", "pgbench_consensus_v3"}:
+    if score.get("score_profile") in {
+        "pgbench_consensus_v2",
+        "pgbench_consensus_v3",
+        "pgbench_consensus_v4",
+    }:
         consensus_counts = score.get("consensus_counts")
         if not isinstance(consensus_counts, Mapping):
             raise FinalScoreSealError(
@@ -1162,12 +1166,13 @@ def finalize_score_provenance(
         "metrics_artifact_hash_verified": True,
         "metrics_provenance_ids_verified": True,
         "required_f1_metrics_verified": (
-            score.get("score_profile") not in {"pgbench_consensus_v2", "pgbench_consensus_v3"}
+            score.get("score_profile")
+            not in {"pgbench_consensus_v2", "pgbench_consensus_v3", "pgbench_consensus_v4"}
         ),
         "consensus_counts_verified": (
             score_status != "invalid"
             and score.get("score_profile")
-            in {"pgbench_consensus_v2", "pgbench_consensus_v3"}
+            in {"pgbench_consensus_v2", "pgbench_consensus_v3", "pgbench_consensus_v4"}
         ),
         "upstream_relationships_verified": True,
         "valid_score_gates": valid_gates,

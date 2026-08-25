@@ -79,7 +79,7 @@ development:
   allow_missing_bam: false
 
 score:
-  profile: pgbench_consensus_v3
+  profile: pgbench_consensus_v4
   final_score_name: PGBenchConsensusScore
   produce_ranking: false
 

@@ -1,6 +1,6 @@
 schema_version: 2
 profile:
-  id: pgbench_consensus_v3
+  id: pgbench_consensus_v4
   final_score_name: PGBenchConsensusScore
   score_min: 0.0
   score_max: 100.0
@@ -9,7 +9,7 @@ profile:
 primary_score:
   metric: equal_vote_evaluator_consensus
   formula: (3*n3 + 2*n2 + n1) / (3*N) * 100
-  evaluator_vote_policy: one_binary_vote_per_evaluator_per_result
+  evaluator_vote_policy: one_binary_vote_per_evaluator_per_submitted_result
   candidate_universe: submitted_in_scope_non_reference_events
 secondary_scores:
   - hidden_candidate_genotype_macro_f1
@@ -26,6 +26,8 @@ consensus:
   formula: (3*n3 + 2*n2 + n1) / (3*N) * 100
   notes:
     - Every evaluator contributes one equal binary vote per result.
+    - vcfdist rows that lack a bulk source-ID mapping are re-evaluated in a one-submitted-event VCF; no native credit may be reused across result IDs.
+    - The common global one-to-one truth assignment remains authoritative, so isolated vcfdist recovery cannot create duplicate true-positive credit.
     - No evaluator, resource, pangenome, or provenance weight is applied.
     - Provenance remains a validity gate and never contributes points.
 comparability:

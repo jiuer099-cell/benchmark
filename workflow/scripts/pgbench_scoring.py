@@ -58,7 +58,7 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         raise ScoreInputError("consensus profile schema_version must be 2")
     meta = profile.get("profile")
     consensus = profile.get("consensus")
-    if not isinstance(meta, dict) or meta.get("id") != "pgbench_consensus_v3":
+    if not isinstance(meta, dict) or meta.get("id") != "pgbench_consensus_v4":
         raise ScoreInputError("unsupported consensus profile id")
     if meta.get("produce_ranking") is not False:
         raise ScoreInputError("consensus profile must disable ranking")
@@ -166,7 +166,7 @@ def _count(value: Any, name: str) -> int:
 
 def resource_fraction(value: float, target: float, limit: float) -> float:
     """Removed weighted-resource helper retained only to fail clearly."""
-    raise ScoreInputError("resource weighting was removed in pgbench_consensus_v3")
+    raise ScoreInputError("resource weighting was removed in pgbench_consensus_v4")
 
 
 def calculate_pgbench_score(
