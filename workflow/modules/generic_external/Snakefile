@@ -50,6 +50,18 @@ if PLUGIN_RUNNER is None:
 PLUGIN_ENVIRONMENT = resolve_plugin_execution_path(
     PLUGIN_EXECUTION.get("environment")
 )
+PLUGIN_ENVIRONMENT_LOCK = (
+    str(
+        Path(PLUGIN_ENVIRONMENT).with_name("environment.linux-64.explicit.txt")
+    )
+    if PLUGIN_ENVIRONMENT is not None
+    else None
+)
+if PLUGIN_ENVIRONMENT_LOCK is None or not Path(PLUGIN_ENVIRONMENT_LOCK).is_file():
+    raise ValueError(
+        "generic external tool manifest must ship an exact "
+        "environment.linux-64.explicit.txt lock beside its environment spec"
+    )
 PLUGIN_RULE_REGISTRY = resolve_plugin_execution_path(
     PLUGIN_EXECUTION.get("rule_registry")
 )
@@ -116,6 +128,7 @@ PROVENANCE_INPUTS = [
     SETTINGS["config_snapshot"],
     SETTINGS["score_profile"],
     SETTINGS["run_context"],
+    PLUGIN_ENVIRONMENT_LOCK,
     *([GRAPH_ASSET_MANIFEST] if GRAPH_ASSET_MANIFEST is not None else []),
     *([GRAPH_ASSET_LOCK] if GRAPH_ASSET_LOCK is not None else []),
     *ASSETS.values(),
@@ -160,6 +173,7 @@ rule generic_external_tool:
         plugin_environment=(
             [PLUGIN_ENVIRONMENT] if PLUGIN_ENVIRONMENT is not None else []
         ),
+        plugin_environment_lock=PLUGIN_ENVIRONMENT_LOCK,
         plugin_rule_registry=(
             [PLUGIN_RULE_REGISTRY]
             if PLUGIN_RULE_REGISTRY is not None
@@ -220,6 +234,7 @@ rule generic_external_tool:
           --script-or-wrapper-path {input.executor:q} \
           --config-snapshot {input.config_snapshot:q} \
           --score-profile {input.score_profile:q} \
+          --conda-lock {input.plugin_environment_lock:q} \
           --run-context {input.run_context:q} \
           --pangenome-manifest {params.pangenome_manifest:q} \
           --reference {params.reference:q} \

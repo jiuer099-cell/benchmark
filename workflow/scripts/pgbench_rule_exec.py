@@ -44,6 +44,11 @@ class RuleExecutionError(RuntimeError):
     """Raised when the trusted rule execution contract is invalid."""
 
 
+_DEFAULT_CORE_CONDA_LOCK = Path(
+    "workflow/envs/locks/core-linux-64.explicit.txt"
+)
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -139,6 +144,23 @@ def _path_is_present(repo_root: Path, path: Path | None) -> bool:
         return False
     candidate = _resolve_path(repo_root, path)
     return candidate.exists() or candidate.is_symlink()
+
+
+def _effective_conda_lock(repo_root: Path, supplied: Path | None) -> Path | None:
+    """Return an explicit supplied lock or the bundled core-environment lock.
+
+    Benchmark-owned rules run in the frozen core environment unless a module
+    explicitly supplies its own lock (for example, an external tool plugin).
+    The fallback is deliberately available only for a regular bundled file so
+    an ad-hoc or symlinked host file can never make a formal run look locked.
+    """
+
+    if supplied is not None:
+        return supplied
+    candidate = repo_root / _DEFAULT_CORE_CONDA_LOCK
+    if candidate.is_file() and not candidate.is_symlink():
+        return _DEFAULT_CORE_CONDA_LOCK
+    return None
 
 
 def _path_is_declared(
@@ -317,6 +339,9 @@ def execute_and_manifest(args: argparse.Namespace) -> int:
     command = _normalize_command(args.command)
     upstream_paths = list(args.upstream_manifest)
     declared_inputs = _unique_paths([*args.input, *upstream_paths])
+    conda_lock = _effective_conda_lock(repo_root, args.conda_lock)
+    if conda_lock is not None:
+        declared_inputs = _unique_paths([*declared_inputs, conda_lock])
     declared_outputs = _unique_paths(args.output)
 
     score_profile = _resolve_path(repo_root, args.score_profile)
@@ -344,8 +369,6 @@ def execute_and_manifest(args: argparse.Namespace) -> int:
     ]
     if args.reference is not None:
         guard_values.append(args.reference)
-    if args.conda_lock is not None:
-        guard_values.append(args.conda_lock)
     if pangenome_was_frozen and args.pangenome_manifest is not None:
         guard_values.append(args.pangenome_manifest)
     if not run_context_is_output and _path_is_present(repo_root, args.run_context):
@@ -367,9 +390,7 @@ def execute_and_manifest(args: argparse.Namespace) -> int:
     reference_sha = (
         guard_hashes[str(args.reference)] if args.reference is not None else None
     )
-    conda_lock_sha = (
-        guard_hashes[str(args.conda_lock)] if args.conda_lock is not None else None
-    )
+    conda_lock_sha = guard_hashes[str(conda_lock)] if conda_lock is not None else None
     pangenome_sha = (
         guard_hashes[str(args.pangenome_manifest)]
         if pangenome_was_frozen and args.pangenome_manifest is not None

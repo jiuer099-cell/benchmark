@@ -175,6 +175,28 @@ def test_successful_argv_execution_writes_valid_hashed_manifest(
     assert manifest["upstream_manifest_ids"] == [sha256_bytes(b"upstream-manifest")]
 
 
+def test_uses_bundled_core_lock_when_no_rule_lock_is_supplied(
+    tmp_path: Path,
+) -> None:
+    paths = _prepare_workspace(tmp_path)
+    lock = tmp_path / "workflow" / "envs" / "locks" / "core-linux-64.explicit.txt"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("@EXPLICIT\nhttps://example.invalid/pkg.conda\n", encoding="utf-8")
+    command = [
+        sys.executable,
+        paths["producer"].name,
+        paths["input"].name,
+        paths["output"].name,
+    ]
+
+    assert rule_exec_main([*_base_argv(tmp_path, paths), "--", *command]) == 0
+
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    assert manifest["conda_lock_sha256"] == sha256_path(lock)
+    assert str(lock.relative_to(tmp_path)) in manifest["input_paths"]
+    assert "conda_lock_sha256" not in manifest["not_applicable_reason"]
+
+
 def test_failed_command_does_not_write_success_manifest(tmp_path: Path) -> None:
     paths = _prepare_workspace(tmp_path)
     failing_command = [sys.executable, "-c", "raise SystemExit(7)"]
