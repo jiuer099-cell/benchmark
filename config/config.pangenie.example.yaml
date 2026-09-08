@@ -56,6 +56,9 @@ pangenome:
     # Produced from the same frozen, family-excluded HPRC graph/haplotypes;
     # do not substitute a downloaded full-cohort .pgin VCF here.
     source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
+    frozen_gbz: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/graph.gbz
+    frozen_sample_manifest: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/samples.txt
+    source_identity: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/source-identity.yaml
     source_graph: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/source.gfa.gz
     source_haplotype_manifest: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/haplotypes.manifest.yaml
     source_phased_panel: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie.private.pgin.vcf.gz

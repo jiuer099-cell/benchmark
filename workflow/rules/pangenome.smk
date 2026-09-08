@@ -300,6 +300,9 @@ if PANGENIE_PRIVATE_ENABLED:
                 f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
                 f"{SAMPLE_ID}.blinded.vcf"
             ),
+            frozen_gbz=PANGENIE_CONTEXT["frozen_gbz"],
+            frozen_sample_manifest=PANGENIE_CONTEXT["frozen_sample_manifest"],
+            source_identity=PANGENIE_CONTEXT["source_identity"],
             source_graph=PANGENIE_CONTEXT["source_graph"],
             source_haplotype_manifest=PANGENIE_CONTEXT["source_haplotype_manifest"],
             source_phased_panel=PANGENIE_CONTEXT["source_phased_panel"],
@@ -358,6 +361,9 @@ if PANGENIE_PRIVATE_ENABLED:
               --param source_cohort_id={PANGENIE_CONTEXT[source_cohort_id]:q} \
               --input {input.canonical_population:q} \
               --input {input.canonical_scoring_panel:q} \
+              --input {input.frozen_gbz:q} \
+              --input {input.frozen_sample_manifest:q} \
+              --input {input.source_identity:q} \
               --input {input.source_graph:q} \
               --input {input.source_haplotype_manifest:q} \
               --input {input.source_phased_panel:q} \
@@ -390,6 +396,9 @@ if PANGENIE_PRIVATE_ENABLED:
                 --provenance {input.provenance:q} \
                 --canonical-scoring-panel {input.canonical_scoring_panel:q} \
                 --source-cohort-id {PANGENIE_CONTEXT[source_cohort_id]:q} \
+                --frozen-gbz {input.frozen_gbz:q} \
+                --frozen-sample-manifest {input.frozen_sample_manifest:q} \
+                --source-identity {input.source_identity:q} \
                 {params.exclusions:q} \
                 --output-panel {output.panel:q} \
                 --output-projection {output.projection:q} \

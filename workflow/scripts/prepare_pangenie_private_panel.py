@@ -110,6 +110,45 @@ def load_provenance(
     return value
 
 
+def validate_source_identity(
+    path: Path, *, frozen_gbz: Path, frozen_sample_manifest: Path, cohort_id: str
+) -> dict[str, object]:
+    try:
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise PrivatePanelError(f"cannot read exact-source identity manifest: {exc}") from exc
+    if not isinstance(value, dict) or value.get("contract") != "pgbench_hprc_graph_identity_v1":
+        raise PrivatePanelError("unsupported exact-source identity manifest")
+    required = {
+        "status", "source_cohort_id", "current_gbz_sha256",
+        "source_sample_manifest_sha256", "source_release", "graph_family",
+        "graph_construction_version", "reference_build", "official_manifest_url",
+        "official_manifest_sha256", "official_pgin_url", "official_pgin_sha256",
+    }
+    missing = sorted(required - set(value))
+    if missing:
+        raise PrivatePanelError("exact-source identity is incomplete: " + ", ".join(missing))
+    if value.get("status") != "verified":
+        raise PrivatePanelError("exact-source identity must be verified before PanGenie runs")
+    checks = {
+        "source_cohort_id": cohort_id,
+        "current_gbz_sha256": sha256(frozen_gbz),
+        "source_sample_manifest_sha256": sha256(frozen_sample_manifest),
+        "reference_build": "grch38",
+    }
+    for key, expected in checks.items():
+        if value.get(key) != expected:
+            raise PrivatePanelError(f"exact-source identity {key} does not match frozen resource")
+    for key in (
+        "source_release", "graph_family", "graph_construction_version",
+        "official_manifest_url", "official_manifest_sha256", "official_pgin_url",
+        "official_pgin_sha256",
+    ):
+        if not isinstance(value.get(key), str) or not value[key]:
+            raise PrivatePanelError(f"exact-source identity {key} must be non-empty")
+    return value
+
+
 def candidate_keys(path: Path) -> dict[tuple[str, str, str, str], str]:
     result: dict[tuple[str, str, str, str], str] = {}
     with open_text(path, "rt") as handle:
@@ -243,6 +282,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provenance", required=True, type=Path)
     parser.add_argument("--canonical-scoring-panel", required=True, type=Path)
     parser.add_argument("--source-cohort-id", required=True)
+    parser.add_argument("--frozen-gbz", required=True, type=Path)
+    parser.add_argument("--frozen-sample-manifest", required=True, type=Path)
+    parser.add_argument("--source-identity", required=True, type=Path)
     parser.add_argument("--exclude-sample", action="append", default=[])
     parser.add_argument("--output-panel", required=True, type=Path)
     parser.add_argument("--output-projection", required=True, type=Path)
@@ -259,7 +301,8 @@ def main() -> int:
         for path in (
             args.source_phased_panel, args.canonical_population_source,
             args.source_graph, args.source_haplotype_manifest, args.provenance,
-            args.canonical_scoring_panel,
+            args.canonical_scoring_panel, args.frozen_gbz,
+            args.frozen_sample_manifest, args.source_identity,
         ):
             if not path.is_file():
                 raise PrivatePanelError(f"required private-panel input is missing: {path}")
@@ -268,6 +311,11 @@ def main() -> int:
             source_graph=args.source_graph,
             source_haplotype_manifest=args.source_haplotype_manifest,
             excluded_samples=excluded, cohort_id=args.source_cohort_id,
+        )
+        identity = validate_source_identity(
+            args.source_identity, frozen_gbz=args.frozen_gbz,
+            frozen_sample_manifest=args.frozen_sample_manifest,
+            cohort_id=args.source_cohort_id,
         )
         statistics = prepare(
             source=args.source_phased_panel, scoring_panel=args.canonical_scoring_panel,
@@ -278,6 +326,12 @@ def main() -> int:
         payload.update({
             "contract": "pgbench_pangenie_private_panel_gate_v1",
             "source_provenance_sha256": sha256(args.provenance),
+            "source_identity_manifest_hash": sha256(args.source_identity),
+            "current_gbz_hash": sha256(args.frozen_gbz),
+            "source_sample_manifest_hash": sha256(args.frozen_sample_manifest),
+            "source_release": identity["source_release"],
+            "graph_family": identity["graph_family"],
+            "graph_construction_version": identity["graph_construction_version"],
             "source_graph_hash": sha256(args.source_graph),
             "source_haplotype_manifest_hash": sha256(args.source_haplotype_manifest),
             "family_exclusion_manifest_hash": sha256(args.provenance),

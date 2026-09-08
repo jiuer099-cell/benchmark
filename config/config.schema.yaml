@@ -213,6 +213,9 @@ properties:
             additionalProperties: false
             required:
               - source_cohort_id
+              - frozen_gbz
+              - frozen_sample_manifest
+              - source_identity
               - source_graph
               - source_haplotype_manifest
               - source_phased_panel
@@ -221,6 +224,9 @@ properties:
               - provenance
             properties:
               source_cohort_id: {$ref: "#/$defs/identifier"}
+              frozen_gbz: {$ref: "#/$defs/nonEmptyPath"}
+              frozen_sample_manifest: {$ref: "#/$defs/nonEmptyPath"}
+              source_identity: {$ref: "#/$defs/nonEmptyPath"}
               source_graph: {$ref: "#/$defs/nonEmptyPath"}
               source_haplotype_manifest: {$ref: "#/$defs/nonEmptyPath"}
               source_phased_panel: {$ref: "#/$defs/nonEmptyPath"}

@@ -17,13 +17,17 @@ SPEC.loader.exec_module(MODULE)
 FAMILY = {"HG002", "NA24385", "HG003", "NA24149", "HG004", "NA24143"}
 
 
-def _context(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
+def _context(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Path, Path, Path, Path]:
     canonical_source = tmp_path / "canonical.vcf"
     canonical_source.write_text("frozen source\n", encoding="utf-8")
     graph = tmp_path / "source.gfa.gz"
     graph.write_text("graph\n", encoding="utf-8")
     haplotypes = tmp_path / "haplotypes.yaml"
     haplotypes.write_text("samples: [PANEL1]\n", encoding="utf-8")
+    frozen_gbz = tmp_path / "frozen.gbz"
+    frozen_gbz.write_text("frozen graph\n", encoding="utf-8")
+    sample_manifest = tmp_path / "samples.txt"
+    sample_manifest.write_text("PANEL1\n", encoding="utf-8")
     private = tmp_path / "private.vcf"
     private.write_text(
         "##fileformat=VCFv4.2\n"
@@ -54,17 +58,43 @@ def _context(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
         provenance.open("w", encoding="utf-8"),
         sort_keys=True,
     )
-    return canonical_source, graph, haplotypes, private, scoring, provenance
+    identity = tmp_path / "identity.yaml"
+    yaml.safe_dump(
+        {
+            "contract": "pgbench_hprc_graph_identity_v1",
+            "status": "verified",
+            "source_cohort_id": "frozen_hprc",
+            "current_gbz_sha256": MODULE.sha256(frozen_gbz),
+            "source_sample_manifest_sha256": MODULE.sha256(sample_manifest),
+            "source_release": "test-release",
+            "graph_family": "minigraph-cactus",
+            "graph_construction_version": "test-v1",
+            "reference_build": "grch38",
+            "official_manifest_url": "https://example.test/manifest",
+            "official_manifest_sha256": "a" * 64,
+            "official_pgin_url": "https://example.test/panel.pgin.vcf.gz",
+            "official_pgin_sha256": "b" * 64,
+        },
+        identity.open("w", encoding="utf-8"),
+        sort_keys=True,
+    )
+    return canonical_source, graph, haplotypes, private, scoring, provenance, frozen_gbz, sample_manifest, identity
 
 
 def test_private_panel_gate_freezes_provenance_and_projection(tmp_path: Path) -> None:
-    canonical, graph, haplotypes, private, scoring, provenance = _context(tmp_path)
+    canonical, graph, haplotypes, private, scoring, provenance, frozen_gbz, sample_manifest, identity = _context(tmp_path)
     MODULE.load_provenance(
         provenance,
         canonical_source=canonical,
         source_graph=graph,
         source_haplotype_manifest=haplotypes,
         excluded_samples=FAMILY,
+        cohort_id="frozen_hprc",
+    )
+    MODULE.validate_source_identity(
+        identity,
+        frozen_gbz=frozen_gbz,
+        frozen_sample_manifest=sample_manifest,
         cohort_id="frozen_hprc",
     )
     result = MODULE.prepare(
@@ -83,7 +113,7 @@ def test_private_panel_gate_freezes_provenance_and_projection(tmp_path: Path) ->
 
 
 def test_private_panel_gate_rejects_missing_or_unphased_gt(tmp_path: Path) -> None:
-    _, _, _, private, scoring, _ = _context(tmp_path)
+    _, _, _, private, scoring, _, _, _, _ = _context(tmp_path)
     private.write_text(
         private.read_text(encoding="utf-8").replace("0|1", "0/1"),
         encoding="utf-8",
@@ -96,4 +126,19 @@ def test_private_panel_gate_rejects_missing_or_unphased_gt(tmp_path: Path) -> No
             projection=tmp_path / "projection.tsv",
             gate=tmp_path / "gate.json",
             excluded_samples=FAMILY,
+        )
+
+
+def test_exact_source_identity_must_be_verified(tmp_path: Path) -> None:
+    _, _, _, _, _, _, frozen_gbz, sample_manifest, identity = _context(tmp_path)
+    payload = yaml.safe_load(identity.read_text(encoding="utf-8"))
+    payload["status"] = "unverified"
+    identity.write_text(yaml.safe_dump(payload, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(MODULE.PrivatePanelError, match="must be verified"):
+        MODULE.validate_source_identity(
+            identity,
+            frozen_gbz=frozen_gbz,
+            frozen_sample_manifest=sample_manifest,
+            cohort_id="frozen_hprc",
         )
