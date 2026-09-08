@@ -11,7 +11,12 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[2] / "workflow" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from aggregate_run_summary import SummaryError, aggregate, main  # noqa: E402
+from aggregate_run_summary import (  # noqa: E402
+    SummaryError,
+    aggregate,
+    main,
+    paired_tool_differences,
+)
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -163,6 +168,34 @@ def test_aggregate_preserves_input_order_and_never_ranks(tmp_path: Path) -> None
     assert len(point_tsv.read_text(encoding="utf-8").splitlines()) == 3
     assert len(metrics_tsv.read_text(encoding="utf-8").splitlines()) == 3
     assert len(json.loads(metrics_json.read_text())["documents"]) == 2
+
+
+def test_paired_tool_difference_uses_identical_block_draws() -> None:
+    documents = []
+    for tool, point, samples in (
+        ("tool_a", 80.0, [70.0, 80.0, 90.0]),
+        ("tool_b", 70.0, [65.0, 70.0, 75.0]),
+    ):
+        document = _metrics(tool)
+        document["analysis"] = {
+            "contract_version": "formal_genotype_me_f1_v1",
+            "comparison_track_sha256": "c" * 64,
+            "me_f1": point,
+            "me_f1_confidence_interval": {
+                "replicates": 3,
+                "seed_sha256": "d" * 64,
+                "replicate_me_f1": samples,
+            },
+        }
+        documents.append(document)
+
+    result = paired_tool_differences(documents)
+
+    assert len(result) == 1
+    assert result[0]["contrast"] == "tool_a_minus_tool_b"
+    assert result[0]["point_difference"] == 10.0
+    assert result[0]["lower"] == pytest.approx(5.25)
+    assert result[0]["upper"] == pytest.approx(14.75)
 
 
 def test_aggregate_rejects_nested_ranking_fields(tmp_path: Path) -> None:

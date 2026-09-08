@@ -387,6 +387,7 @@ properties:
       - evaluators
       - truth_vcf
       - benchmark_bed
+      - context_beds
       - commands
     properties:
       evaluators:
@@ -406,6 +407,23 @@ properties:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
+      context_beds:
+        type: object
+        additionalProperties: false
+        required:
+          - non_repeat
+          - tandem_repeat
+          - segmental_duplication
+          - low_complexity
+          - low_mappability
+          - other_difficult
+        properties:
+          non_repeat: {$ref: "#/$defs/nonEmptyPath"}
+          tandem_repeat: {$ref: "#/$defs/nonEmptyPath"}
+          segmental_duplication: {$ref: "#/$defs/nonEmptyPath"}
+          low_complexity: {$ref: "#/$defs/nonEmptyPath"}
+          low_mappability: {$ref: "#/$defs/nonEmptyPath"}
+          other_difficult: {$ref: "#/$defs/nonEmptyPath"}
       commands:
         type: object
         additionalProperties: false

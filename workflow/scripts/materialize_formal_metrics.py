@@ -47,6 +47,16 @@ def load_json_object(path: Path, label: str) -> dict[str, Any]:
 
 EVALUATORS = ("truvari", "aardvark", "vcfdist")
 COMPARISON_TASKS = {"panel_genotyping"}
+REQUIRED_CONTEXT_STRATA = frozenset(
+    {
+        "non_repeat",
+        "tandem_repeat",
+        "segmental_duplication",
+        "low_complexity",
+        "low_mappability",
+        "other_difficult",
+    }
+)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EXTENDED_FIELDS = {
     "scope_eligible",
@@ -210,7 +220,7 @@ def comparison_track_contract(
 
 def load_benchmark_regions(path: Path) -> dict[str, tuple[list[int], list[int]]]:
     raw: dict[str, list[tuple[int, int]]] = defaultdict(list)
-    with path.open("r", encoding="utf-8") as handle:
+    with open_text(path) as handle:
         for line_number, line in enumerate(handle, 1):
             if not line.strip() or line.startswith(("#", "track", "browser")):
                 continue
@@ -436,6 +446,253 @@ def _length_bin(length: int) -> str:
     return "ge10000"
 
 
+def load_hidden_truth_labels(path: Path) -> dict[str, dict[str, str]]:
+    """Load candidate-level truth labels without exposing them to adapters."""
+
+    rows: dict[str, dict[str, str]] = {}
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {"candidate_id", "truth_label", "truth_event_id"}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise FormalMetricError("hidden truth ledger has an invalid header")
+        for row in reader:
+            candidate_id = row["candidate_id"]
+            if not candidate_id or candidate_id in rows:
+                raise FormalMetricError(
+                    f"empty or duplicate candidate in hidden truth ledger: {candidate_id!r}"
+                )
+            label = row["truth_label"]
+            if label not in {"positive", "negative", "unscorable"}:
+                raise FormalMetricError(
+                    f"invalid truth label for {candidate_id}: {label!r}"
+                )
+            rows[candidate_id] = row
+    if not rows:
+        raise FormalMetricError("hidden truth ledger is empty")
+    return rows
+
+
+def load_addressability_rows(path: Path) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {
+            "candidate_id",
+            "tool_native_status",
+            "output_status",
+            "failure_reason",
+        }
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise FormalMetricError("addressability TSV has an invalid header")
+        for row in reader:
+            candidate_id = row["candidate_id"]
+            if not candidate_id or candidate_id in rows:
+                raise FormalMetricError(
+                    f"empty or duplicate candidate in addressability TSV: {candidate_id!r}"
+                )
+            rows[candidate_id] = row
+    return rows
+
+
+def load_candidate_af(path: Path) -> dict[str, float | None]:
+    """Read frozen population AF from the canonical all-sites candidate VCF."""
+
+    values: dict[str, float | None] = {}
+    with open_text(path) as handle:
+        for line in handle:
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 8:
+                raise FormalMetricError("canonical query VCF has an invalid row")
+            candidate_id = fields[2]
+            if not candidate_id or candidate_id == "." or candidate_id in values:
+                raise FormalMetricError(
+                    f"invalid/duplicate canonical candidate ID: {candidate_id!r}"
+                )
+            info = parse_info(fields[7])
+            raw = info.get("PANEL_AF", info.get("AF"))
+            if raw is None or raw is True or str(raw) in {"", "."}:
+                values[candidate_id] = None
+                continue
+            try:
+                value = float(str(raw).split(",", 1)[0])
+            except ValueError as exc:
+                raise FormalMetricError(
+                    f"invalid population AF for {candidate_id}: {raw!r}"
+                ) from exc
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise FormalMetricError(
+                    f"population AF for {candidate_id} is outside [0, 1]"
+                )
+            values[candidate_id] = value
+    return values
+
+
+def _af_bin(value: float | None) -> str:
+    if value is None or value <= 0.0:
+        return "unknown"
+    if value < 0.001:
+        return "ultrarare"
+    if value < 0.01:
+        return "rare"
+    if value < 0.05:
+        return "low_frequency"
+    return "common"
+
+
+def _overlaps_regions(
+    regions: dict[str, tuple[list[int], list[int]]], record: SvRecord
+) -> bool:
+    interval_index = regions.get(record.chrom)
+    if interval_index is None:
+        return False
+    starts, ends = interval_index
+    event_start = record.pos - 1
+    event_end = max(record.pos, record.end)
+    index = bisect.bisect_right(starts, event_end - 1) - 1
+    return index >= 0 and ends[index] > event_start
+
+
+def _stratum_metrics(
+    *,
+    candidate_ids: set[str],
+    positive_ids: set[str],
+    event_ids: set[str],
+    ledgers: dict[str, dict[str, dict[str, Any]]],
+    addressability: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    truth_ids = candidate_ids & positive_ids
+    query_ids = candidate_ids & event_ids
+    output_counts: dict[str, int] = defaultdict(int)
+    native_counts: dict[str, int] = defaultdict(int)
+    for candidate_id in candidate_ids:
+        row = addressability[candidate_id]
+        output_counts[row["output_status"]] += 1
+        native_counts[row["tool_native_status"]] += 1
+    result: dict[str, Any] = {
+        "status": "defined" if truth_ids else "excluded_zero_truth",
+        "canonical_candidate_count": len(candidate_ids),
+        "truth_positive_count": len(truth_ids),
+        "query_event_count": len(query_ids),
+        "called_count": output_counts["called"],
+        "explicit_no_call_count": output_counts["explicit_no_call"],
+        "missing_output_count": output_counts["missing_output"],
+        "unsupported_representation_count": native_counts[
+            "unsupported_representation"
+        ],
+        "linking_failure_count": native_counts["linking_failure"],
+        "addressable_count": native_counts["addressable"],
+        "addressability_rate": (
+            native_counts["addressable"] / len(candidate_ids)
+            if candidate_ids
+            else None
+        ),
+        "evaluator_metrics": {},
+        "me_f1": None,
+    }
+    if not truth_ids:
+        return result
+    for evaluator in EVALUATORS:
+        tp = sum(
+            int(
+                ledgers[evaluator][candidate_id]["detection_correct"]
+                and ledgers[evaluator][candidate_id]["genotype_scorable"]
+                and ledgers[evaluator][candidate_id]["genotype_correct"]
+            )
+            for candidate_id in query_ids
+        )
+        fp = len(query_ids) - tp
+        fn = len(truth_ids) - tp
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn)
+        f1 = (
+            2.0 * precision * recall / (precision + recall)
+            if precision + recall
+            else 0.0
+        )
+        result["evaluator_metrics"][evaluator] = {
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        }
+    result["me_f1"] = (
+        statistics.fmean(
+            float(metrics["f1"])
+            for metrics in result["evaluator_metrics"].values()
+        )
+        * 100.0
+    )
+    return result
+
+
+def genotype_stratified_summary(
+    *,
+    query_records: dict[str, SvRecord],
+    hidden_truth: dict[str, dict[str, str]],
+    ledgers: dict[str, dict[str, dict[str, Any]]],
+    event_ids: set[str],
+    candidate_af: dict[str, float | None],
+    context_beds: dict[str, Path],
+    addressability: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    candidate_ids = set(hidden_truth)
+    if set(query_records) != candidate_ids:
+        raise FormalMetricError(
+            "canonical query VCF and hidden truth ledger candidate sets differ"
+        )
+    if set(addressability) != candidate_ids:
+        raise FormalMetricError(
+            "addressability TSV and canonical candidate sets differ"
+        )
+    if not event_ids.issubset(candidate_ids):
+        raise FormalMetricError("evaluator ledger contains off-panel result IDs")
+    if set(candidate_af) != candidate_ids:
+        raise FormalMetricError("population AF and canonical candidate sets differ")
+    positive_ids = {
+        candidate_id
+        for candidate_id, row in hidden_truth.items()
+        if row["truth_label"] == "positive"
+    }
+    dimensions: dict[str, dict[str, set[str]]] = {
+        "svtype": defaultdict(set),
+        "length_bin": defaultdict(set),
+        "population_af": defaultdict(set),
+        "genome_context": defaultdict(set),
+    }
+    contexts = {
+        name: load_benchmark_regions(path)
+        for name, path in sorted(context_beds.items())
+    }
+    for name in contexts:
+        dimensions["genome_context"][name] = set()
+    for candidate_id, record in query_records.items():
+        dimensions["svtype"][record.svtype].add(candidate_id)
+        dimensions["length_bin"][_length_bin(record.svlen)].add(candidate_id)
+        dimensions["population_af"][_af_bin(candidate_af[candidate_id])].add(
+            candidate_id
+        )
+        for context, regions in contexts.items():
+            if _overlaps_regions(regions, record):
+                dimensions["genome_context"][context].add(candidate_id)
+    return {
+        dimension: {
+            stratum: _stratum_metrics(
+                candidate_ids=members,
+                positive_ids=positive_ids,
+                event_ids=event_ids,
+                ledgers=ledgers,
+                addressability=addressability,
+            )
+            for stratum, members in sorted(strata.items())
+        }
+        for dimension, strata in dimensions.items()
+    }
+
+
 def _score(soft_tp: float, query_total: int, truth_total: int) -> float:
     if truth_total <= 0 or query_total + truth_total <= 0:
         return 0.0
@@ -612,6 +869,102 @@ def bootstrap_score_interval(
         "block_count": len(block_keys),
         "replicates": replicates,
         "seed_sha256": hashlib.sha256(seed_material.encode("utf-8")).hexdigest(),
+    }
+
+
+def bootstrap_me_f1_interval(
+    *,
+    truth_records: list[SvRecord],
+    query_records: dict[str, SvRecord],
+    hidden_truth: dict[str, dict[str, str]],
+    ledgers: dict[str, dict[str, dict[str, Any]]],
+    event_ids: set[str],
+    benchmark_bed: Path,
+    block_size_bp: int,
+    replicates: int,
+    seed_material: str,
+) -> dict[str, Any]:
+    """Bootstrap the actual ME-F1 with tool-shared genomic block draws.
+
+    The seed depends only on frozen benchmark assets. Therefore every tool in
+    the same comparison track receives identical draws and the stored
+    replicate vector can be subtracted pairwise without pretending the tools
+    were evaluated on independent samples.
+    """
+
+    block_keys = benchmark_block_keys(benchmark_bed, block_size_bp)
+    allowed_blocks = set(block_keys)
+    # truth, query, then one exact-GT TP count per evaluator
+    block_stats: dict[tuple[str, int], list[int]] = {
+        key: [0, 0, 0, 0, 0] for key in block_keys
+    }
+    truth_by_id = {record.record_id: record for record in truth_records}
+    positive_candidates = {
+        candidate_id: row["truth_event_id"]
+        for candidate_id, row in hidden_truth.items()
+        if row["truth_label"] == "positive"
+    }
+    for candidate_id, truth_id in positive_candidates.items():
+        truth = truth_by_id.get(truth_id)
+        if truth is None:
+            raise FormalMetricError(
+                f"panel-positive candidate {candidate_id} has no eligible truth event"
+            )
+        key = _record_block(truth, block_size_bp)
+        if key not in allowed_blocks:
+            raise FormalMetricError(
+                f"panel-positive truth falls outside bootstrap BED: {truth_id}"
+            )
+        block_stats[key][0] += 1
+    for candidate_id in event_ids:
+        query = query_records.get(candidate_id)
+        if query is None:
+            raise FormalMetricError(
+                f"event query is absent from canonical VCF: {candidate_id}"
+            )
+        truth_id = hidden_truth[candidate_id]["truth_event_id"]
+        matched_truth = truth_by_id.get(truth_id) if truth_id else None
+        key = _record_block(matched_truth or query, block_size_bp)
+        if key not in allowed_blocks:
+            raise FormalMetricError(
+                f"query event falls outside bootstrap BED: {candidate_id}"
+            )
+        block_stats[key][1] += 1
+        for index, evaluator in enumerate(EVALUATORS, start=2):
+            row = ledgers[evaluator][candidate_id]
+            block_stats[key][index] += int(
+                row["detection_correct"]
+                and row["genotype_scorable"]
+                and row["genotype_correct"]
+            )
+
+    seed_hash = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()
+    generator = random.Random(int(seed_hash[:16], 16))
+    evaluator_samples = {name: [] for name in EVALUATORS}
+    me_samples: list[float] = []
+    for _ in range(replicates):
+        selected = [generator.choice(block_keys) for _key in block_keys]
+        truth_count = sum(block_stats[key][0] for key in selected)
+        query_count = sum(block_stats[key][1] for key in selected)
+        values = []
+        for index, evaluator in enumerate(EVALUATORS, start=2):
+            tp = sum(block_stats[key][index] for key in selected)
+            value = _score(float(tp), query_count, truth_count)
+            evaluator_samples[evaluator].append(value)
+            values.append(value)
+        me_samples.append(statistics.fmean(values))
+    return {
+        "lower": percentile(me_samples, 0.025),
+        "upper": percentile(me_samples, 0.975),
+        "level": 0.95,
+        "method": "paired_genomic_block_bootstrap",
+        "bootstrap_unit": "fixed_genomic_block",
+        "block_size_bp": block_size_bp,
+        "block_count": len(block_keys),
+        "replicates": replicates,
+        "seed_sha256": seed_hash,
+        "replicate_me_f1": me_samples,
+        "replicate_evaluator_f1": evaluator_samples,
     }
 
 
@@ -1242,6 +1595,30 @@ def _metric_record(
     }
 
 
+def context_bed_arguments(values: list[str]) -> dict[str, Path]:
+    parsed: dict[str, Path] = {}
+    for value in values:
+        name, separator, path = value.partition("=")
+        if not separator or not name or not path or name in parsed:
+            raise FormalMetricError(
+                "--context-bed must be supplied once per NAME=PATH"
+            )
+        parsed[name] = Path(path)
+    if set(parsed) != set(REQUIRED_CONTEXT_STRATA):
+        missing = sorted(REQUIRED_CONTEXT_STRATA - set(parsed))
+        extra = sorted(set(parsed) - REQUIRED_CONTEXT_STRATA)
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unexpected " + ", ".join(extra))
+        raise FormalMetricError("context BED contract differs: " + "; ".join(details))
+    for name, path in parsed.items():
+        if not path.is_file():
+            raise FormalMetricError(f"missing context BED {name}: {path}")
+    return parsed
+
+
 def materialize(args: argparse.Namespace) -> dict[str, Any]:
     loaded = {
         name: load_ledger(getattr(args, f"{name}_ledger"), name)
@@ -1413,6 +1790,19 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
     }
     if len(query_records) != len(loaded_query_records):
         raise FormalMetricError("canonical query VCF has duplicate result IDs")
+    context_beds = context_bed_arguments(args.context_bed)
+    hidden_truth = load_hidden_truth_labels(args.hidden_truth_ledger)
+    addressability_rows = load_addressability_rows(args.addressability_tsv)
+    candidate_af = load_candidate_af(args.query_vcf)
+    genotype_strata = genotype_stratified_summary(
+        query_records=query_records,
+        hidden_truth=hidden_truth,
+        ledgers=ledgers,
+        event_ids=set(event_ids),
+        candidate_af=candidate_af,
+        context_beds=context_beds,
+        addressability=addressability_rows,
+    )
     ci = (
         bootstrap_score_interval(
             truth_records,
@@ -1441,6 +1831,26 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         if extended
         else None
     )
+    me_f1_ci = bootstrap_me_f1_interval(
+        truth_records=truth_records,
+        query_records=query_records,
+        hidden_truth=hidden_truth,
+        ledgers=ledgers,
+        event_ids=set(event_ids),
+        benchmark_bed=args.benchmark_bed,
+        block_size_bp=int(evaluator_profile["bootstrap"]["block_size_bp"]),
+        replicates=int(evaluator_profile["bootstrap"]["replicates"]),
+        seed_material=content_seed_bundle(
+            [
+                ("truth_vcf", args.truth_vcf),
+                ("benchmark_bed", args.benchmark_bed),
+                ("score_profile", args.score_profile),
+                ("evaluator_profile", evaluator_profile_path),
+                ("reference", args.reference),
+                ("hidden_truth_ledger", args.hidden_truth_ledger),
+            ]
+        ),
+    )
     asset_hashes = {
         "truth_vcf": sha256_file(args.truth_vcf),
         "benchmark_bed": sha256_file(args.benchmark_bed),
@@ -1462,6 +1872,10 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             if getattr(args, "graph_asset_lock", None) is not None
             else None
         ),
+        "stratification_catalogue": sha256_file(args.stratification_catalogue),
+        "context_beds": {
+            name: sha256_file(path) for name, path in sorted(context_beds.items())
+        },
     }
     candidate_summary = (
         candidate_genotype_summary(
@@ -1569,6 +1983,17 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             in {"official_configuration", "independent_validation_frozen"}
             and tuning_status.get("status") == "frozen_before_test"
             and tuning_status.get("target_truth_inspected") is False
+        ),
+        "context_stratification_complete": bool(
+            set(context_beds) == set(REQUIRED_CONTEXT_STRATA)
+            and set(genotype_strata["genome_context"])
+            == set(REQUIRED_CONTEXT_STRATA)
+        ),
+        "population_af_stratification_complete": bool(
+            genotype_strata["population_af"].get("unknown", {}).get(
+                "canonical_candidate_count", 0
+            )
+            == 0
         ),
     }
     semantic_summary = {
@@ -1723,6 +2148,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
                 "none_correct": counts[0],
             },
             "whole_truth_recovery_confidence_interval": ci,
+            "me_f1_confidence_interval": me_f1_ci,
             "semantic_summary": semantic_summary,
             "candidate_genotype_summary": candidate_summary,
             "addressability_audit": addressability_validation,
@@ -1731,6 +2157,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
                 if extended
                 else {}
             ),
+            "genotype_stratified_summary": genotype_strata,
             "resource_summary": resource_summary(
                 getattr(args, "resource_benchmark", None),
                 getattr(args, "cache_policy", "isolated_empty_tool_cache"),
@@ -1761,6 +2188,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--evaluator-profile", required=True, type=Path)
     parser.add_argument("--semantic-validation", required=True, type=Path)
     parser.add_argument("--addressability-audit", required=True, type=Path)
+    parser.add_argument("--addressability-tsv", required=True, type=Path)
+    parser.add_argument("--stratification-catalogue", required=True, type=Path)
+    parser.add_argument(
+        "--context-bed", action="append", required=True, default=[]
+    )
     parser.add_argument("--allowed-information", required=True, type=Path)
     parser.add_argument("--parameter-manifest", required=True, type=Path)
     parser.add_argument("--external-resource-hashes", required=True, type=Path)

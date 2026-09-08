@@ -36,6 +36,8 @@ QUALITY_GATE_FIELDS = frozenset(
         "addressability_complete",
         "allowed_information_complete",
         "tuning_frozen",
+        "context_stratification_complete",
+        "population_af_stratification_complete",
     }
 )
 SCORE_PAYLOAD_FIELDS = frozenset(

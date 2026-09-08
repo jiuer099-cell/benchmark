@@ -26,7 +26,9 @@
     "evaluator_semantic_contract_valid": true,
     "addressability_complete": true,
     "allowed_information_complete": true,
-    "tuning_frozen": true
+    "tuning_frozen": true,
+    "context_stratification_complete": true,
+    "population_af_stratification_complete": true
   },
   "evaluators": {
     "truvari": {

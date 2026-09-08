@@ -160,6 +160,52 @@ $defs:
       seed_sha256:
         type: string
         pattern: "^[0-9a-f]{64}$"
+  meF1Bootstrap:
+    type: object
+    additionalProperties: false
+    required:
+      - lower
+      - upper
+      - level
+      - method
+      - bootstrap_unit
+      - replicates
+      - seed_sha256
+      - block_size_bp
+      - block_count
+      - replicate_me_f1
+      - replicate_evaluator_f1
+    properties:
+      lower: {type: number, minimum: 0, maximum: 100}
+      upper: {type: number, minimum: 0, maximum: 100}
+      level: {const: 0.95}
+      method: {const: paired_genomic_block_bootstrap}
+      bootstrap_unit: {const: fixed_genomic_block}
+      block_size_bp: {type: integer, minimum: 1000000}
+      block_count: {type: integer, minimum: 1}
+      replicates: {type: integer, minimum: 100}
+      seed_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+      replicate_me_f1:
+        type: array
+        minItems: 100
+        items: {type: number, minimum: 0, maximum: 100}
+      replicate_evaluator_f1:
+        type: object
+        additionalProperties: false
+        required: [truvari, aardvark, vcfdist]
+        properties:
+          truvari:
+            type: array
+            minItems: 100
+            items: {type: number, minimum: 0, maximum: 100}
+          aardvark:
+            type: array
+            minItems: 100
+            items: {type: number, minimum: 0, maximum: 100}
+          vcfdist:
+            type: array
+            minItems: 100
+            items: {type: number, minimum: 0, maximum: 100}
   evaluatorGtF1:
     type: object
     additionalProperties: false
@@ -171,6 +217,49 @@ $defs:
       precision: {type: number, minimum: 0, maximum: 1}
       recall: {type: number, minimum: 0, maximum: 1}
       f1: {type: number, minimum: 0, maximum: 1}
+  genotypeStratum:
+    type: object
+    additionalProperties: false
+    required:
+      - status
+      - canonical_candidate_count
+      - truth_positive_count
+      - query_event_count
+      - called_count
+      - explicit_no_call_count
+      - missing_output_count
+      - unsupported_representation_count
+      - linking_failure_count
+      - addressable_count
+      - addressability_rate
+      - evaluator_metrics
+      - me_f1
+    properties:
+      status: {enum: [defined, excluded_zero_truth]}
+      canonical_candidate_count: {type: integer, minimum: 0}
+      truth_positive_count: {type: integer, minimum: 0}
+      query_event_count: {type: integer, minimum: 0}
+      called_count: {type: integer, minimum: 0}
+      explicit_no_call_count: {type: integer, minimum: 0}
+      missing_output_count: {type: integer, minimum: 0}
+      unsupported_representation_count: {type: integer, minimum: 0}
+      linking_failure_count: {type: integer, minimum: 0}
+      addressable_count: {type: integer, minimum: 0}
+      addressability_rate:
+        oneOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: "null"}
+      evaluator_metrics:
+        type: object
+        additionalProperties: false
+        properties:
+          truvari: {$ref: "#/$defs/evaluatorGtF1"}
+          aardvark: {$ref: "#/$defs/evaluatorGtF1"}
+          vcfdist: {$ref: "#/$defs/evaluatorGtF1"}
+      me_f1:
+        oneOf:
+          - {type: number, minimum: 0, maximum: 100}
+          - {type: "null"}
   syntheticAnalysis:
     type: object
     additionalProperties: false
@@ -200,11 +289,15 @@ $defs:
           - addressability_complete
           - allowed_information_complete
           - tuning_frozen
+          - context_stratification_complete
+          - population_af_stratification_complete
         properties:
           evaluator_semantic_contract_valid: {const: true}
           addressability_complete: {const: true}
           allowed_information_complete: {const: true}
           tuning_frozen: {const: true}
+          context_stratification_complete: {const: true}
+          population_af_stratification_complete: {const: true}
       panel_addressable_truth_count: {type: integer, minimum: 1}
       evaluator_profile_sha256:
         type: string
@@ -253,10 +346,12 @@ $defs:
       - leave_one_evaluator_out
       - evaluator_agreement_counts
       - whole_truth_recovery_confidence_interval
+      - me_f1_confidence_interval
       - semantic_summary
       - candidate_genotype_summary
       - addressability_audit
       - stratified_summary
+      - genotype_stratified_summary
       - resource_summary
     properties:
       contract_version:
@@ -321,11 +416,15 @@ $defs:
           - addressability_complete
           - allowed_information_complete
           - tuning_frozen
+          - context_stratification_complete
+          - population_af_stratification_complete
         properties:
           evaluator_semantic_contract_valid: {type: boolean}
           addressability_complete: {type: boolean}
           allowed_information_complete: {type: boolean}
           tuning_frozen: {type: boolean}
+          context_stratification_complete: {type: boolean}
+          population_af_stratification_complete: {type: boolean}
       asset_hashes:
         type: object
         additionalProperties: false
@@ -337,6 +436,8 @@ $defs:
           - challenge_hidden_ledger
           - tool_manifest
           - graph_asset_lock
+          - stratification_catalogue
+          - context_beds
         properties:
           reference:
             type: string
@@ -369,6 +470,14 @@ $defs:
               - type: string
                 pattern: "^[0-9a-f]{64}$"
               - type: "null"
+          stratification_catalogue:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          context_beds:
+            type: object
+            additionalProperties:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
       evidence_profile:
         type: object
         additionalProperties: false
@@ -656,6 +765,8 @@ $defs:
         oneOf:
           - $ref: "#/$defs/scoreConfidenceInterval"
           - type: "null"
+      me_f1_confidence_interval:
+        $ref: "#/$defs/meF1Bootstrap"
       semantic_summary:
         type: object
         additionalProperties:
@@ -917,6 +1028,23 @@ $defs:
               exactly_two_correct: {type: integer, minimum: 0}
               exactly_one_correct: {type: integer, minimum: 0}
               none_correct: {type: integer, minimum: 0}
+      genotype_stratified_summary:
+        type: object
+        additionalProperties: false
+        required: [svtype, length_bin, population_af, genome_context]
+        properties:
+          svtype:
+            type: object
+            additionalProperties: {$ref: "#/$defs/genotypeStratum"}
+          length_bin:
+            type: object
+            additionalProperties: {$ref: "#/$defs/genotypeStratum"}
+          population_af:
+            type: object
+            additionalProperties: {$ref: "#/$defs/genotypeStratum"}
+          genome_context:
+            type: object
+            additionalProperties: {$ref: "#/$defs/genotypeStratum"}
       resource_summary:
         type: object
         additionalProperties: false

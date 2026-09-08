@@ -43,6 +43,8 @@ def _payload() -> dict:
             "addressability_complete": True,
             "allowed_information_complete": True,
             "tuning_frozen": True,
+            "context_stratification_complete": True,
+            "population_af_stratification_complete": True,
         },
         "analysis": {"candidate_genotype_summary": {"candidate_output_contract": "all_sites"}},
     }

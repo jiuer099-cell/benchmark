@@ -104,6 +104,19 @@ def build_inventory(
         _inspect("evaluation.benchmark_bed", "truth", bed, repo_root),
         _inspect("pangenome.population_vcf", "pangenome", population, repo_root),
     ]
+    if not synthetic:
+        context_beds = evaluation.get("context_beds", {})
+        if not isinstance(context_beds, Mapping):
+            raise ResourceCheckError("evaluation.context_beds must be a mapping")
+        assets.extend(
+            _inspect(
+                f"evaluation.context_beds.{name}",
+                "genome_context",
+                value,
+                repo_root,
+            )
+            for name, value in sorted(context_beds.items())
+        )
     if isinstance(truth, str) and truth.endswith(".gz"):
         assets.append(_inspect("evaluation.truth_vcf_tbi", "truth", truth + ".tbi", repo_root))
     if isinstance(population, str) and population.endswith(".gz"):

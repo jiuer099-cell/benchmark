@@ -115,6 +115,33 @@ def addressability_audit(wildcards):
     )
 
 
+def addressability_table(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return (
+        f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+        f"{wildcards.tool}/canonical/addressability.tsv"
+    )
+
+
+def context_bed_paths(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return [
+        config["evaluation"]["context_beds"][name]
+        for name in sorted(config["evaluation"]["context_beds"])
+    ]
+
+
+def stratification_provenance_arguments(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return cli_repeated(
+        "--input",
+        [config["catalogs"]["stratifications"], *context_bed_paths(wildcards)],
+    )
+
+
 def dynamic_metric_inputs(wildcards):
     return [
         *(
@@ -127,7 +154,17 @@ def dynamic_metric_inputs(wildcards):
         *([tool_resource_benchmark(wildcards)] if not SYNTHETIC_MODE else []),
         *([scoring_resolved_inputs(wildcards)] if not SYNTHETIC_MODE else []),
         *information_contract_files(wildcards),
-        *([SEMANTIC_VALIDATION_JSON, addressability_audit(wildcards)] if not SYNTHETIC_MODE else []),
+        *(
+            [
+                SEMANTIC_VALIDATION_JSON,
+                addressability_audit(wildcards),
+                addressability_table(wildcards),
+                config["catalogs"]["stratifications"],
+                *context_bed_paths(wildcards),
+            ]
+            if not SYNTHETIC_MODE
+            else []
+        ),
     ]
 
 
@@ -206,6 +243,17 @@ def materializer_arguments(wildcards):
         SEMANTIC_VALIDATION_JSON,
         "--addressability-audit",
         addressability_audit(wildcards),
+        "--addressability-tsv",
+        addressability_table(wildcards),
+        "--stratification-catalogue",
+        config["catalogs"]["stratifications"],
+        *cli_repeated(
+            "--context-bed",
+            [
+                f"{name}={config['evaluation']['context_beds'][name]}"
+                for name in sorted(config["evaluation"]["context_beds"])
+            ],
+        ),
         "--allowed-information",
         information_contract_files(wildcards)[0],
         "--parameter-manifest",
@@ -324,8 +372,11 @@ rule fuse_evaluator_metrics:
         evaluator_profile=config["catalogs"]["evaluator_profile"],
         semantic_validation=([] if SYNTHETIC_MODE else [SEMANTIC_VALIDATION_JSON]),
         addressability_audit=addressability_audit,
+        addressability_table=addressability_table,
         information_contracts=information_contract_files,
         metric_dictionary=config["catalogs"]["metric_dictionary"],
+        stratification_catalogue=config["catalogs"]["stratifications"],
+        context_beds=lambda wildcards: context_bed_paths(wildcards),
         metrics_schema="workflow/schemas/metrics.schema.yaml",
         pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
         graph_asset_lock=scoring_graph_asset_lock,
@@ -377,6 +428,7 @@ rule fuse_evaluator_metrics:
             "--input", scoring_graph_asset_lock(wildcards)
         ),
         materializer_args=materializer_arguments,
+        stratification_provenance_args=stratification_provenance_arguments,
     conda:
         "../envs/core.yaml"
     shell:
@@ -414,6 +466,7 @@ rule fuse_evaluator_metrics:
           {params.candidate_provenance_args:q} \
           --input {input.metric_dictionary:q} \
           --input {input.metrics_schema:q} \
+          {params.stratification_provenance_args:q} \
           --input {input.pangenome_manifest:q} \
           {params.graph_provenance_args:q} \
           --input {input.reference:q} \

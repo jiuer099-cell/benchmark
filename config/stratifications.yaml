@@ -1,95 +1,44 @@
-schema_version: 1
-profile_id: giab_grch38_v3_6
+schema_version: 2
+profile_id: giab_grch38_v3_1
 reference_id: grch38
-release: v3.6
-source_reference: https://pmc.ncbi.nlm.nih.gov/articles/PMC11489684/
-local_root: resources/stratifications/giab_grch38_v3_6
+release: v3.1
+source_reference: https://github.com/genome-in-a-bottle/genome-stratifications/releases/tag/v3.1
+source_root: https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/genome-stratifications/v3.1/GRCh38
+local_root: resources/stratifications/giab_grch38_v3_1
 
-# Asset paths are resolved and checksummed by prepare_stratifications. Logical
-# IDs remain stable even when GIAB changes archive layout.
+# MD5 values are from the official GIAB v3.1 checksum manifest. The fetcher
+# also records SHA-256 so every formal run can freeze exact bytes.
 strata:
-  easy:
-    asset_id: giab_easy
+  non_repeat:
+    relative_path: Union/GRCh38_notinalldifficultregions.bed.gz
+    md5: c6b38a1e274e9bb1a4212304ae4561ca
     category: difficulty
-    required_for_score: false
-  difficult:
-    asset_id: giab_all_difficult
-    category: difficulty
-    required_for_score: true
-  segmental_duplication:
-    asset_id: giab_segmental_duplications
-    category: repeat
-    required_for_score: true
   tandem_repeat:
-    asset_id: giab_tandem_repeats
+    relative_path: LowComplexity/GRCh38_allTandemRepeats.bed.gz
+    md5: 444642c357bda5bd58cdde4d8a5e6261
     category: repeat
-    required_for_score: true
-  homopolymer:
-    asset_id: giab_homopolymers
+  segmental_duplication:
+    relative_path: SegmentalDuplications/GRCh38_segdups.bed.gz
+    md5: d6d985395c5f730e75e671a4d991743c
     category: repeat
-    required_for_score: true
   low_complexity:
-    asset_id: giab_low_complexity
+    relative_path: LowComplexity/GRCh38_AllTandemRepeatsandHomopolymers_slop5.bed.gz
+    md5: 7e996df87de705c32586a2a620109f2c
     category: sequence_context
-    required_for_score: true
   low_mappability:
-    asset_id: giab_low_mappability
+    relative_path: mappability/GRCh38_lowmappabilityall.bed.gz
+    md5: 75e5dc01b7d2469a9e3c0d5fc7e1506c
     category: mappability
-    required_for_score: true
-  gc_extreme:
-    asset_id: giab_gc_extremes
-    category: sequence_context
-    required_for_score: true
-  coding_exonic:
-    asset_id: grch38_coding_exonic
-    category: functional
-    required_for_score: true
-  medically_relevant:
-    asset_id: giab_medically_relevant
-    category: functional
-    required_for_score: true
-  autosomes:
-    asset_id: grch38_autosomes
-    category: chromosome
-    required_for_score: false
+  other_difficult:
+    relative_path: OtherDifficult/GRCh38_allOtherDifficultregions.bed.gz
+    md5: 9a89151df4c62ad367f1963dbc02a167
+    category: difficulty
 
-score_universes:
-  difficult_context_v1:
-    macro_f1_strata:
-      - difficult
-      - segmental_duplication
-      - tandem_repeat
-      - homopolymer
-      - low_complexity
-      - low_mappability
-      - gc_extreme
-      - coding_exonic
-      - medically_relevant
-    zero_truth_policy: pre_run_exclude_for_all_tools
-
-  graph_complexity_v1:
-    classes:
-      - simple_biallelic
-      - multiallelic
-      - nested_or_overlapping
-      - repeat_ambiguous
-    class_priority:
-      - repeat_ambiguous
-      - nested_or_overlapping
-      - multiallelic
-      - simple_biallelic
-
-  population_af_v1:
-    bins:
-      ultrarare:
-        lower_exclusive: 0.0
-        upper_exclusive: 0.001
-      rare:
-        lower_inclusive: 0.001
-        upper_exclusive: 0.01
-      low_frequency:
-        lower_inclusive: 0.01
-        upper_exclusive: 0.05
-      common:
-        lower_inclusive: 0.05
-        upper_inclusive: 1.0
+population_af:
+  info_field_priority: [PANEL_AF, AF]
+  missing_policy: fail_closed_unknown_stratum
+  bins:
+    ultrarare: {lower_exclusive: 0.0, upper_exclusive: 0.001}
+    rare: {lower_inclusive: 0.001, upper_exclusive: 0.01}
+    low_frequency: {lower_inclusive: 0.01, upper_exclusive: 0.05}
+    common: {lower_inclusive: 0.05, upper_inclusive: 1.0}

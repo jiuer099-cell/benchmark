@@ -102,6 +102,13 @@ evaluation:
   evaluators: [truvari, aardvark, vcfdist]
   truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
   benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
+  context_beds:
+    non_repeat: resources/stratifications/giab_grch38_v3_1/Union/GRCh38_notinalldifficultregions.bed.gz
+    tandem_repeat: resources/stratifications/giab_grch38_v3_1/LowComplexity/GRCh38_allTandemRepeats.bed.gz
+    segmental_duplication: resources/stratifications/giab_grch38_v3_1/SegmentalDuplications/GRCh38_segdups.bed.gz
+    low_complexity: resources/stratifications/giab_grch38_v3_1/LowComplexity/GRCh38_AllTandemRepeatsandHomopolymers_slop5.bed.gz
+    low_mappability: resources/stratifications/giab_grch38_v3_1/mappability/GRCh38_lowmappabilityall.bed.gz
+    other_difficult: resources/stratifications/giab_grch38_v3_1/OtherDifficult/GRCh38_allOtherDifficultregions.bed.gz
   commands:
     bcftools: [mamba, run, -n, pgbench-bio, bcftools]
     tabix: [mamba, run, -n, pgbench-bio, tabix]

@@ -92,6 +92,8 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
     analysis = analysis if isinstance(analysis, Mapping) else {}
     addressability = analysis.get("addressability_audit")
     addressability = addressability if isinstance(addressability, Mapping) else {}
+    me_f1_ci = analysis.get("me_f1_confidence_interval")
+    me_f1_ci = me_f1_ci if isinstance(me_f1_ci, Mapping) else {}
     fields = [
         *TUPLE_FIELDS, "score_profile", "score_profile_sha256", "evaluation_mode",
         "score_status", "ME-F1", "TruvariPrecision", "TruvariRecall", "TruvariF1",
@@ -103,6 +105,7 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "MissingOutputCount", "LinkingFailureCount",
         "UnsupportedRepresentationCount", "AdapterConversionFailureCount",
         "IndexBuildFailureCount",
+        "ME-F1_CI95_Lower", "ME-F1_CI95_Upper",
     ]
 
     def value(evaluator: str, field: str) -> Any:
@@ -135,6 +138,8 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "UnsupportedRepresentationCount": addressability.get("unsupported_representation_count"),
         "AdapterConversionFailureCount": addressability.get("adapter_conversion_failure_count"),
         "IndexBuildFailureCount": addressability.get("index_build_failure_count"),
+        "ME-F1_CI95_Lower": me_f1_ci.get("lower"),
+        "ME-F1_CI95_Upper": me_f1_ci.get("upper"),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -157,6 +162,54 @@ def number(value: Any, digits: int = 2) -> str:
     return "N/A" if value is None else f"{float(value):.{digits}f}"
 
 
+def genotype_strata_html(analysis: Mapping[str, Any]) -> str:
+    summary = analysis.get("genotype_stratified_summary")
+    if not isinstance(summary, Mapping):
+        return ""
+    rows = []
+    for dimension, raw_strata in summary.items():
+        if not isinstance(raw_strata, Mapping):
+            continue
+        for stratum, raw in raw_strata.items():
+            if not isinstance(raw, Mapping):
+                continue
+            evaluator_metrics = raw.get("evaluator_metrics")
+            evaluator_metrics = (
+                evaluator_metrics if isinstance(evaluator_metrics, Mapping) else {}
+            )
+            evaluator_f1 = []
+            for name in ("truvari", "aardvark", "vcfdist"):
+                values = evaluator_metrics.get(name)
+                evaluator_f1.append(
+                    number(values.get("f1"), 4)
+                    if isinstance(values, Mapping)
+                    else "N/A"
+                )
+            rows.append(
+                "<tr>"
+                f"<td>{escape(str(dimension))}</td>"
+                f"<td>{escape(str(stratum))}</td>"
+                f"<td>{escape(str(raw.get('status', '')))}</td>"
+                f"<td>{raw.get('canonical_candidate_count', '')}</td>"
+                f"<td>{raw.get('truth_positive_count', '')}</td>"
+                f"<td>{evaluator_f1[0]}</td><td>{evaluator_f1[1]}</td>"
+                f"<td>{evaluator_f1[2]}</td><td>{number(raw.get('me_f1'))}</td>"
+                f"<td>{number(raw.get('addressability_rate'), 4)}</td>"
+                "</tr>"
+            )
+    if not rows:
+        return ""
+    return (
+        "<h2>Genotype-aware stratified results</h2>"
+        "<table><thead><tr><th>Dimension</th><th>Stratum</th><th>Status</th>"
+        "<th>Candidates</th><th>Truth+</th><th>Truvari F1</th>"
+        "<th>Aardvark-GT F1</th><th>vcfdist F1</th><th>ME-F1</th>"
+        "<th>Addressability</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
+
+
 def html(score: Mapping[str, Any]) -> str:
     tuple_key = score["tuple_key"]
     metrics = evaluator_metrics(score)
@@ -166,6 +219,9 @@ def html(score: Mapping[str, Any]) -> str:
     candidate = candidate if isinstance(candidate, Mapping) else {}
     addressability = analysis.get("addressability_audit")
     addressability = addressability if isinstance(addressability, Mapping) else {}
+    me_f1_ci = analysis.get("me_f1_confidence_interval")
+    me_f1_ci = me_f1_ci if isinstance(me_f1_ci, Mapping) else {}
+    strata_html = genotype_strata_html(analysis)
     rows = []
     for evaluator, label in (("truvari", "Truvari"), ("aardvark", "Aardvark-GT"), ("vcfdist", "vcfdist")):
         values = metrics.get(evaluator)
@@ -181,6 +237,7 @@ def html(score: Mapping[str, Any]) -> str:
 <h1>{escape(str(tuple_key['tool']))}</h1>
 <p>同一短读长、同一冻结 panel、同一 panel-addressable truth 的 genotype-aware 评估。</p>
 <p class="score"><strong>ME-F1: {number(score.get('benchmark_score'))}</strong></p>
+<p>Paired genomic-block bootstrap 95% CI：{number(me_f1_ci.get('lower'))}–{number(me_f1_ci.get('upper'))}。</p>
 <p>状态：{escape(str(score.get('score_status')))}；evaluator range：{number(score.get('evaluator_range'))}；evaluator SD：{number(score.get('evaluator_sd'))}。</p>
 <p>{reason}</p>
 <table><thead><tr><th>Evaluator</th><th>TP</th><th>FP</th><th>FN</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
@@ -188,6 +245,7 @@ def html(score: Mapping[str, Any]) -> str:
 <p>Truth denominator：{score.get('truth_eligible_count', '')}；candidate count：{candidate.get('candidate_count', '')}；called：{addressability.get('called_count', '')}；explicit no-call：{addressability.get('explicit_no_call_count', '')}；missing output：{addressability.get('missing_output_count', '')}；linking failure：{addressability.get('linking_failure_count', '')}。</p>
 <p>Unsupported representation：{addressability.get('unsupported_representation_count', '')}；adapter conversion failure：{addressability.get('adapter_conversion_failure_count', '')}；index build failure：{addressability.get('index_build_failure_count', '')}；addressability rate：{number(addressability.get('addressability_rate'), 4)}；panel coverage：{number(score.get('panel_coverage'), 4)}。</p>
 <p>Candidate genotype macro-F1（诊断）：{number(score.get('pangenome_genotyping_score'))}；non-reference F1（诊断）：{number(score.get('non_reference_f1_score'))}。</p>
+{strata_html}
 <p>Profile：<code>{escape(str(score.get('score_profile')))}</code>；SHA-256：<code>{escape(str(score.get('score_profile_sha256')))}</code></p>
 </body></html>\n"""
 

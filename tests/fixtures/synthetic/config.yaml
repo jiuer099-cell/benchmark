@@ -95,6 +95,13 @@ evaluation:
   evaluators: [truvari, aardvark, vcfdist]
   truth_vcf: null
   benchmark_bed: null
+  context_beds:
+    non_repeat: tests/fixtures/synthetic/stratifications/difficult.bed
+    tandem_repeat: tests/fixtures/synthetic/stratifications/difficult.bed
+    segmental_duplication: tests/fixtures/synthetic/stratifications/difficult.bed
+    low_complexity: tests/fixtures/synthetic/stratifications/difficult.bed
+    low_mappability: tests/fixtures/synthetic/stratifications/difficult.bed
+    other_difficult: tests/fixtures/synthetic/stratifications/difficult.bed
   commands:
     bcftools: [bcftools]
     tabix: [tabix]

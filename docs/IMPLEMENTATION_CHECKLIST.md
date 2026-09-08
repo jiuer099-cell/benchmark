@@ -78,10 +78,17 @@ merely because a similarly named configuration value exists.
 - **Completed:** DEL/INS, five length bins, block bootstrap CI, and
   leave-one-evaluator-out sensitivity are represented in the formal metrics
   contract.
-- **Not completed:** context/AF stratified evaluator P/R/F1 and paired
-  between-tool differences still require implementation plus frozen production
-  strata assets. Coverage matrix execution and across-seed summaries are also
-  pending on the server.
+- **Implementation completed; production assets/run pending:** context and
+  population-AF strata publish candidate/truth counts, all three evaluator
+  TP/FP/FN/P/R/F1 values, ME-F1, call/no-call/failure counts, and
+  addressability. The formal scorer fails closed unless exactly the six frozen
+  context BEDs and a usable panel AF are present.
+- **Implementation completed; production run pending:** paired genomic-block
+  bootstrap stores ME-F1/evaluator replicates and 95% CIs; the run aggregator
+  computes paired between-tool ME-F1 differences from common resamples.
+- **Implementation completed; production run pending:** the repeated-coverage
+  summarizer enforces the same three seeds at 10x/20x/30x plus one full-depth
+  result and reports mean, SD, minimum, and maximum ME-F1.
 
 ## Information, provenance, and release gates (sections 44, 47, 54–56, 63–65)
 
@@ -106,10 +113,14 @@ merely because a similarly named configuration value exists.
 - **Not completed because no additional data were supplied:** independent
   truth samples. No cross-population claim is allowed while
   `independent_samples_status: not_available`.
-- **Not completed:** GIAB difficult, segmental-duplication, tandem-repeat,
-  low-complexity, low-mappability, and non-repeat strata must be downloaded,
-  hashed, frozen, wired into per-evaluator P/R/F1, and exercised on the server.
-  No difficult-region completion claim is permitted before that evidence exists.
+- **Implementation completed; production asset verification/run pending:** the
+  official GIAB GRCh38 v3.1 catalogue freezes source URLs and published MD5s
+  for non-repeat, tandem-repeat, segmental-duplication, low-complexity,
+  low-mappability, and other-difficult BEDs. The preparation step verifies BED
+  syntax and records MD5, SHA-256, size, and interval count; the formal scorer
+  records asset hashes and computes per-evaluator/ME-F1 strata. No production
+  completion claim is permitted until those exact assets are fetched and
+  exercised on the server.
 
 ## Required execution order
 

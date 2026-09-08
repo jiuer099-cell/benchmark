@@ -14,6 +14,7 @@ import json
 import math
 import sys
 from collections.abc import Mapping, Sequence
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +149,87 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _percentile(values: Sequence[float], probability: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        raise SummaryError("paired bootstrap distribution is empty")
+    position = (len(ordered) - 1) * probability
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    fraction = position - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+
+def paired_tool_differences(
+    metric_documents: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Calculate candidate-block paired ME-F1 differences for every tool pair."""
+
+    formal = []
+    for document in metric_documents:
+        analysis = document.get("analysis")
+        if not isinstance(analysis, Mapping):
+            continue
+        if analysis.get("contract_version") != "formal_genotype_me_f1_v1":
+            continue
+        bootstrap = analysis.get("me_f1_confidence_interval")
+        if not isinstance(bootstrap, Mapping):
+            raise SummaryError("formal metrics are missing ME-F1 block bootstrap")
+        samples = bootstrap.get("replicate_me_f1")
+        tuple_key = document.get("tuple")
+        if not isinstance(samples, list) or not isinstance(tuple_key, Mapping):
+            raise SummaryError("invalid formal ME-F1 bootstrap payload")
+        if not all(
+            isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in samples
+        ):
+            raise SummaryError("ME-F1 bootstrap contains a non-finite value")
+        formal.append(
+            {
+                "tool": tuple_key.get("tool_id"),
+                "track": analysis.get("comparison_track_sha256"),
+                "seed": bootstrap.get("seed_sha256"),
+                "replicates": bootstrap.get("replicates"),
+                "samples": [float(value) for value in samples],
+                "point": float(analysis.get("me_f1")),
+            }
+        )
+    results: list[dict[str, Any]] = []
+    for first, second in combinations(formal, 2):
+        if (
+            first["track"] != second["track"]
+            or first["seed"] != second["seed"]
+            or first["replicates"] != second["replicates"]
+            or len(first["samples"]) != len(second["samples"])
+        ):
+            raise SummaryError(
+                f"tools {first['tool']} and {second['tool']} do not share paired draws"
+            )
+        differences = [
+            left - right
+            for left, right in zip(first["samples"], second["samples"], strict=True)
+        ]
+        results.append(
+            {
+                "contrast": f"{first['tool']}_minus_{second['tool']}",
+                "tool_a": first["tool"],
+                "tool_b": second["tool"],
+                "point_difference": first["point"] - second["point"],
+                "lower": _percentile(differences, 0.025),
+                "upper": _percentile(differences, 0.975),
+                "level": 0.95,
+                "method": "paired_genomic_block_bootstrap",
+                "replicates": len(differences),
+                "seed_sha256": first["seed"],
+            }
+        )
+    return results
 
 
 def _validate_sealed_package(
@@ -374,6 +456,11 @@ def aggregate(
             raise SummaryError(f"duplicate tool tuple: {tuple_identity!r}")
         seen_tuples.add(tuple_identity)
 
+        analysis = metrics.get("analysis")
+        analysis = analysis if isinstance(analysis, Mapping) else {}
+        me_f1_ci = analysis.get("me_f1_confidence_interval")
+        me_f1_ci = me_f1_ci if isinstance(me_f1_ci, Mapping) else {}
+
         score_rows.append(
             {
                 **tuple_key,
@@ -387,6 +474,8 @@ def aggregate(
                 "vcfdistF1": (score.get("evaluator_scores") or {}).get("vcfdist"),
                 "EvaluatorRange": score.get("evaluator_range"),
                 "EvaluatorSD": score.get("evaluator_sd"),
+                "ME-F1_CI95_Lower": me_f1_ci.get("lower"),
+                "ME-F1_CI95_Upper": me_f1_ci.get("upper"),
                 "PangenomeGenotypingScore": score.get(
                     "pangenome_genotyping_score"
                 ),
@@ -434,6 +523,8 @@ def aggregate(
             "vcfdistF1",
             "EvaluatorRange",
             "EvaluatorSD",
+            "ME-F1_CI95_Lower",
+            "ME-F1_CI95_Upper",
             "PangenomeGenotypingScore",
             "NonReferenceF1",
             "PanelCoverage",
@@ -468,7 +559,11 @@ def aggregate(
     _write_tsv(output_metrics_tsv, metric_fields, metric_rows)
     _atomic_json(
         output_metrics_json,
-        {"schema_version": 1, "documents": metric_documents},
+        {
+            "schema_version": 2,
+            "documents": metric_documents,
+            "paired_tool_differences": paired_tool_differences(metric_documents),
+        },
     )
 
 
