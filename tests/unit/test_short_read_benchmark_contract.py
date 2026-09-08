@@ -157,9 +157,16 @@ def test_information_contract_is_hash_frozen(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    documents = freeze(ROOT / "plugins" / "pangenie" / "tool.yaml", resolved)
+    documents = freeze(
+        ROOT / "plugins" / "pangenie" / "tool.yaml",
+        resolved,
+        ROOT / "config" / "allowed_information.yaml",
+        ROOT / "config" / "tuning_policy.yaml",
+    )
     assert documents["allowed_inputs"]["status"] == "valid"
     assert documents["training_or_tuning_status"]["target_truth_inspected"] is False
+    assert documents["training_or_tuning_status"]["tuning_mode"] == "official_recommended_sv_config"
+    assert documents["allowed_inputs"]["undeclared_information"] == []
     assert len(documents["parameter_manifest"]["parameter_sha256"]) == 64
 
 
@@ -174,3 +181,8 @@ def test_main_configuration_freezes_unified_panel_and_me_f1() -> None:
     assert len(contract["downsampling_seeds"]) >= 3
     assert config["score"]["profile"] == "pgbench_me_f1_v1"
     assert config["catalogs"]["score_weights"] == "config/me_f1_scoring.yaml"
+    score = _yaml(ROOT / "config" / "me_f1_scoring.yaml")["score"]
+    assert score["evaluators"] == ["truvari", "aardvark_gt", "vcfdist"]
+    assert score["formula"] == "arithmetic_mean"
+    assert score["renormalize_missing_weights"] is False
+    assert score["stratification_affects_primary_score"] is False

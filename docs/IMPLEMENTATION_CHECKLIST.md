@@ -35,8 +35,12 @@ merely because a similarly named configuration value exists.
   records full depth, counts, bases, paths, and hashes.
 - **Implementation completed; production run pending:** `run_coverage_matrix.py` creates exactly nine downsampled run
   configs plus one full-depth config from that shared manifest.
-- **Implementation completed; production run pending:** runtime and peak resource records are kept per rule; cache and
-  execution modes are frozen in provenance.
+- **Implementation completed; production measurements pending:**
+  `summarize_resource_stages.py` refuses combined-only timing, separately
+  aggregates one-time build and per-sample wall/CPU/peak-RAM measurements,
+  measures index disk bytes, and reports amortized N=1/10/100/1000 costs.
+  The release gate remains closed until both scopes have production records;
+  a single wrapper runtime cannot be mislabeled as a fair split.
 
 ## Adapter and output contract (sections 16–18, 32–45, 66, 68–69)
 
@@ -45,9 +49,10 @@ merely because a similarly named configuration value exists.
 - **Implementation completed; real-tool validation pending:** bundled adapters are PanGenie, vg, and Paragraph. External
   adapters are GraphTyper2, Varigraph, and BayesTyper.
 - **Implementation completed; per-tool production audits pending:** adapters project native output onto the entire canonical panel.
-  The normalization ledger distinguishes `called`, `explicit_no_call`,
-  `missing_output`, `linking_failure`, `unsupported_representation`, and
-  `adapter_conversion_failure`.
+  The normalization ledger distinguishes `addressable_called`,
+  `explicit_no_call`, `missing_output`, `linking_failure`,
+  `unsupported_representation`, `ambiguous_mapping`,
+  `adapter_conversion_failure`, and `index_build_failure`.
 - **Implementation completed; per-tool production audits pending:** addressability manifests retain every canonical candidate,
   tool-native ID, status, and failure reason; the primary denominator is never
   reduced to a tool-specific representable subset.
@@ -63,16 +68,23 @@ merely because a similarly named configuration value exists.
 
 - **Completed:** formal evaluators are exactly Truvari, Aardvark GT, and
   vcfdist. hap.py/RTG are not part of the primary score.
-- **Completed:** all three consume the same canonical all-sites query, prepared
-  truth, benchmark BED, reference, sample, and frozen evaluator profile.
+- **Completed:** core deterministically derives `evaluation-query.vcf.gz` from
+  `all-sites.vcf.gz` and `candidate-status.tsv`; only 0/1 and 1/1 are emitted.
+  Every emitted row is checked against one frozen canonical-panel allele, no
+  adapter QUAL/GQ filtering is permitted at this step, and all source/output
+  hashes enter provenance. All three evaluators consume that same per-tool
+  evaluation-query, prepared truth, BED, reference, and frozen profile.
 - **Contract-fixture validation completed; execution with the three installed evaluator binaries pending:** the eight semantic cases cover exact heterozygous calls, both
   heterozygous/homozygous-alt mismatches, ALT↔0/0, representation equivalence,
   explicit no-call, and nearby non-equivalent variants.
 - **Completed:** native outputs are converted to benchmark-defined genotype
   TP/FP/FN. Precision, recall, and F1 are recomputed from those counts, so the
   three F1 values have the same biological semantics.
-- **Completed:** `ME-F1` is the unweighted arithmetic mean of those three F1
-  values. All three P/R/F1 values plus evaluator range/SD are published.
+- **Completed:** score-contract v1.0 permits only
+  `(F1_Truvari + F1_Aardvark-GT + F1_vcfdist) / 3`. All three inputs are
+  required, missing inputs cannot be renormalized, plugins cannot provide the
+  score, and strata are explanatory only. The score-contract block and full
+  profile have separately verified SHA-256 identities.
 - **Completed:** candidate agreement and whole-truth recovery are diagnostics
   only; neither contributes to ME-F1 or determines ranking.
 - **Completed:** DEL/INS, five length bins, block bootstrap CI, and
@@ -88,7 +100,9 @@ merely because a similarly named configuration value exists.
   computes paired between-tool ME-F1 differences from common resamples.
 - **Implementation completed; production run pending:** the repeated-coverage
   summarizer enforces the same three seeds at 10x/20x/30x plus one full-depth
-  result and reports mean, SD, minimum, and maximum ME-F1.
+  result and reports mean, sample SD, Student-t 95% CI, minimum, and maximum
+  ME-F1. The single full-depth run correctly reports its across-seed CI as
+  undefined rather than inventing uncertainty.
 
 ## Information, provenance, and release gates (sections 44, 47, 54–56, 63–65)
 

@@ -46,7 +46,9 @@ def test_three_evaluators_use_identical_gt_aware_tp_fp_fn_definition() -> None:
         },
     }
 
-    metrics = evaluator_genotype_f1(ledgers, event_ids, panel_truth_positive=4)
+    metrics = evaluator_genotype_f1(
+        ledgers, event_ids, canonical_panel_truth_positive=4
+    )
 
     assert tuple(metrics) == EVALUATORS
     assert metrics["truvari"] == {
@@ -76,15 +78,17 @@ def test_gt_true_positive_cannot_exceed_panel_truth_denominator() -> None:
         for evaluator in EVALUATORS
     }
 
-    with pytest.raises(ValueError, match="exceed panel-addressable truth"):
-        evaluator_genotype_f1(ledgers, {"A", "B"}, panel_truth_positive=1)
+    with pytest.raises(ValueError, match="exceed canonical-panel truth"):
+        evaluator_genotype_f1(
+            ledgers, {"A", "B"}, canonical_panel_truth_positive=1
+        )
 
 
 def test_empty_panel_truth_denominator_is_rejected() -> None:
     ledgers = {evaluator: {} for evaluator in EVALUATORS}
 
     with pytest.raises(ValueError, match="no positive candidate"):
-        evaluator_genotype_f1(ledgers, set(), panel_truth_positive=0)
+        evaluator_genotype_f1(ledgers, set(), canonical_panel_truth_positive=0)
 
 
 def test_context_and_af_strata_publish_three_identical_gt_contracts(
@@ -142,6 +146,9 @@ def test_context_and_af_strata_publish_three_identical_gt_contracts(
 
     rare = summary["population_af"]["rare"]
     assert rare["truth_positive_count"] == 1
+    assert rare["metric_id"] == "ME-F1_AF_RARE"
+    assert rare["role"] == "explanatory"
+    assert rare["affects_primary_score"] is False
     assert rare["me_f1"] == pytest.approx(100.0)
     assert set(rare["evaluator_metrics"]) == set(EVALUATORS)
     assert rare["evaluator_metrics"]["truvari"]["f1"] == 1.0

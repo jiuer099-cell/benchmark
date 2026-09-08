@@ -181,6 +181,82 @@ def _open_text(path: Path, mode: str) -> TextIO:
     return cast(TextIO, path.open(mode, encoding="utf-8"))
 
 
+def audit_panel_source_provenance(
+    path: Path | None,
+    *,
+    population_source: Path,
+    excluded_samples: list[str],
+) -> dict[str, object]:
+    """Freeze panel-source declarations and fail closed on false verification."""
+
+    if path is None:
+        return {
+            "contract": "pgbench_panel_source_provenance_v1",
+            "status": "unverified_information",
+            "reason": "panel provenance catalogue was not supplied",
+            "observed_population_vcf_sha256": sha256_file(population_source),
+        }
+    value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise PangenomeManifestError("panel provenance must be a mapping")
+    if value.get("contract") != "pgbench_panel_source_provenance_v1":
+        raise PangenomeManifestError("unsupported panel provenance contract")
+    if value.get("excluded_sample_list") != excluded_samples:
+        raise PangenomeManifestError(
+            "panel provenance excluded_sample_list differs from the run contract"
+        )
+    observed_sha256 = sha256_file(population_source)
+    expected_sha256 = value.get("source_population_vcf_sha256")
+    status = value.get("status")
+    if status not in {"verified", "unverified_information"}:
+        raise PangenomeManifestError("invalid panel provenance status")
+    if expected_sha256 is not None and expected_sha256 != observed_sha256:
+        raise PangenomeManifestError(
+            "population VCF differs from panel provenance SHA-256"
+        )
+    required_verified = (
+        "source_assembly_list",
+        "source_sample_list",
+        "source_sample_list_sha256",
+        "sv_extraction_tool",
+        "sv_extraction_version",
+        "sv_extraction_parameters",
+        "merge_method",
+        "normalization_method",
+        "filter_rules",
+    )
+    if status == "verified":
+        if expected_sha256 != observed_sha256:
+            raise PangenomeManifestError(
+                "verified panel provenance must freeze the population VCF SHA-256"
+            )
+        if value.get("independent_of_benchmarked_callers") is not True:
+            raise PangenomeManifestError(
+                "verified panel provenance must be independent of benchmarked callers"
+            )
+        sample_list = Path(str(value.get("source_sample_list", "")))
+        if not sample_list.is_absolute():
+            sample_list = Path.cwd() / sample_list
+        if (
+            not sample_list.is_file()
+            or value.get("source_sample_list_sha256") != sha256_file(sample_list)
+        ):
+            raise PangenomeManifestError(
+                "verified panel provenance must freeze the source sample-list SHA-256"
+            )
+        missing = [name for name in required_verified if not value.get(name)]
+        if missing:
+            raise PangenomeManifestError(
+                "verified panel provenance is incomplete: " + ", ".join(missing)
+            )
+    return {
+        **value,
+        "catalogue_path": str(path),
+        "catalogue_sha256": sha256_file(path),
+        "observed_population_vcf_sha256": observed_sha256,
+    }
+
+
 def parse_info(raw_info: str) -> dict[str, str | bool]:
     info: dict[str, str | bool] = {}
     if raw_info in {"", "."}:
@@ -455,6 +531,7 @@ def build_manifest(
     graph_build_recipe_sha256: str | None,
     graph_assets_lock: Path | None,
     generated_at: str,
+    panel_provenance: Path | None = None,
 ) -> dict:
     excluded = list(excluded_truth_samples)
     missing_family = sorted(set(TARGET_FAMILY_ALIASES) - set(excluded))
@@ -466,6 +543,12 @@ def build_manifest(
         record_count = sum(
             1 for line in handle if line.strip() and not line.startswith("#")
         )
+    source_provenance = audit_panel_source_provenance(
+        panel_provenance,
+        population_source=population_source,
+        excluded_samples=excluded,
+    )
+    source_provenance["canonical_panel_sha256"] = sha256_file(panel_vcf)
     return {
         "schema_version": 1,
         "pangenome_id": pangenome_id,
@@ -493,7 +576,7 @@ def build_manifest(
         ],
         "panel_vcf": {
             "path": str(panel_vcf),
-            "sha256": sha256_file(panel_vcf),
+            "sha256": source_provenance["canonical_panel_sha256"],
             "record_count": record_count,
         },
         "allele_ledger": {
@@ -506,6 +589,7 @@ def build_manifest(
             else None
         ),
         "graph_build_recipe_sha256": graph_build_recipe_sha256,
+        "panel_source_provenance": source_provenance,
         "generated_at": generated_at,
     }
 
@@ -530,6 +614,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--graph-build-recipe-sha256")
     parser.add_argument("--graph-assets-lock", type=Path)
+    parser.add_argument("--panel-provenance", type=Path)
     parser.add_argument("--generated-at")
     return parser.parse_args(argv)
 
@@ -559,6 +644,7 @@ def main(argv: list[str] | None = None) -> int:
             graph_build_recipe_sha256=args.graph_build_recipe_sha256,
             graph_assets_lock=args.graph_assets_lock,
             generated_at=generated_at,
+            panel_provenance=args.panel_provenance,
         )
         args.output_manifest.parent.mkdir(parents=True, exist_ok=True)
         temporary = args.output_manifest.with_name(f".{args.output_manifest.name}.tmp")

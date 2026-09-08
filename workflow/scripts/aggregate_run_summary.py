@@ -460,27 +460,67 @@ def aggregate(
         analysis = analysis if isinstance(analysis, Mapping) else {}
         me_f1_ci = analysis.get("me_f1_confidence_interval")
         me_f1_ci = me_f1_ci if isinstance(me_f1_ci, Mapping) else {}
+        addressability = analysis.get("addressability_audit")
+        addressability = (
+            addressability if isinstance(addressability, Mapping) else {}
+        )
+        addressable_subset = analysis.get("addressable_subset_diagnostic")
+        addressable_subset = (
+            addressable_subset if isinstance(addressable_subset, Mapping) else {}
+        )
+        candidate_count = addressability.get("canonical_candidate_count")
 
         score_rows.append(
             {
                 **tuple_key,
                 "score_profile": score.get("score_profile"),
                 "score_profile_sha256": score.get("score_profile_sha256"),
+                "score_contract_version": score.get("score_contract_version"),
+                "score_contract_sha256": score.get("score_contract_sha256"),
                 "evaluation_mode": score.get("evaluation_mode"),
                 "score_status": score.get("score_status"),
                 "ME-F1": score.get("benchmark_score"),
                 "TruvariF1": (score.get("evaluator_scores") or {}).get("truvari"),
                 "AardvarkGTF1": (score.get("evaluator_scores") or {}).get("aardvark"),
                 "vcfdistF1": (score.get("evaluator_scores") or {}).get("vcfdist"),
+                "ME-F1_AddressableDiagnostic": addressable_subset.get("me_f1"),
+                "Addressability": addressability.get("addressability_rate"),
+                "CallRate": (
+                    float(addressability.get("called_count", 0))
+                    / float(candidate_count)
+                    if candidate_count
+                    else None
+                ),
+                "NoCallRate": (
+                    float(addressability.get("explicit_no_call_count", 0))
+                    / float(candidate_count)
+                    if candidate_count
+                    else None
+                ),
+                "PanelTotal": candidate_count,
+                "AddressableCount": addressability.get("addressable_count"),
+                "UnsupportedRepresentationCount": addressability.get(
+                    "unsupported_representation_count"
+                ),
+                "LinkingFailureCount": addressability.get(
+                    "linking_failure_count"
+                ),
+                "ExplicitNoCallCount": addressability.get(
+                    "explicit_no_call_count"
+                ),
+                "MissingOutputCount": addressability.get("missing_output_count"),
+                "AmbiguousMappingCount": addressability.get(
+                    "ambiguous_mapping_count"
+                ),
                 "EvaluatorRange": score.get("evaluator_range"),
                 "EvaluatorSD": score.get("evaluator_sd"),
                 "ME-F1_CI95_Lower": me_f1_ci.get("lower"),
                 "ME-F1_CI95_Upper": me_f1_ci.get("upper"),
-                "PangenomeGenotypingScore": score.get(
+                "DiagnosticGTMacroF1": score.get(
                     "pangenome_genotyping_score"
                 ),
-                "NonReferenceF1": score.get("non_reference_f1_score"),
-                "PanelCoverage": score.get("panel_coverage"),
+                "DiagnosticNonReferenceF1": score.get("non_reference_f1_score"),
+                "DiagnosticPanelCoverage": score.get("panel_coverage"),
                 "total_evaluated": score.get("total_evaluated"),
                 "truth_eligible_count": score.get("truth_eligible_count"),
             }
@@ -513,21 +553,34 @@ def aggregate(
         output_score_tsv,
         (
             *TUPLE_FIELDS,
-            "score_profile",
-            "score_profile_sha256",
-            "evaluation_mode",
-            "score_status",
             "ME-F1",
             "TruvariF1",
             "AardvarkGTF1",
             "vcfdistF1",
+            "ME-F1_AddressableDiagnostic",
+            "Addressability",
+            "CallRate",
+            "NoCallRate",
+            "PanelTotal",
+            "AddressableCount",
+            "UnsupportedRepresentationCount",
+            "LinkingFailureCount",
+            "ExplicitNoCallCount",
+            "MissingOutputCount",
+            "AmbiguousMappingCount",
+            "score_profile",
+            "score_profile_sha256",
+            "score_contract_version",
+            "score_contract_sha256",
+            "evaluation_mode",
+            "score_status",
             "EvaluatorRange",
             "EvaluatorSD",
             "ME-F1_CI95_Lower",
             "ME-F1_CI95_Upper",
-            "PangenomeGenotypingScore",
-            "NonReferenceF1",
-            "PanelCoverage",
+            "DiagnosticGTMacroF1",
+            "DiagnosticNonReferenceF1",
+            "DiagnosticPanelCoverage",
             "total_evaluated",
             "truth_eligible_count",
         ),

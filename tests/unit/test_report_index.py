@@ -23,6 +23,8 @@ def _score() -> dict:
         },
         "score_profile": "pgbench_v1",
         "score_profile_sha256": "a" * 64,
+        "score_contract_version": "1.0",
+        "score_contract_sha256": "a" * 64,
         "evaluation_mode": "synthetic_smoke",
         "score_status": "provisional",
         "benchmark_score": 75.0,

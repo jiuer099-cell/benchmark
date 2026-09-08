@@ -1,4 +1,21 @@
-schema_version: 3
+schema_version: 4
+
+# This block is deliberately non-tunable. The benchmark core validates every
+# field and the SHA-256 of this complete file is sealed into each score.
+score:
+  id: ME-F1
+  version: "1.0"
+  evaluators: [truvari, aardvark_gt, vcfdist]
+  formula: arithmetic_mean
+  weights:
+    truvari: 0.3333333333333333
+    aardvark_gt: 0.3333333333333333
+    vcfdist: 0.3333333333333333
+  require_all_evaluators: true
+  renormalize_missing_weights: false
+  primary_score:
+    expression: (truvari_f1 + aardvark_gt_f1 + vcfdist_f1) / 3
+  stratification_affects_primary_score: false
 
 profile:
   id: pgbench_me_f1_v1
@@ -12,12 +29,10 @@ primary_score:
   metric: multi_evaluator_genotype_f1
   formula: (F1_truvari + F1_aardvark_gt + F1_vcfdist) / 3
   scale: percent
-  denominator: frozen_panel_addressable_truth
-  evaluator_weights:
-    truvari: 1
-    aardvark: 1
-    vcfdist: 1
+  denominator: frozen_canonical_panel_truth
   requirements:
+    - benchmark_core_computed_only
+    - unified_judgement_layer_f1_only
     - identical_query_vcf
     - identical_truth_vcf
     - identical_benchmark_bed
@@ -36,6 +51,7 @@ validity_gates:
   require_all_three_evaluators: true
 
 published_metrics:
+  - me_f1
   - truvari_precision
   - truvari_recall
   - truvari_f1
@@ -45,7 +61,6 @@ published_metrics:
   - vcfdist_precision
   - vcfdist_recall
   - vcfdist_f1
-  - me_f1
   - evaluator_range
   - evaluator_sd
   - call_rate

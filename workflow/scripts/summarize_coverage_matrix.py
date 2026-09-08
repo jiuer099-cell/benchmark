@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 import sys
@@ -18,6 +19,33 @@ RUN_PATTERN = re.compile(r"^(?P<base>.+)_(?P<coverage>10|20|30)x_seed(?P<seed>\d
 
 class CoverageSummaryError(ValueError):
     """Raised when coverage results do not form the frozen repeated matrix."""
+
+
+# Two-sided 95% Student-t critical values. Formal downsampling uses three
+# frozen seeds (df=2), while the remaining entries keep the helper correct if
+# later releases increase rather than decrease replication.
+T_CRITICAL_975 = {
+    1: 12.7062047364, 2: 4.3026527297, 3: 3.1824463053,
+    4: 2.7764451052, 5: 2.5705818356, 6: 2.4469118488,
+    7: 2.3646242516, 8: 2.3060041352, 9: 2.2621571629,
+    10: 2.2281388520, 11: 2.2009851601, 12: 2.1788128297,
+    13: 2.1603686565, 14: 2.1447866879, 15: 2.1314495456,
+    16: 2.1199052992, 17: 2.1098155778, 18: 2.1009220402,
+    19: 2.0930240544, 20: 2.0859634473, 21: 2.0796138447,
+    22: 2.0738730679, 23: 2.0686576104, 24: 2.0638985616,
+    25: 2.0595385528, 26: 2.0555294386, 27: 2.0518305165,
+    28: 2.0484071418, 29: 2.0452296421, 30: 2.0422724563,
+}
+
+
+def mean_ci95(values: Sequence[float]) -> tuple[float | None, float | None]:
+    if len(values) < 2:
+        return None, None
+    mean = statistics.fmean(values)
+    standard_error = statistics.stdev(values) / math.sqrt(len(values))
+    critical = T_CRITICAL_975.get(len(values) - 1, 1.9599639845)
+    margin = critical * standard_error
+    return max(0.0, mean - margin), min(100.0, mean + margin)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -88,21 +116,32 @@ def summarize(paths: Sequence[Path]) -> dict[str, Any]:
                     f"{tool} {coverage}x has {len(values)} results, expected {expected}"
                 )
             scores = [row["me_f1"] for row in values]
+            ci_lower, ci_upper = mean_ci95(scores)
             rows.append(
                 {
                     "tool": tool,
                     "coverage": coverage,
+                    "metric_id": f"ME-F1_{str(coverage).upper()}X" if coverage != "full" else "ME-F1_FULL",
+                    "role": "explanatory",
+                    "affects_primary_score": False,
                     "replicates": len(scores),
                     "mean_me_f1": statistics.fmean(scores),
-                    "sd_me_f1": statistics.pstdev(scores) if len(scores) > 1 else 0.0,
+                    "sd_me_f1": statistics.stdev(scores) if len(scores) > 1 else None,
+                    "ci95_lower_me_f1": ci_lower,
+                    "ci95_upper_me_f1": ci_upper,
+                    "ci95_method": (
+                        "student_t_across_frozen_seeds"
+                        if len(scores) > 1
+                        else "undefined_single_full_depth_run"
+                    ),
                     "min_me_f1": min(scores),
                     "max_me_f1": max(scores),
                     "runs": values,
                 }
             )
     return {
-        "schema_version": 1,
-        "contract": "pgbench_repeated_coverage_summary_v1",
+        "schema_version": 2,
+        "contract": "pgbench_repeated_coverage_summary_v2",
         "base_run_id": base_run,
         "coverages": [10, 20, 30, "full"],
         "downsampling_seeds": sorted(frozen_seeds),

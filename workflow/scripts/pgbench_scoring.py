@@ -8,6 +8,7 @@ can never affect the primary score.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 from collections.abc import Mapping
@@ -34,10 +35,15 @@ QUALITY_GATE_FIELDS = frozenset(
     {
         "evaluator_semantic_contract_valid",
         "addressability_complete",
+        "evaluation_query_complete",
         "allowed_information_complete",
         "tuning_frozen",
+        "panel_provenance_complete",
         "context_stratification_complete",
         "population_af_stratification_complete",
+        "all_evaluator_evidence_complete",
+        "family_aware_loo_complete",
+        "statistical_uncertainty_complete",
     }
 )
 SCORE_PAYLOAD_FIELDS = frozenset(
@@ -64,13 +70,40 @@ def _profile_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _contract_sha256(value: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any]:
     try:
         profile = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ScoreInputError(f"cannot load ME-F1 profile {path}: {exc}") from exc
-    if not isinstance(profile, dict) or profile.get("schema_version") != 3:
-        raise ScoreInputError("ME-F1 profile schema_version must be 3")
+    if not isinstance(profile, dict) or profile.get("schema_version") != 4:
+        raise ScoreInputError("ME-F1 profile schema_version must be 4")
+    score_contract = profile.get("score")
+    expected_score_contract = {
+        "id": "ME-F1",
+        "version": "1.0",
+        "evaluators": ["truvari", "aardvark_gt", "vcfdist"],
+        "formula": "arithmetic_mean",
+        "weights": {
+            "truvari": 0.3333333333333333,
+            "aardvark_gt": 0.3333333333333333,
+            "vcfdist": 0.3333333333333333,
+        },
+        "require_all_evaluators": True,
+        "renormalize_missing_weights": False,
+        "primary_score": {
+            "expression": "(truvari_f1 + aardvark_gt_f1 + vcfdist_f1) / 3"
+        },
+        "stratification_affects_primary_score": False,
+    }
+    if score_contract != expected_score_contract:
+        raise ScoreInputError("ME-F1 score contract is not the frozen v1.0 contract")
     meta = profile.get("profile")
     if not isinstance(meta, dict) or meta.get("id") != "pgbench_me_f1_v1":
         raise ScoreInputError("unsupported ME-F1 profile id")
@@ -81,13 +114,11 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         "(F1_truvari + F1_aardvark_gt + F1_vcfdist) / 3"
     ):
         raise ScoreInputError("unsupported ME-F1 formula")
-    if primary.get("denominator") != "frozen_panel_addressable_truth":
-        raise ScoreInputError("ME-F1 must use frozen panel-addressable truth")
-    weights = primary.get("evaluator_weights")
-    if weights != {name: 1 for name in EVALUATORS}:
-        raise ScoreInputError("ME-F1 requires equal evaluator weights")
+    if primary.get("denominator") != "frozen_canonical_panel_truth":
+        raise ScoreInputError("ME-F1 must use frozen canonical-panel truth")
     profile["_source_path"] = str(path)
     profile["_sha256"] = _profile_sha256(path)
+    profile["_score_contract_sha256"] = _contract_sha256(score_contract)
     return profile
 
 
@@ -99,6 +130,8 @@ class ScoreResult:
     tuple_key: Mapping[str, str]
     score_profile: str
     score_profile_sha256: str
+    score_contract_version: str
+    score_contract_sha256: str
     evaluation_mode: str
     score_status: str
     benchmark_score: float | None
@@ -248,6 +281,8 @@ def calculate_me_f1(
             tuple_key=trusted,
             score_profile=profile_id,
             score_profile_sha256=profile["_sha256"],
+            score_contract_version=profile["score"]["version"],
+            score_contract_sha256=profile["_score_contract_sha256"],
             evaluation_mode=evaluation_mode,
             score_status="invalid" if status in INVALID_SCORE_STATUSES else str(status),
             benchmark_score=None,
@@ -267,6 +302,14 @@ def calculate_me_f1(
         )
     if status != "eligible" or payload.get("infrastructure_valid") is not True:
         raise ScoreInputError("eligible ME-F1 input requires valid infrastructure")
+    if evaluation_mode == "formal" and (
+        not isinstance(analysis, Mapping)
+        or analysis.get("primary_metric_source")
+        != "unified_judgement_layer_v1"
+    ):
+        raise ScoreInputError(
+            "formal evaluator F1 values must come from the unified judgement layer"
+        )
     evaluator_metrics = _validated_evaluator_metrics(payload.get("evaluator_f1"))
     quality_gates = _validated_quality_gates(payload.get("quality_gates"))
     truth_total = payload.get("truth_eligible_count")
@@ -345,6 +388,8 @@ def calculate_me_f1(
                 tuple_key=trusted,
                 score_profile=profile_id,
                 score_profile_sha256=profile["_sha256"],
+                score_contract_version=profile["score"]["version"],
+                score_contract_sha256=profile["_score_contract_sha256"],
                 evaluation_mode=evaluation_mode,
                 score_status="invalid",
                 benchmark_score=None,
@@ -382,6 +427,8 @@ def calculate_me_f1(
         tuple_key=trusted,
         score_profile=profile_id,
         score_profile_sha256=profile["_sha256"],
+        score_contract_version=profile["score"]["version"],
+        score_contract_sha256=profile["_score_contract_sha256"],
         evaluation_mode=evaluation_mode,
         score_status=score_status,
         benchmark_score=me_f1,

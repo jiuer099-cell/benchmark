@@ -95,16 +95,18 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
     me_f1_ci = analysis.get("me_f1_confidence_interval")
     me_f1_ci = me_f1_ci if isinstance(me_f1_ci, Mapping) else {}
     fields = [
-        *TUPLE_FIELDS, "score_profile", "score_profile_sha256", "evaluation_mode",
-        "score_status", "ME-F1", "TruvariPrecision", "TruvariRecall", "TruvariF1",
+        *TUPLE_FIELDS, "ME-F1", "TruvariPrecision", "TruvariRecall", "TruvariF1",
         "AardvarkGTPrecision", "AardvarkGTRecall", "AardvarkGTF1",
         "vcfdistPrecision", "vcfdistRecall", "vcfdistF1", "EvaluatorRange",
+        "score_profile", "score_profile_sha256", "score_contract_version",
+        "score_contract_sha256", "evaluation_mode", "score_status",
         "EvaluatorSD", "truth_eligible_count", "query_result_count",
-        "PangenomeGenotypingDiagnostic", "NonReferenceF1Diagnostic", "PanelCoverage",
-        "CallRate", "AddressabilityRate", "CalledCount", "ExplicitNoCallCount",
+        "DiagnosticGTMacroF1", "DiagnosticNonReferenceF1", "DiagnosticPanelCoverage",
+        "ME-F1_AddressableDiagnostic", "CallRate", "NoCallRate", "AddressabilityRate",
+        "PanelTotal", "AddressableCount", "CalledCount", "ExplicitNoCallCount",
         "MissingOutputCount", "LinkingFailureCount",
         "UnsupportedRepresentationCount", "AdapterConversionFailureCount",
-        "IndexBuildFailureCount",
+        "IndexBuildFailureCount", "AmbiguousMappingCount",
         "ME-F1_CI95_Lower", "ME-F1_CI95_Upper",
     ]
 
@@ -115,6 +117,8 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
     row = {
         **score["tuple_key"], "score_profile": score.get("score_profile"),
         "score_profile_sha256": score.get("score_profile_sha256"),
+        "score_contract_version": score.get("score_contract_version"),
+        "score_contract_sha256": score.get("score_contract_sha256"),
         "evaluation_mode": score.get("evaluation_mode"), "score_status": score.get("score_status"),
         "ME-F1": score.get("benchmark_score"),
         "TruvariPrecision": value("truvari", "precision"), "TruvariRecall": value("truvari", "recall"), "TruvariF1": value("truvari", "f1"),
@@ -122,15 +126,29 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "vcfdistPrecision": value("vcfdist", "precision"), "vcfdistRecall": value("vcfdist", "recall"), "vcfdistF1": value("vcfdist", "f1"),
         "EvaluatorRange": score.get("evaluator_range"), "EvaluatorSD": score.get("evaluator_sd"),
         "truth_eligible_count": score.get("truth_eligible_count"), "query_result_count": score.get("total_evaluated"),
-        "PangenomeGenotypingDiagnostic": score.get("pangenome_genotyping_score"),
-        "NonReferenceF1Diagnostic": score.get("non_reference_f1_score"), "PanelCoverage": score.get("panel_coverage"),
+        "DiagnosticGTMacroF1": score.get("pangenome_genotyping_score"),
+        "DiagnosticNonReferenceF1": score.get("non_reference_f1_score"),
+        "DiagnosticPanelCoverage": score.get("panel_coverage"),
+        "ME-F1_AddressableDiagnostic": (
+            analysis.get("addressable_subset_diagnostic", {}).get("me_f1")
+            if isinstance(analysis.get("addressable_subset_diagnostic"), Mapping)
+            else None
+        ),
         "CallRate": (
             float(addressability.get("called_count", 0))
             / float(addressability["canonical_candidate_count"])
             if addressability.get("canonical_candidate_count")
             else None
         ),
+        "NoCallRate": (
+            float(addressability.get("explicit_no_call_count", 0))
+            / float(addressability["canonical_candidate_count"])
+            if addressability.get("canonical_candidate_count")
+            else None
+        ),
         "AddressabilityRate": addressability.get("addressability_rate"),
+        "PanelTotal": addressability.get("canonical_candidate_count"),
+        "AddressableCount": addressability.get("addressable_count"),
         "CalledCount": addressability.get("called_count"),
         "ExplicitNoCallCount": addressability.get("explicit_no_call_count"),
         "MissingOutputCount": addressability.get("missing_output_count"),
@@ -138,6 +156,7 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "UnsupportedRepresentationCount": addressability.get("unsupported_representation_count"),
         "AdapterConversionFailureCount": addressability.get("adapter_conversion_failure_count"),
         "IndexBuildFailureCount": addressability.get("index_build_failure_count"),
+        "AmbiguousMappingCount": addressability.get("ambiguous_mapping_count"),
         "ME-F1_CI95_Lower": me_f1_ci.get("lower"),
         "ME-F1_CI95_Upper": me_f1_ci.get("upper"),
     }
@@ -187,13 +206,14 @@ def genotype_strata_html(analysis: Mapping[str, Any]) -> str:
                 )
             rows.append(
                 "<tr>"
+                f"<td>{escape(str(raw.get('metric_id', '')))}</td>"
                 f"<td>{escape(str(dimension))}</td>"
                 f"<td>{escape(str(stratum))}</td>"
                 f"<td>{escape(str(raw.get('status', '')))}</td>"
                 f"<td>{raw.get('canonical_candidate_count', '')}</td>"
                 f"<td>{raw.get('truth_positive_count', '')}</td>"
-                f"<td>{evaluator_f1[0]}</td><td>{evaluator_f1[1]}</td>"
-                f"<td>{evaluator_f1[2]}</td><td>{number(raw.get('me_f1'))}</td>"
+                f"<td>{number(raw.get('me_f1'))}</td><td>{evaluator_f1[0]}</td>"
+                f"<td>{evaluator_f1[1]}</td><td>{evaluator_f1[2]}</td>"
                 f"<td>{number(raw.get('addressability_rate'), 4)}</td>"
                 "</tr>"
             )
@@ -201,9 +221,9 @@ def genotype_strata_html(analysis: Mapping[str, Any]) -> str:
         return ""
     return (
         "<h2>Genotype-aware stratified results</h2>"
-        "<table><thead><tr><th>Dimension</th><th>Stratum</th><th>Status</th>"
-        "<th>Candidates</th><th>Truth+</th><th>Truvari F1</th>"
-        "<th>Aardvark-GT F1</th><th>vcfdist F1</th><th>ME-F1</th>"
+        "<table><thead><tr><th>Metric</th><th>Dimension</th><th>Stratum</th><th>Status</th>"
+        "<th>Candidates</th><th>Truth+</th><th>ME-F1</th><th>Truvari F1</th>"
+        "<th>Aardvark-GT F1</th><th>vcfdist F1</th>"
         "<th>Addressability</th></tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
@@ -235,7 +255,7 @@ def html(score: Mapping[str, Any]) -> str:
 <html lang="zh-CN"><head><meta charset="utf-8"><title>PGBench ME-F1 — {escape(str(tuple_key['tool']))}</title>
 <style>body{{font-family:system-ui,sans-serif;margin:2rem;max-width:75rem}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ccd;padding:.45rem;text-align:left}}th{{background:#eef2ff}}.score{{font-size:2rem}}</style></head><body>
 <h1>{escape(str(tuple_key['tool']))}</h1>
-<p>同一短读长、同一冻结 panel、同一 panel-addressable truth 的 genotype-aware 评估。</p>
+<p>同一短读长、同一冻结 canonical panel、同一完整 panel truth denominator 的 genotype-aware non-reference SV 评估；unsupported、missing、no-call 与 linking failure 均不会缩小主分分母。</p>
 <p class="score"><strong>ME-F1: {number(score.get('benchmark_score'))}</strong></p>
 <p>Paired genomic-block bootstrap 95% CI：{number(me_f1_ci.get('lower'))}–{number(me_f1_ci.get('upper'))}。</p>
 <p>状态：{escape(str(score.get('score_status')))}；evaluator range：{number(score.get('evaluator_range'))}；evaluator SD：{number(score.get('evaluator_sd'))}。</p>
@@ -243,10 +263,10 @@ def html(score: Mapping[str, Any]) -> str:
 <table><thead><tr><th>Evaluator</th><th>TP</th><th>FP</th><th>FN</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
 <h2>All-sites / addressability diagnostics</h2>
 <p>Truth denominator：{score.get('truth_eligible_count', '')}；candidate count：{candidate.get('candidate_count', '')}；called：{addressability.get('called_count', '')}；explicit no-call：{addressability.get('explicit_no_call_count', '')}；missing output：{addressability.get('missing_output_count', '')}；linking failure：{addressability.get('linking_failure_count', '')}。</p>
-<p>Unsupported representation：{addressability.get('unsupported_representation_count', '')}；adapter conversion failure：{addressability.get('adapter_conversion_failure_count', '')}；index build failure：{addressability.get('index_build_failure_count', '')}；addressability rate：{number(addressability.get('addressability_rate'), 4)}；panel coverage：{number(score.get('panel_coverage'), 4)}。</p>
+<p>Unsupported representation：{addressability.get('unsupported_representation_count', '')}；linking failure：{addressability.get('linking_failure_count', '')}；ambiguous mapping：{addressability.get('ambiguous_mapping_count', '')}；adapter conversion failure：{addressability.get('adapter_conversion_failure_count', '')}；index build failure：{addressability.get('index_build_failure_count', '')}；addressability rate：{number(addressability.get('addressability_rate'), 4)}；panel coverage：{number(score.get('panel_coverage'), 4)}。</p>
 <p>Candidate genotype macro-F1（诊断）：{number(score.get('pangenome_genotyping_score'))}；non-reference F1（诊断）：{number(score.get('non_reference_f1_score'))}。</p>
 {strata_html}
-<p>Profile：<code>{escape(str(score.get('score_profile')))}</code>；SHA-256：<code>{escape(str(score.get('score_profile_sha256')))}</code></p>
+<p>Score contract：<code>{escape(str(score.get('score_contract_version')))}</code>；SHA-256：<code>{escape(str(score.get('score_contract_sha256')))}</code></p>
 </body></html>\n"""
 
 

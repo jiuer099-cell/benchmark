@@ -34,6 +34,8 @@ def _score(tool: str, value: float) -> dict[str, object]:
         },
         "score_profile": "pgbench_v1",
         "score_profile_sha256": "a" * 64,
+        "score_contract_version": "1.0",
+        "score_contract_sha256": "a" * 64,
         "evaluation_mode": "synthetic_smoke",
         "score_status": "provisional",
         "benchmark_score": value,
@@ -164,6 +166,12 @@ def test_aggregate_preserves_input_order_and_never_ranks(tmp_path: Path) -> None
     with score_tsv.open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     assert [row["tool"] for row in rows] == ["zeta", "alpha"]
+    fields = list(rows[0])
+    assert fields.index("ME-F1") < fields.index("TruvariF1")
+    assert "PangenomeGenotypingScore" not in fields
+    assert "NonReferenceF1" not in fields
+    assert "DiagnosticGTMacroF1" in fields
+    assert "DiagnosticNonReferenceF1" in fields
     assert "rank" not in score_tsv.read_text(encoding="utf-8").lower()
     assert len(point_tsv.read_text(encoding="utf-8").splitlines()) == 3
     assert len(metrics_tsv.read_text(encoding="utf-8").splitlines()) == 3

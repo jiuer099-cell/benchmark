@@ -3,7 +3,7 @@ $id: https://pgbench.local/schemas/tool.schema.yaml
 title: PGBench short-read fixed-panel adapter manifest
 type: object
 additionalProperties: false
-required: [interface_version, id, version, source, paradigm, comparison_task, information_contract, tasks, inputs, capabilities, execution, supported_modes, outputs]
+required: [interface_version, id, version, source, paradigm, comparison_task, information_inputs, information_contract, tasks, inputs, capabilities, execution, supported_modes, outputs]
 properties:
   interface_version: {const: 1}
   id: {$ref: "#/$defs/identifier"}
@@ -12,17 +12,31 @@ properties:
   source: {enum: [builtin, external]}
   paradigm: {enum: [short_read_pangenome_genotyping, graph_pangenome, genotyping_only]}
   comparison_task: {const: panel_genotyping}
+  information_inputs:
+    type: array
+    minItems: 3
+    uniqueItems: true
+    items:
+      enum:
+        - target_short_reads
+        - reference_grch38
+        - canonical_candidate_panel
+        - benchmark_panel_haplotypes
+        - benchmark_panel_af_ac
+        - benchmark_supplied_graph_assets
+        - benchmark_supplied_tool_index
   information_contract:
     type: object
     additionalProperties: false
-    required: [allowed_inputs_manifested, target_truth_used_for_calling, target_assembly_used, target_family_genotypes_used, target_specific_external_callset, tuning_status]
+    required: [allowed_inputs_manifested, target_truth_used_for_calling, target_assembly_used, target_family_genotypes_used, target_specific_external_callset, tuning_mode, parameter_source]
     properties:
       allowed_inputs_manifested: {const: true}
       target_truth_used_for_calling: {const: false}
       target_assembly_used: {const: false}
       target_family_genotypes_used: {const: false}
       target_specific_external_callset: {const: false}
-      tuning_status: {enum: [official_configuration, independent_validation_frozen]}
+      tuning_mode: {enum: [official_default, official_recommended_sv_config, validation_tuned]}
+      parameter_source: {enum: [official_default, official_documentation, independent_validation_sample]}
   tasks:
     type: array
     minItems: 1

@@ -184,6 +184,7 @@ rule build_pangenome_manifest:
         score_profile=config["catalogs"]["score_weights"],
         reference=config["reference"]["fasta"],
         population=population_vcf_input,
+        panel_provenance=config["catalogs"]["panel_provenance"],
         graph_lock=([GRAPH_ASSET_LOCK] if GRAPH_ASSETS_ENABLED else []),
         graph_rule_manifest=(
             [GRAPH_ASSET_RULE_MANIFEST] if GRAPH_ASSETS_ENABLED else []
@@ -253,6 +254,7 @@ rule build_pangenome_manifest:
           --input {input.score_profile:q} \
           --input {input.reference:q} \
           --input {input.population:q} \
+          --input {input.panel_provenance:q} \
           --input {input.rule_source:q} \
           --input {input.rule_executor:q} \
           --input {input.script:q} \
@@ -273,6 +275,7 @@ rule build_pangenome_manifest:
             --reference {input.reference:q} \
             --population-source-id {config[pangenome][population_panel]:q} \
             --population-vcf {input.population:q} \
+            --panel-provenance {input.panel_provenance:q} \
             --output-panel {output.panel:q} \
             --output-ledger {output.ledger:q} \
             --output-manifest {output.pangenome_manifest:q} \

@@ -160,3 +160,32 @@ def test_unknown_catalog_field_is_rejected(tmp_path: Path) -> None:
             tool_schema_path=ROOT / "workflow" / "schemas" / "tool.schema.yaml",
             repo_root=ROOT,
         )
+
+
+def test_plugin_cannot_submit_core_evaluation_query(tmp_path: Path) -> None:
+    config = _example_config()
+    manifest = yaml.safe_load(
+        (ROOT / "plugins" / "pangenie" / "tool.yaml").read_text(encoding="utf-8")
+    )
+    manifest["outputs"]["vcf"] = "canonical/evaluation-query.vcf.gz"
+    manifest_path = tmp_path / "tool.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    config["external_plugins"] = [
+        {"id": "pangenie", "manifest": str(manifest_path)}
+    ]
+    config["development"] = {
+        "synthetic_mode": True,
+        "population_vcf": "tests/fixtures/synthetic/population.vcf",
+        "truth_vcf": "tests/fixtures/synthetic/truth.vcf",
+        "benchmark_bed": "tests/fixtures/synthetic/benchmark.bed",
+        "evaluator_fixture_dir": "tests/fixtures/synthetic/evaluators",
+    }
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="benchmark-core reserved path"):
+        validate_configuration(
+            config_path,
+            config_schema_path=ROOT / "config" / "config.schema.yaml",
+            tool_schema_path=ROOT / "workflow" / "schemas" / "tool.schema.yaml",
+            repo_root=ROOT,
+        )

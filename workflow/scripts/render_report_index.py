@@ -92,6 +92,16 @@ def render_index(
             else []
         )
         track_id, track_sha256, actual_technology = _track_fields(score)
+        analysis = score.get("formal_analysis")
+        analysis = analysis if isinstance(analysis, Mapping) else {}
+        addressability = analysis.get("addressability_audit")
+        addressability = addressability if isinstance(addressability, Mapping) else {}
+        candidate_count = addressability.get("canonical_candidate_count")
+        call_rate = (
+            float(addressability.get("called_count", 0)) / float(candidate_count)
+            if candidate_count
+            else None
+        )
         technology_text = (
             actual_technology
             if actual_technology != "unknown"
@@ -101,14 +111,23 @@ def render_index(
             "<tr>"
             f'<td><a href="tool_cards/{escape(card.name, quote=True)}">'
             f"{escape(tool)}</a></td>"
-            f"<td>{escape(str(manifest.get('paradigm', 'unknown')))}</td>"
-            f"<td>{escape(technology_text)}</td>"
-            f"<td>{escape(track_id)}</td>"
-            f"<td><code>{escape(track_sha256)}</code></td>"
             f"<td>{_score_value(score, 'benchmark_score')}</td>"
             f"<td>{_score_value(score.get('evaluator_scores', {}), 'truvari')}</td>"
             f"<td>{_score_value(score.get('evaluator_scores', {}), 'aardvark')}</td>"
             f"<td>{_score_value(score.get('evaluator_scores', {}), 'vcfdist')}</td>"
+            f"<td>{_score_value(addressability, 'addressability_rate')}</td>"
+            f"<td>{'N/A' if call_rate is None else f'{call_rate:.2f}'}</td>"
+            f"<td>{escape(str(candidate_count if candidate_count is not None else 'N/A'))}</td>"
+            f"<td>{escape(str(addressability.get('addressable_count', 'N/A')))}</td>"
+            f"<td>{escape(str(addressability.get('unsupported_representation_count', 'N/A')))}</td>"
+            f"<td>{escape(str(addressability.get('linking_failure_count', 'N/A')))}</td>"
+            f"<td>{escape(str(addressability.get('explicit_no_call_count', 'N/A')))}</td>"
+            f"<td>{escape(str(addressability.get('missing_output_count', 'N/A')))}</td>"
+            f"<td>{escape(str(addressability.get('ambiguous_mapping_count', 'N/A')))}</td>"
+            f"<td>{escape(str(manifest.get('paradigm', 'unknown')))}</td>"
+            f"<td>{escape(technology_text)}</td>"
+            f"<td>{escape(track_id)}</td>"
+            f"<td><code>{escape(track_sha256)}</code></td>"
             f"<td>{_score_value(score, 'evaluator_range')}</td>"
             f"<td>{_score_value(score, 'evaluator_sd')}</td>"
             f"<td>{escape(str(score.get('truth_eligible_count', '')))}</td>"
@@ -132,8 +151,10 @@ th { background: #eef2ff; }
 仅作诊断，资源消耗不参与得分。
 比较只能在完全相同的运行轨道内进行；本表不生成跨轨道排名。</p>
 <table><thead><tr>
-<th>工具</th><th>范式</th><th>实际测序技术</th><th>运行轨道</th><th>轨道 SHA-256</th>
-<th>ME-F1</th><th>Truvari F1</th><th>Aardvark-GT F1</th><th>vcfdist F1</th>
+<th>工具</th><th>ME-F1</th><th>Truvari F1</th><th>Aardvark-GT F1</th><th>vcfdist F1</th>
+<th>Addressability</th><th>Call Rate</th><th>Panel total</th><th>Addressable</th>
+<th>Unsupported</th><th>Linking failure</th><th>Explicit no-call</th><th>Missing output</th><th>Ambiguous mapping</th>
+<th>范式</th><th>实际测序技术</th><th>运行轨道</th><th>轨道 SHA-256</th>
 <th>Evaluator range</th><th>Evaluator SD</th>
 <th>Truth 数量</th><th>输出数量</th><th>状态</th>
 </tr></thead><tbody>""" + "".join(rows) + """</tbody></table>

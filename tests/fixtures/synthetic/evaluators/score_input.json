@@ -25,10 +25,15 @@
   "quality_gates": {
     "evaluator_semantic_contract_valid": true,
     "addressability_complete": true,
+    "evaluation_query_complete": true,
     "allowed_information_complete": true,
     "tuning_frozen": true,
+    "panel_provenance_complete": true,
     "context_stratification_complete": true,
-    "population_af_stratification_complete": true
+    "population_af_stratification_complete": true,
+    "all_evaluator_evidence_complete": true,
+    "family_aware_loo_complete": true,
+    "statistical_uncertainty_complete": true
   },
   "evaluators": {
     "truvari": {

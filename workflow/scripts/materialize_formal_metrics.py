@@ -46,6 +46,9 @@ def load_json_object(path: Path, label: str) -> dict[str, Any]:
 
 
 EVALUATORS = ("truvari", "aardvark", "vcfdist")
+TARGET_FAMILY_ALIASES = frozenset(
+    {"HG002", "NA24385", "HG003", "NA24149", "HG004", "NA24143"}
+)
 COMPARISON_TASKS = {"panel_genotyping"}
 REQUIRED_CONTEXT_STRATA = frozenset(
     {
@@ -441,9 +444,11 @@ def _length_bin(length: int) -> str:
         return "100_499"
     if value < 1000:
         return "500_999"
-    if value < 10000:
-        return "1000_9999"
-    return "ge10000"
+    if value < 5000:
+        return "1000_4999"
+    if value <= 10000:
+        return "5000_10000"
+    return "gt10000"
 
 
 def load_hidden_truth_labels(path: Path) -> dict[str, dict[str, str]]:
@@ -556,6 +561,8 @@ def _overlaps_regions(
 
 def _stratum_metrics(
     *,
+    metric_id: str,
+    role: str,
     candidate_ids: set[str],
     positive_ids: set[str],
     event_ids: set[str],
@@ -571,6 +578,9 @@ def _stratum_metrics(
         output_counts[row["output_status"]] += 1
         native_counts[row["tool_native_status"]] += 1
     result: dict[str, Any] = {
+        "metric_id": metric_id,
+        "role": role,
+        "affects_primary_score": False,
         "status": "defined" if truth_ids else "excluded_zero_truth",
         "canonical_candidate_count": len(candidate_ids),
         "truth_positive_count": len(truth_ids),
@@ -629,6 +639,25 @@ def _stratum_metrics(
     return result
 
 
+def explanatory_metric_id(dimension: str, stratum: str) -> str:
+    if dimension == "svtype":
+        return f"ME-F1_{stratum.upper()}"
+    if dimension == "length_bin":
+        labels = {
+            "50_99": "50_100",
+            "100_499": "100_500",
+            "500_999": "500_1000",
+            "1000_4999": "1K_5K",
+            "5000_10000": "5K_10K",
+        }
+        return f"ME-F1_LEN_{labels.get(stratum, stratum.upper())}"
+    if dimension == "population_af":
+        return f"ME-F1_AF_{stratum.upper()}"
+    if dimension == "genome_context":
+        return f"ME-F1_{stratum.upper()}"
+    raise FormalMetricError(f"unsupported explanatory dimension: {dimension}")
+
+
 def genotype_stratified_summary(
     *,
     query_records: dict[str, SvRecord],
@@ -681,6 +710,8 @@ def genotype_stratified_summary(
     return {
         dimension: {
             stratum: _stratum_metrics(
+                metric_id=explanatory_metric_id(dimension, stratum),
+                role="explanatory",
                 candidate_ids=members,
                 positive_ids=positive_ids,
                 event_ids=event_ids,
@@ -706,19 +737,21 @@ def _score(soft_tp: float, query_total: int, truth_total: int) -> float:
 def evaluator_genotype_f1(
     ledgers: dict[str, dict[str, dict[str, Any]]],
     event_ids: set[str],
-    panel_truth_positive: int,
+    canonical_panel_truth_positive: int,
 ) -> dict[str, dict[str, float | int]]:
     """Recompute a common GT-aware F1 from every evaluator ledger.
 
     A query is a TP only when the evaluator accepts the biological match and
     the diploid genotype is exact.  A genotype mismatch therefore contributes
     one FP and one FN.  Every evaluator uses the same submitted-event count and
-    the same frozen panel-addressable truth denominator.
+    the same frozen canonical-panel truth-positive denominator. Unsupported,
+    missing, no-call, and linking-failure candidates are never removed from
+    that denominator.
     """
 
-    if panel_truth_positive <= 0:
+    if canonical_panel_truth_positive <= 0:
         raise FormalMetricError(
-            "panel-addressable truth contains no positive candidate"
+            "canonical-panel truth contains no positive candidate"
         )
     metrics: dict[str, dict[str, float | int]] = {}
     for evaluator in EVALUATORS:
@@ -731,18 +764,18 @@ def evaluator_genotype_f1(
             )
             for result_id in event_ids
         )
-        if true_positive > panel_truth_positive:
+        if true_positive > canonical_panel_truth_positive:
             raise FormalMetricError(
-                f"{evaluator} GT true positives exceed panel-addressable truth"
+                f"{evaluator} GT true positives exceed canonical-panel truth"
             )
         false_positive = len(event_ids) - true_positive
-        false_negative = panel_truth_positive - true_positive
+        false_negative = canonical_panel_truth_positive - true_positive
         precision = (
             true_positive / (true_positive + false_positive)
             if true_positive + false_positive
             else 0.0
         )
-        recall = true_positive / panel_truth_positive
+        recall = true_positive / canonical_panel_truth_positive
         f1 = (
             2.0 * precision * recall / (precision + recall)
             if precision + recall
@@ -1803,6 +1836,25 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         context_beds=context_beds,
         addressability=addressability_rows,
     )
+    addressable_candidates = {
+        candidate_id
+        for candidate_id, row in addressability_rows.items()
+        if row["tool_native_status"] == "addressable"
+    }
+    positive_candidate_ids = {
+        candidate_id
+        for candidate_id, row in hidden_truth.items()
+        if row["truth_label"] == "positive"
+    }
+    addressable_subset = _stratum_metrics(
+        metric_id="ME-F1_ADDRESSABLE",
+        role="diagnostic",
+        candidate_ids=addressable_candidates,
+        positive_ids=positive_candidate_ids,
+        event_ids=set(event_ids),
+        ledgers=ledgers,
+        addressability=addressability_rows,
+    )
     ci = (
         bootstrap_score_interval(
             truth_records,
@@ -1862,6 +1914,8 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             ),
         ),
         "challenge_hidden_ledger": sha256_file(args.hidden_truth_ledger),
+        "evaluation_query": sha256_file(args.evaluation_query_vcf),
+        "evaluation_query_audit": sha256_file(args.evaluation_query_audit),
         "tool_manifest": (
             sha256_file(args.tool_manifest)
             if getattr(args, "tool_manifest", None) is not None
@@ -1938,6 +1992,9 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
     addressability_validation = load_json_object(
         args.addressability_audit, "addressability audit"
     )
+    evaluation_query_validation = load_json_object(
+        args.evaluation_query_audit, "evaluation-query audit"
+    )
     allowed_information = load_json_object(
         args.allowed_information, "allowed-information manifest"
     )
@@ -1948,7 +2005,20 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         args.external_resource_hashes, "external-resource manifest"
     )
     tuning_status = load_json_object(args.tuning_status, "tuning-status manifest")
+    pangenome_contract = yaml.safe_load(
+        args.pangenome_manifest.read_text(encoding="utf-8")
+    )
+    panel_source_provenance = (
+        pangenome_contract.get("panel_source_provenance", {})
+        if isinstance(pangenome_contract, dict)
+        else {}
+    )
     quality_gates = {
+        "all_evaluator_evidence_complete": bool(
+            set(ledgers) == set(EVALUATORS)
+            and set(completions) == set(EVALUATORS)
+            and set(evaluator_gt_metrics) == set(EVALUATORS)
+        ),
         "evaluator_semantic_contract_valid": (
             isinstance(semantic_validation, dict)
             and semantic_validation.get("contract")
@@ -1966,6 +2036,20 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             == candidate_summary.get("candidate_count")
             and addressability_validation.get("silent_candidate_deletion_count") == 0
         ),
+        "evaluation_query_complete": bool(
+            evaluation_query_validation.get("contract")
+            == "pgbench_evaluation_query_v1"
+            and evaluation_query_validation.get("status") == "valid"
+            and evaluation_query_validation.get("all_sites_sha256")
+            == sha256_file(args.query_vcf)
+            and evaluation_query_validation.get("candidate_status_sha256")
+            == sha256_file(args.addressability_tsv)
+            and evaluation_query_validation.get("output_sha256")
+            == sha256_file(args.evaluation_query_vcf)
+            and evaluation_query_validation.get("unique_candidate_mapping") is True
+            and evaluation_query_validation.get("canonical_alleles_verified") is True
+            and evaluation_query_validation.get("extra_filtering_applied") is False
+        ),
         "allowed_information_complete": bool(
             isinstance(information_contract, dict)
             and information_contract.get("allowed_inputs_manifested") is True
@@ -1979,10 +2063,27 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "tuning_frozen": bool(
             isinstance(information_contract, dict)
-            and information_contract.get("tuning_status")
-            in {"official_configuration", "independent_validation_frozen"}
+            and information_contract.get("tuning_mode")
+            in {
+                "official_default",
+                "official_recommended_sv_config",
+                "validation_tuned",
+            }
             and tuning_status.get("status") == "frozen_before_test"
             and tuning_status.get("target_truth_inspected") is False
+            and tuning_status.get("final_me_f1_inspected_before_freeze") is False
+            and tuning_status.get("parameter_hash")
+            == parameter_manifest.get("parameter_sha256")
+        ),
+        "panel_provenance_complete": bool(
+            isinstance(panel_source_provenance, dict)
+            and panel_source_provenance.get("contract")
+            == "pgbench_panel_source_provenance_v1"
+            and panel_source_provenance.get("status") == "verified"
+            and panel_source_provenance.get(
+                "independent_of_benchmarked_callers"
+            )
+            is True
         ),
         "context_stratification_complete": bool(
             set(context_beds) == set(REQUIRED_CONTEXT_STRATA)
@@ -1994,6 +2095,24 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
                 "canonical_candidate_count", 0
             )
             == 0
+        ),
+        "family_aware_loo_complete": bool(
+            isinstance(pangenome_contract, dict)
+            and TARGET_FAMILY_ALIASES.issubset(
+                set(pangenome_contract.get("truth_samples_excluded", []))
+            )
+            and all(
+                isinstance(row, dict)
+                and row.get("exclusion_reason") == "family_aware_leave_one_out"
+                for row in pangenome_contract.get("target_family_exclusion", [])
+            )
+        ),
+        "statistical_uncertainty_complete": bool(
+            isinstance(me_f1_ci, dict)
+            and me_f1_ci.get("method") == "paired_genomic_block_bootstrap"
+            and int(me_f1_ci.get("replicates", 0)) >= 100
+            and me_f1_ci.get("lower") is not None
+            and me_f1_ci.get("upper") is not None
         ),
     }
     semantic_summary = {
@@ -2072,6 +2191,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         "records": records,
         "analysis": {
             "contract_version": "formal_genotype_me_f1_v1",
+            "primary_metric_source": "unified_judgement_layer_v1",
             "evaluator_profile_id": evaluator_profile["profile"]["id"],
             "evaluator_profile_sha256": evaluator_profile["_sha256"],
             "evaluator_bundle_sha256": provenance_id,
@@ -2152,6 +2272,8 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "semantic_summary": semantic_summary,
             "candidate_genotype_summary": candidate_summary,
             "addressability_audit": addressability_validation,
+            "evaluation_query_audit": evaluation_query_validation,
+            "addressable_subset_diagnostic": addressable_subset,
             "stratified_summary": (
                 stratified_summary(truth_records, representative, vote_counts)
                 if extended
@@ -2189,6 +2311,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--semantic-validation", required=True, type=Path)
     parser.add_argument("--addressability-audit", required=True, type=Path)
     parser.add_argument("--addressability-tsv", required=True, type=Path)
+    parser.add_argument("--evaluation-query-vcf", required=True, type=Path)
+    parser.add_argument("--evaluation-query-audit", required=True, type=Path)
     parser.add_argument("--stratification-catalogue", required=True, type=Path)
     parser.add_argument(
         "--context-bed", action="append", required=True, default=[]

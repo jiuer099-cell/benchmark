@@ -1,0 +1,34 @@
+schema_version: 1
+contract: pgbench_panel_source_provenance_v1
+
+# This remains deliberately unverified until the upstream population catalogue
+# provider supplies its assembly list and extraction/merge recipe. A formal
+# leaderboard is fail-closed while status is not `verified`.
+status: unverified_information
+source_type: unresolved
+source_assembly_list: []
+source_sample_list: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/samples.txt
+source_sample_list_sha256: null
+excluded_sample_list: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
+source_population_vcf_sha256: null
+sv_extraction_tool: null
+sv_extraction_version: null
+sv_extraction_parameters: null
+merge_method: null
+normalization_method: null
+filter_rules:
+  reference: GRCh38
+  chromosomes: autosomes
+  svtypes: [DEL, INS]
+  size_bp: [50, 10000]
+  biallelic_only: true
+independent_of_benchmarked_callers: unverified
+missing_required_provenance:
+  - source_assembly_list
+  - source_population_vcf_sha256
+  - source_sample_list_sha256
+  - sv_extraction_tool
+  - sv_extraction_version
+  - sv_extraction_parameters
+  - merge_method
+  - normalization_method

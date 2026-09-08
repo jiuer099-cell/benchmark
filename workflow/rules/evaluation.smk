@@ -99,11 +99,15 @@ if not SYNTHETIC_MODE:
         input:
             query=(
                 f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-                "{tool}/canonical/all-sites.vcf"
+                "{tool}/canonical/evaluation-query.vcf.gz"
             ),
             link_rule_manifest=(
-                RESULTS_ROOT + "/provenance/rules/materialize_all_sites/"
+                RESULTS_ROOT + "/provenance/rules/materialize_evaluation_query/"
                 f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
+            ),
+            query_audit=(
+                f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+                "{tool}/canonical/evaluation-query.audit.json"
             ),
             truth=evaluation_truth_vcf,
             truth_index=evaluation_truth_index,
@@ -179,6 +183,7 @@ if not SYNTHETIC_MODE:
               --wildcard tool={wildcards.tool:q} \
               --wildcard evaluator={wildcards.evaluator:q} \
               --input {input.query:q} \
+              --input {input.query_audit:q} \
               --input {input.truth:q} \
               --input {input.truth_index:q} \
               --input {input.regions:q} \

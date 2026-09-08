@@ -4,16 +4,32 @@ gates:
   evaluator_semantic_validation: not_completed
   genotype_aware_evaluator_contract: completed
   canonical_to_native_addressability: not_completed
+  deterministic_evaluation_query: not_completed
+  independent_panel_source_provenance: not_completed
   allowed_information_and_tuning: not_completed
   family_aware_leave_one_out: not_completed
   autosomal_simple_biallelic_del_ins_scope: completed
   repeated_coverage_datasets: not_completed
   difficult_region_stratification: not_completed
+  evaluator_disagreement_and_sensitivity: not_completed
+  paired_block_bootstrap_ci: not_completed
+  resource_build_per_sample_split: not_completed
+  score_contract_v1_sha256: completed
   hg002_formal_benchmark: not_completed
   independent_truth_samples: not_completed
 valid_score_requires:
   - evaluator_semantic_validation
   - canonical_to_native_addressability
+  - deterministic_evaluation_query
+  - independent_panel_source_provenance
   - allowed_information_and_tuning
+  - family_aware_leave_one_out
+  - repeated_coverage_datasets
+  - difficult_region_stratification
+  - evaluator_disagreement_and_sensitivity
+  - paired_block_bootstrap_ci
+  - resource_build_per_sample_split
+  - score_contract_v1_sha256
+  - hg002_formal_benchmark
 scope_statement: HG002 results are sample-and-configuration-specific until independent truth samples are added.
 status_note: completed means verified with production assets; implemented but unexecuted code remains not_completed.

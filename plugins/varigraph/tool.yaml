@@ -6,13 +6,21 @@ source: external
 paradigm: short_read_pangenome_genotyping
 comparison_task: panel_genotyping
 
+information_inputs:
+  - target_short_reads
+  - reference_grch38
+  - canonical_candidate_panel
+  - benchmark_panel_haplotypes
+  - benchmark_panel_af_ac
+
 information_contract:
   allowed_inputs_manifested: true
   target_truth_used_for_calling: false
   target_assembly_used: false
   target_family_genotypes_used: false
   target_specific_external_callset: false
-  tuning_status: official_configuration
+  tuning_mode: official_recommended_sv_config
+  parameter_source: official_documentation
 
 tasks: [prepare_assets, genotyping, postprocess]
 

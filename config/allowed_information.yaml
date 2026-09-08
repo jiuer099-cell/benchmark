@@ -1,0 +1,35 @@
+schema_version: 1
+contract: pgbench_allowed_information_policy_v1
+undeclared_information_status: unverified_information
+forbidden_information_status: forbidden_information
+require_explicit_tool_declaration: true
+
+allowed:
+  target_short_reads: true
+  reference_grch38: true
+  canonical_candidate_panel: true
+  benchmark_panel_haplotypes: true
+  benchmark_panel_af_ac: true
+  benchmark_supplied_graph_assets: true
+  benchmark_supplied_tool_index: true
+
+forbidden:
+  hg002_truth: true
+  hg002_assembly: true
+  hg002_long_reads: true
+  hg002_parental_genotypes: true
+  target_specific_external_callset: true
+  undeclared_population_panel: true
+  private_tuning_callset: true
+
+resolved_input_information:
+  short_fastq_r1: target_short_reads
+  short_fastq_r2: target_short_reads
+  reference: reference_grch38
+  reference_index: reference_grch38
+  candidate_panel: canonical_candidate_panel
+  allele_fasta: canonical_candidate_panel
+  pangenome_manifest: benchmark_panel_haplotypes
+  pangenome_panel: benchmark_panel_haplotypes
+  graph_assets: benchmark_supplied_graph_assets
+  tool_index: benchmark_supplied_tool_index

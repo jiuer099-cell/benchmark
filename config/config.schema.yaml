@@ -284,6 +284,9 @@ properties:
       - score_weights
       - evaluator_profile
       - metric_dictionary
+      - allowed_information
+      - tuning_policy
+      - panel_provenance
     properties:
       truthsets:
         $ref: "#/$defs/nonEmptyPath"
@@ -294,6 +297,12 @@ properties:
       evaluator_profile:
         $ref: "#/$defs/nonEmptyPath"
       metric_dictionary:
+        $ref: "#/$defs/nonEmptyPath"
+      allowed_information:
+        $ref: "#/$defs/nonEmptyPath"
+      tuning_policy:
+        $ref: "#/$defs/nonEmptyPath"
+      panel_provenance:
         $ref: "#/$defs/nonEmptyPath"
   execution:
     type: object

@@ -14,6 +14,7 @@ required:
   - allele_ledger
   - graph_assets
   - graph_build_recipe_sha256
+  - panel_source_provenance
   - generated_at
 properties:
   schema_version:
@@ -127,6 +128,18 @@ properties:
     oneOf:
       - $ref: "#/$defs/sha256"
       - type: "null"
+  panel_source_provenance:
+    type: object
+    required:
+      - contract
+      - status
+      - observed_population_vcf_sha256
+      - canonical_panel_sha256
+    properties:
+      contract: {const: pgbench_panel_source_provenance_v1}
+      status: {enum: [verified, unverified_information]}
+      observed_population_vcf_sha256: {$ref: "#/$defs/sha256"}
+      canonical_panel_sha256: {$ref: "#/$defs/sha256"}
   generated_at:
     type: string
     format: date-time

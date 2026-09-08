@@ -131,6 +131,18 @@ def validate_external_plugins(
             raise ConfigValidationError(
                 f"tool {plugin_id} must produce canonical all-sites output"
             )
+        output_path = Path(str(manifest["outputs"].get("vcf", "")))
+        reserved_names = {
+            "all-sites.vcf", "all-sites.vcf.gz",
+            "evaluation-query.vcf", "evaluation-query.vcf.gz",
+            "candidate-status.tsv", "addressability.audit.json",
+        }
+        if "canonical" in {part.casefold() for part in output_path.parts} or (
+            output_path.name.casefold() in reserved_names
+        ):
+            raise ConfigValidationError(
+                f"tool {plugin_id} output uses a benchmark-core reserved path"
+            )
         information = manifest.get("information_contract")
         if not isinstance(information, Mapping):
             raise ConfigValidationError(
@@ -225,12 +237,40 @@ def validate_configuration(
     )
     _validate_graph_profile(config)
     _validate_plugin_compatibility(config, plugins)
-    for catalog_name in ("evaluator_profile",):
+    catalogues: dict[str, dict[str, Any]] = {}
+    for catalog_name in (
+        "truthsets",
+        "stratifications",
+        "score_weights",
+        "evaluator_profile",
+        "metric_dictionary",
+        "allowed_information",
+        "tuning_policy",
+        "panel_provenance",
+    ):
         catalog_path = (repo_root / config["catalogs"][catalog_name]).resolve()
         if not catalog_path.is_file():
             raise ConfigValidationError(
                 f"{catalog_name} does not exist: {catalog_path}"
             )
+        catalogues[catalog_name] = load_yaml(catalog_path)
+    if (
+        catalogues["allowed_information"].get("contract")
+        != "pgbench_allowed_information_policy_v1"
+    ):
+        raise ConfigValidationError("unsupported allowed-information policy")
+    if catalogues["tuning_policy"].get("contract") != "pgbench_tuning_policy_v1":
+        raise ConfigValidationError("unsupported tuning policy")
+    panel_status = catalogues["panel_provenance"].get("status")
+    if panel_status not in {"verified", "unverified_information"}:
+        raise ConfigValidationError("invalid panel provenance status")
+    if (
+        config["benchmark_contract"]["score_status"] == "valid"
+        and panel_status != "verified"
+    ):
+        raise ConfigValidationError(
+            "score_status=valid requires verified panel source provenance"
+        )
     return config, plugins
 
 

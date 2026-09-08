@@ -177,6 +177,8 @@ def _score_payload(
         },
         "score_profile": "pgbench_v1",
         "score_profile_sha256": SHA_B,
+        "score_contract_version": "1.0",
+        "score_contract_sha256": finalizer.FROZEN_SCORE_CONTRACT_SHA256,
         "evaluation_mode": evaluation_mode,
         "score_status": status,
         "benchmark_score": 78.06,

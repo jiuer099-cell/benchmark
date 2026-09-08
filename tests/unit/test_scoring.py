@@ -41,12 +41,22 @@ def _payload() -> dict:
         "quality_gates": {
             "evaluator_semantic_contract_valid": True,
             "addressability_complete": True,
+            "evaluation_query_complete": True,
             "allowed_information_complete": True,
             "tuning_frozen": True,
+            "panel_provenance_complete": True,
             "context_stratification_complete": True,
             "population_af_stratification_complete": True,
+            "all_evaluator_evidence_complete": True,
+            "family_aware_loo_complete": True,
+            "statistical_uncertainty_complete": True,
         },
-        "analysis": {"candidate_genotype_summary": {"candidate_output_contract": "all_sites"}},
+        "analysis": {
+            "primary_metric_source": "unified_judgement_layer_v1",
+            "candidate_genotype_summary": {
+                "candidate_output_contract": "all_sites"
+            },
+        },
     }
 
 
@@ -61,6 +71,8 @@ def test_me_f1_is_unweighted_mean_of_three_recomputed_f1_values() -> None:
     expected = sum(float(v["f1"]) for v in _payload()["evaluator_f1"].values()) / 3 * 100
     assert result.me_f1 == round(expected, 2)
     assert result.benchmark_score == result.me_f1
+    assert result.score_contract_sha256 != result.score_profile_sha256
+    assert len(result.score_contract_sha256) == 64
     assert result.evaluator_scores == {
         name: round(float(value["f1"]) * 100, 2)
         for name, value in _payload()["evaluator_f1"].items()
@@ -78,6 +90,20 @@ def test_all_three_evaluators_use_identical_truth_denominator() -> None:
     payload = _payload()
     payload["evaluator_f1"]["vcfdist"] = _metric(70, 20, 29)
     with pytest.raises(ScoreInputError, match="frozen truth denominator"):
+        _calculate(payload)
+
+
+def test_missing_evaluator_is_never_renormalized() -> None:
+    payload = _payload()
+    del payload["evaluator_f1"]["vcfdist"]
+    with pytest.raises(ScoreInputError, match="exactly truvari, aardvark, and vcfdist"):
+        _calculate(payload)
+
+
+def test_formal_f1_must_come_from_unified_judgement_layer() -> None:
+    payload = _payload()
+    payload["analysis"]["primary_metric_source"] = "native_evaluator_summary"
+    with pytest.raises(ScoreInputError, match="unified judgement layer"):
         _calculate(payload)
 
 

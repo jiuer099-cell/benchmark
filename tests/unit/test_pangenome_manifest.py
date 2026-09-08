@@ -72,6 +72,12 @@ def test_assigns_stable_ids_and_writes_manifest(tmp_path: Path) -> None:
     ]
     assert len(manifest["target_family_exclusion"]) == 6
     assert len(manifest["panel_vcf"]["sha256"]) == 64
+    assert manifest["panel_source_provenance"]["canonical_panel_sha256"] == (
+        manifest["panel_vcf"]["sha256"]
+    )
+    assert len(
+        manifest["panel_source_provenance"]["observed_population_vcf_sha256"]
+    ) == 64
 
     round_trip = yaml.safe_load(yaml.safe_dump(manifest))
     assert round_trip == manifest

@@ -185,7 +185,7 @@ rules:
     phase: normalization
     kind: core
     inputs: [linked_vcf, blinded_panel_vcf]
-    outputs: [all_sites_vcf, addressability_tsv, addressability_audit_json]
+    outputs: [all_sites_vcf_gz, candidate_status_tsv, addressability_audit_json]
     upstream: [link_pangenome_alleles]
     audit_scope: formal_validity_gate
     manifest_required: true
@@ -195,13 +195,28 @@ rules:
     source_path: workflow/scripts/materialize_all_sites.py
     environment: workflow/envs/core.yaml
     resource_class: local_medium
+  - id: materialize_evaluation_query
+    description: Deterministically retain only canonical non-reference calls from the audited all-sites layer.
+    phase: normalization
+    kind: core
+    inputs: [all_sites_vcf_gz, candidate_status_tsv]
+    outputs: [evaluation_query_vcf_gz, evaluation_query_audit_json]
+    upstream: [materialize_all_sites]
+    audit_scope: formal_validity_gate
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/materialize_evaluation_query.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_medium
   - id: evaluate_truvari
     description: Run genotype-aware Truvari and emit benchmark-defined TP FP FN.
     phase: evaluation
     kind: core
-    inputs: [all_sites_vcf, primary_truth_vcf, evaluator_profile]
+    inputs: [evaluation_query_vcf_gz, primary_truth_vcf, evaluator_profile]
     outputs: [truvari_ledger_tsv]
-    upstream: [materialize_all_sites, validate_evaluator_semantics]
+    upstream: [materialize_evaluation_query, validate_evaluator_semantics]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
@@ -214,9 +229,9 @@ rules:
     description: Run Aardvark GT mode and emit benchmark-defined TP FP FN.
     phase: evaluation
     kind: core
-    inputs: [all_sites_vcf, primary_truth_vcf, evaluator_profile]
+    inputs: [evaluation_query_vcf_gz, primary_truth_vcf, evaluator_profile]
     outputs: [aardvark_ledger_tsv]
-    upstream: [materialize_all_sites, validate_evaluator_semantics]
+    upstream: [materialize_evaluation_query, validate_evaluator_semantics]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
@@ -229,9 +244,9 @@ rules:
     description: Run genotype-aware vcfdist and emit benchmark-defined TP FP FN.
     phase: evaluation
     kind: core
-    inputs: [all_sites_vcf, primary_truth_vcf, evaluator_profile]
+    inputs: [evaluation_query_vcf_gz, primary_truth_vcf, evaluator_profile]
     outputs: [vcfdist_ledger_tsv]
-    upstream: [materialize_all_sites, validate_evaluator_semantics]
+    upstream: [materialize_evaluation_query, validate_evaluator_semantics]
     audit_scope: pre_score
     manifest_required: true
     log_required: true

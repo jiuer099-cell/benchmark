@@ -14,8 +14,16 @@ The required output is an all-sites VCF over the supplied candidate IDs. A
 missing native record becomes `./.` plus `missing_output`; it must never be
 invented as 0/0. Conversion, unsupported representation, index failure, and
 linking failure must remain distinct. The core then canonicalizes, validates,
-links alleles, produces the addressability audit, and submits one identical
-query VCF to Truvari, Aardvark-GT, and vcfdist.
+links alleles, produces `all-sites.vcf.gz` plus `candidate-status.tsv`, and
+mechanically derives `evaluation-query.vcf.gz`. Only canonical 0/1 and 1/1
+records are emitted to that query. Each evaluator for a given tool receives
+that exact same query artifact and its SHA-256 is sealed in score provenance.
+
+Adapters must not write `canonical/`, `all-sites.vcf(.gz)`,
+`evaluation-query.vcf(.gz)`, `candidate-status.tsv`, or the addressability
+audit. These paths belong exclusively to benchmark core. Adapter manifests are
+recursively rejected if they contain ME-F1, benchmark-score, or primary-score
+fields.
 
 `information_contract` must explicitly state that HG002 truth, HG002 assembly,
 family genotypes, and target-specific external calls were not used. Use either

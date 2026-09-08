@@ -38,7 +38,16 @@ def test_repeated_coverage_summary_requires_same_three_seeds(tmp_path: Path) -> 
     assert result["downsampling_seeds"] == [1701, 1702, 1703]
     ten_x = next(row for row in result["rows"] if row["coverage"] == 10)
     assert ten_x["mean_me_f1"] == 82.0
-    assert ten_x["sd_me_f1"] == pytest.approx(1.632993161855452)
+    assert ten_x["metric_id"] == "ME-F1_10X"
+    assert ten_x["role"] == "explanatory"
+    assert ten_x["affects_primary_score"] is False
+    assert ten_x["sd_me_f1"] == pytest.approx(2.0)
+    assert ten_x["ci95_lower_me_f1"] == pytest.approx(77.0317245)
+    assert ten_x["ci95_upper_me_f1"] == pytest.approx(86.9682755)
+    assert ten_x["ci95_method"] == "student_t_across_frozen_seeds"
+    full = next(row for row in result["rows"] if row["coverage"] == "full")
+    assert full["sd_me_f1"] is None
+    assert full["ci95_lower_me_f1"] is None
 
 
 def test_coverage_summary_rejects_incomplete_matrix(tmp_path: Path) -> None:

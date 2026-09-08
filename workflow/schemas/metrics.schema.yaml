@@ -221,6 +221,9 @@ $defs:
     type: object
     additionalProperties: false
     required:
+      - metric_id
+      - role
+      - affects_primary_score
       - status
       - canonical_candidate_count
       - truth_positive_count
@@ -235,6 +238,9 @@ $defs:
       - evaluator_metrics
       - me_f1
     properties:
+      metric_id: {type: string, pattern: "^ME-F1_[A-Z0-9_]+$"}
+      role: {enum: [explanatory, diagnostic]}
+      affects_primary_score: {const: false}
       status: {enum: [defined, excluded_zero_truth]}
       canonical_candidate_count: {type: integer, minimum: 0}
       truth_positive_count: {type: integer, minimum: 0}
@@ -287,17 +293,27 @@ $defs:
         required:
           - evaluator_semantic_contract_valid
           - addressability_complete
+          - evaluation_query_complete
           - allowed_information_complete
           - tuning_frozen
+          - panel_provenance_complete
           - context_stratification_complete
           - population_af_stratification_complete
+          - all_evaluator_evidence_complete
+          - family_aware_loo_complete
+          - statistical_uncertainty_complete
         properties:
           evaluator_semantic_contract_valid: {const: true}
           addressability_complete: {const: true}
+          evaluation_query_complete: {const: true}
           allowed_information_complete: {const: true}
           tuning_frozen: {const: true}
+          panel_provenance_complete: {const: true}
           context_stratification_complete: {const: true}
           population_af_stratification_complete: {const: true}
+          all_evaluator_evidence_complete: {const: true}
+          family_aware_loo_complete: {const: true}
+          statistical_uncertainty_complete: {const: true}
       panel_addressable_truth_count: {type: integer, minimum: 1}
       evaluator_profile_sha256:
         type: string
@@ -316,6 +332,7 @@ $defs:
     additionalProperties: false
     required:
       - contract_version
+      - primary_metric_source
       - evaluator_profile_id
       - evaluator_profile_sha256
       - evaluator_bundle_sha256
@@ -350,12 +367,16 @@ $defs:
       - semantic_summary
       - candidate_genotype_summary
       - addressability_audit
+      - evaluation_query_audit
+      - addressable_subset_diagnostic
       - stratified_summary
       - genotype_stratified_summary
       - resource_summary
     properties:
       contract_version:
         const: formal_genotype_me_f1_v1
+      primary_metric_source:
+        const: unified_judgement_layer_v1
       evaluator_profile_id:
         $ref: "#/$defs/identifier"
       evaluator_profile_sha256:
@@ -414,17 +435,27 @@ $defs:
         required:
           - evaluator_semantic_contract_valid
           - addressability_complete
+          - evaluation_query_complete
           - allowed_information_complete
           - tuning_frozen
+          - panel_provenance_complete
           - context_stratification_complete
           - population_af_stratification_complete
+          - all_evaluator_evidence_complete
+          - family_aware_loo_complete
+          - statistical_uncertainty_complete
         properties:
           evaluator_semantic_contract_valid: {type: boolean}
           addressability_complete: {type: boolean}
+          evaluation_query_complete: {type: boolean}
           allowed_information_complete: {type: boolean}
           tuning_frozen: {type: boolean}
+          panel_provenance_complete: {type: boolean}
           context_stratification_complete: {type: boolean}
           population_af_stratification_complete: {type: boolean}
+          all_evaluator_evidence_complete: {type: boolean}
+          family_aware_loo_complete: {type: boolean}
+          statistical_uncertainty_complete: {type: boolean}
       asset_hashes:
         type: object
         additionalProperties: false
@@ -434,6 +465,8 @@ $defs:
           - benchmark_bed
           - pangenome_manifest
           - challenge_hidden_ledger
+          - evaluation_query
+          - evaluation_query_audit
           - tool_manifest
           - graph_asset_lock
           - stratification_catalogue
@@ -457,6 +490,12 @@ $defs:
             type: string
             pattern: "^[0-9a-f]{64}$"
           challenge_hidden_ledger:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          evaluation_query:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          evaluation_query_audit:
             type: string
             pattern: "^[0-9a-f]{64}$"
           tool_manifest:
@@ -979,6 +1018,7 @@ $defs:
           - adapter_conversion_failure_count
           - index_build_failure_count
           - linking_failure_count
+          - ambiguous_mapping_count
           - called_count
           - explicit_no_call_count
           - missing_output_count
@@ -995,12 +1035,54 @@ $defs:
           adapter_conversion_failure_count: {type: integer, minimum: 0}
           index_build_failure_count: {type: integer, minimum: 0}
           linking_failure_count: {type: integer, minimum: 0}
+          ambiguous_mapping_count: {type: integer, minimum: 0}
           called_count: {type: integer, minimum: 0}
           explicit_no_call_count: {type: integer, minimum: 0}
           missing_output_count: {type: integer, minimum: 0}
           off_panel_native_record_count: {type: integer, minimum: 0}
           silent_candidate_deletion_count: {const: 0}
           addressability_rate: {type: number, minimum: 0, maximum: 1}
+      evaluation_query_audit:
+        type: object
+        additionalProperties: false
+        required:
+          - schema_version
+          - contract
+          - source_contract
+          - canonical_candidate_count
+          - all_sites_candidate_count
+          - non_reference_query_count
+          - reference_genotype_excluded_count
+          - final_status_counts
+          - all_sites_sha256
+          - canonical_panel_sha256
+          - candidate_status_sha256
+          - output_sha256
+          - unique_candidate_mapping
+          - canonical_alleles_verified
+          - extra_filtering_applied
+          - policy
+          - status
+        properties:
+          schema_version: {const: 1}
+          contract: {const: pgbench_evaluation_query_v1}
+          source_contract: {const: all_sites_plus_candidate_status}
+          canonical_candidate_count: {type: integer, minimum: 1}
+          all_sites_candidate_count: {type: integer, minimum: 1}
+          non_reference_query_count: {type: integer, minimum: 0}
+          reference_genotype_excluded_count: {type: integer, minimum: 0}
+          final_status_counts: {type: object}
+          all_sites_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+          canonical_panel_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+          candidate_status_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+          output_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+          unique_candidate_mapping: {const: true}
+          canonical_alleles_verified: {const: true}
+          extra_filtering_applied: {const: false}
+          policy: {type: object}
+          status: {const: valid}
+      addressable_subset_diagnostic:
+        $ref: "#/$defs/genotypeStratum"
       stratified_summary:
         type: object
         additionalProperties:

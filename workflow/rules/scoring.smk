@@ -120,7 +120,25 @@ def addressability_table(wildcards):
         return []
     return (
         f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-        f"{wildcards.tool}/canonical/addressability.tsv"
+        f"{wildcards.tool}/canonical/candidate-status.tsv"
+    )
+
+
+def evaluation_query_vcf(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return (
+        f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+        f"{wildcards.tool}/canonical/evaluation-query.vcf.gz"
+    )
+
+
+def evaluation_query_audit(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return (
+        f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+        f"{wildcards.tool}/canonical/evaluation-query.audit.json"
     )
 
 
@@ -159,6 +177,8 @@ def dynamic_metric_inputs(wildcards):
                 SEMANTIC_VALIDATION_JSON,
                 addressability_audit(wildcards),
                 addressability_table(wildcards),
+                evaluation_query_vcf(wildcards),
+                evaluation_query_audit(wildcards),
                 config["catalogs"]["stratifications"],
                 *context_bed_paths(wildcards),
             ]
@@ -179,6 +199,8 @@ def dynamic_metric_upstreams(wildcards):
             [
                 SEMANTIC_VALIDATION_RULE_MANIFEST,
                 f"{RESULTS_ROOT}/provenance/rules/freeze_information_contract/{wildcards.tool}.json",
+                RESULTS_ROOT + "/provenance/rules/materialize_evaluation_query/"
+                + f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}.json",
             ]
             if not SYNTHETIC_MODE
             else []
@@ -245,6 +267,10 @@ def materializer_arguments(wildcards):
         addressability_audit(wildcards),
         "--addressability-tsv",
         addressability_table(wildcards),
+        "--evaluation-query-vcf",
+        evaluation_query_vcf(wildcards),
+        "--evaluation-query-audit",
+        evaluation_query_audit(wildcards),
         "--stratification-catalogue",
         config["catalogs"]["stratifications"],
         *cli_repeated(
@@ -294,7 +320,7 @@ def materializer_arguments(wildcards):
         "--query-vcf",
         (
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-            f"{wildcards.tool}/canonical/all-sites.vcf"
+            f"{wildcards.tool}/canonical/all-sites.vcf.gz"
         ),
         "--hidden-truth-ledger",
         hidden_candidate_ledger(wildcards),
@@ -352,7 +378,7 @@ rule fuse_evaluator_metrics:
         resolved_inputs=scoring_resolved_inputs,
         linked=(
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-            "{tool}/canonical/all-sites.vcf"
+            "{tool}/canonical/all-sites.vcf.gz"
         ),
         links=(
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"

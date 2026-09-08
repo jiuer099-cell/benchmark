@@ -236,13 +236,23 @@ def _archive_existing_manifest(
         raise RuleExecutionError("manifest archive directory must not be a symlink")
     if history_root.exists() and not history_root.is_dir():
         raise RuleExecutionError("manifest archive path exists but is not a directory")
-    history_root.mkdir(mode=0o700, exist_ok=True)
+    # On Windows, ``mode=0o700`` can be translated into an ACL that even the
+    # invoking desktop user cannot traverse (notably with Microsoft Store
+    # Python).  The directory only contains recoverable provenance history;
+    # use the platform default ACL there and retain owner-only mode on POSIX.
+    if os.name == "nt":
+        history_root.mkdir(exist_ok=True)
+    else:
+        history_root.mkdir(mode=0o700, exist_ok=True)
     destination_dir = history_root / attempt_id
     if destination_dir.exists() or destination_dir.is_symlink():
         raise RuleExecutionError(
             f"manifest archive already exists; refusing overwrite: {destination_dir}"
         )
-    destination_dir.mkdir(mode=0o700)
+    if os.name == "nt":
+        destination_dir.mkdir()
+    else:
+        destination_dir.mkdir(mode=0o700)
     destination = destination_dir / manifest.name
     if destination.exists() or destination.is_symlink():
         raise RuleExecutionError(

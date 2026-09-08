@@ -1,8 +1,8 @@
-from importlib.metadata import version
 import os
 import sys
 from pathlib import Path
 
+import snakemake
 import yaml
 from snakemake.exceptions import WorkflowError
 from snakemake.utils import min_version, validate
@@ -35,7 +35,10 @@ OFFICIAL_MODE = config["execution"]["official_score_mode"]
 PANGENOME_ID = config["pangenome"]["id"]
 SYNTHETIC_MODE = config.get("development", {}).get("synthetic_mode", False)
 EVALUATION_MODE = "synthetic_smoke" if SYNTHETIC_MODE else "formal"
-SNAKEMAKE_VERSION = version("snakemake")
+# Use the running module version.  Distribution metadata can be stale when a
+# test target contains remnants of an older installation, which must never be
+# written into provenance as the executor version.
+SNAKEMAKE_VERSION = snakemake.__version__
 # Resolve Python after Snakemake activates each rule's declared environment.
 PYTHON_EXECUTABLE = sys.executable if os.name == "nt" else "python"
 RULE_EXECUTOR = "workflow/scripts/pgbench_rule_exec.py"
@@ -343,7 +346,17 @@ if EXTERNAL_SETTINGS:
         ],
         *[
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-            f"{settings['tool_id']}/canonical/all-sites.vcf"
+            f"{settings['tool_id']}/canonical/all-sites.vcf.gz"
+            for settings in EXTERNAL_SETTINGS
+        ],
+        *[
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{settings['tool_id']}/canonical/evaluation-query.vcf.gz"
+            for settings in EXTERNAL_SETTINGS
+        ],
+        *[
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+            f"{settings['tool_id']}/canonical/candidate-status.tsv"
             for settings in EXTERNAL_SETTINGS
         ],
         *[

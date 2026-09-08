@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import io
 import json
 import sys
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TextIO, cast
+from typing import Iterator, TextIO
 
 from build_pangenome_manifest import format_info, parse_info
 
@@ -25,13 +27,26 @@ NATIVE_STATUSES = {
     "adapter_conversion_failure",
     "index_build_failure",
     "linking_failure",
+    "ambiguous_mapping",
 }
 
 
-def open_text(path: Path, mode: str) -> TextIO:
-    if path.suffix == ".gz":
-        return cast(TextIO, gzip.open(path, mode, encoding="utf-8"))
-    return cast(TextIO, path.open(mode, encoding="utf-8"))
+@contextmanager
+def open_text(path: Path, mode: str) -> Iterator[TextIO]:
+    if path.suffix != ".gz":
+        with path.open(mode, encoding="utf-8") as handle:
+            yield handle
+        return
+    if "w" in mode:
+        with path.open("wb") as raw:
+            with gzip.GzipFile(
+                filename="", fileobj=raw, mode="wb", mtime=0
+            ) as compressed:
+                with io.TextIOWrapper(compressed, encoding="utf-8") as text:
+                    yield text
+        return
+    with gzip.open(path, mode, encoding="utf-8") as handle:
+        yield handle
 
 
 def genotype(fields: list[str]) -> str:
@@ -101,7 +116,7 @@ def materialize(
     if not candidates:
         raise AllSitesError("canonical panel contains no candidates")
 
-    mapped: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    mapped: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     off_panel_records = 0
     with open_text(linked_query, "rt") as handle:
         for line in handle:
@@ -121,7 +136,8 @@ def materialize(
             if candidate_id is None:
                 off_panel_records += 1
                 continue
-            mapped[candidate_id].append((fields[2], normalize_gt(genotype(fields))))
+            raw_gt = genotype(fields)
+            mapped[candidate_id].append((fields[2], raw_gt, normalize_gt(raw_gt)))
 
     overrides = load_status_overrides(adapter_status)
     unknown_overrides = sorted(set(overrides) - set(candidates))
@@ -139,6 +155,12 @@ def materialize(
         "canonical_status",
         "tool_native_status",
         "output_status",
+        "tool_status",
+        "link_status",
+        "addressability_status",
+        "final_status",
+        "raw_gt",
+        "canonical_gt",
         "failure_reason",
         "native_variant_id",
     ]
@@ -165,22 +187,41 @@ def materialize(
             native_status, failure_reason = overrides.get(
                 candidate_id, ("addressable", "")
             )
-            native_ids = sorted({native_id for native_id, _ in calls})
-            call_gts = {gt for _, gt in calls}
+            native_ids = sorted({native_id for native_id, _, _ in calls})
+            raw_gts = {raw_gt for _, raw_gt, _ in calls}
+            call_gts = {canonical_gt for _, _, canonical_gt in calls}
             if native_status != "addressable":
                 output_status = native_status
+                final_status = native_status
+                link_status = (
+                    "ambiguous_mapping"
+                    if native_status == "ambiguous_mapping"
+                    else "not_applicable"
+                )
+                raw_gt = "."
                 gt = "./."
             elif len(call_gts) > 1:
-                native_status = "linking_failure"
-                output_status = "linking_failure"
+                native_status = "ambiguous_mapping"
+                output_status = "ambiguous_mapping"
+                final_status = "ambiguous_mapping"
+                link_status = "ambiguous_mapping"
                 failure_reason = "conflicting linked genotypes"
+                raw_gt = ",".join(sorted(raw_gts))
                 gt = "./."
             elif calls:
+                raw_gt = next(iter(raw_gts)) if len(raw_gts) == 1 else ",".join(sorted(raw_gts))
                 gt = next(iter(call_gts))
                 output_status = "explicit_no_call" if gt == "./." else "called"
+                final_status = (
+                    "explicit_no_call" if gt == "./." else "addressable_called"
+                )
+                link_status = "linked"
             else:
+                raw_gt = "."
                 gt = "./."
                 output_status = "missing_output"
+                final_status = "missing_output"
+                link_status = "no_linked_output"
                 failure_reason = failure_reason or "no linked native output record"
             counts[output_status] += 1
             counts[f"native_{native_status}"] += 1
@@ -195,6 +236,12 @@ def materialize(
                     "canonical_status": "main_track",
                     "tool_native_status": native_status,
                     "output_status": output_status,
+                    "tool_status": output_status,
+                    "link_status": link_status,
+                    "addressability_status": native_status,
+                    "final_status": final_status,
+                    "raw_gt": raw_gt,
+                    "canonical_gt": gt,
                     "failure_reason": failure_reason,
                     "native_variant_id": ",".join(native_ids),
                 }
@@ -214,6 +261,7 @@ def materialize(
         ],
         "index_build_failure_count": counts["native_index_build_failure"],
         "linking_failure_count": counts["native_linking_failure"],
+        "ambiguous_mapping_count": counts["native_ambiguous_mapping"],
         "called_count": counts["called"],
         "explicit_no_call_count": counts["explicit_no_call"],
         "missing_output_count": counts["missing_output"],

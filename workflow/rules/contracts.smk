@@ -120,6 +120,8 @@ rule freeze_information_contract:
         context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
+        allowed_information_policy=config["catalogs"]["allowed_information"],
+        tuning_policy=config["catalogs"]["tuning_policy"],
         rule_source="workflow/rules/contracts.smk",
         rule_executor=RULE_EXECUTOR,
         script="workflow/scripts/freeze_information_contract.py",
@@ -151,12 +153,16 @@ rule freeze_information_contract:
           --snakemake-version {SNAKEMAKE_VERSION:q} --execution-profile local \
           --random-seed {config[execution][random_seed]} --threads 1 --resource mem_mb=1024 \
           --input {input.tool_manifest:q} --input {input.resolved:q} --input {input.context:q} \
-          --input {input.config:q} --input {input.score_profile:q} --input {input.rule_source:q} \
+          --input {input.config:q} --input {input.score_profile:q} \
+          --input {input.allowed_information_policy:q} --input {input.tuning_policy:q} \
+          --input {input.rule_source:q} \
           --input {input.rule_executor:q} --input {input.script:q} --input {input.environment:q} \
           --input {input.provenance_library:q} --output {output.allowed:q} \
           --output {output.parameters:q} --output {output.resources:q} --output {output.tuning:q} \
           --upstream-manifest {input.tool_rule_manifest:q} --manifest-output {output.rule_manifest:q} -- \
           {PYTHON_EXECUTABLE:q} {input.script:q} --tool-manifest {input.tool_manifest:q} \
-            --resolved-inputs {input.resolved:q} --output-dir {params.output_dir:q} \
+            --resolved-inputs {input.resolved:q} \
+            --allowed-information-policy {input.allowed_information_policy:q} \
+            --tuning-policy {input.tuning_policy:q} --output-dir {params.output_dir:q} \
           > {log:q} 2>&1
         """

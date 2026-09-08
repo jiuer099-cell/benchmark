@@ -524,7 +524,13 @@ def _ensure_safe_directory_chain(root: Path, relative: Path) -> Path:
                 )
             continue
         try:
-            current.mkdir(mode=0o700)
+            # Microsoft Store Python can translate POSIX-style restrictive
+            # modes into unusable Windows ACLs.  Keep owner-only permissions
+            # on POSIX and inherit the normal parent ACL on Windows.
+            if os.name == "nt":
+                current.mkdir()
+            else:
+                current.mkdir(mode=0o700)
         except FileExistsError as exc:
             if current.is_symlink() or not current.is_dir():
                 raise ToolContractError(
@@ -943,7 +949,10 @@ def _archive_previous_output(
         raise ToolContractError(
             f"previous-output staging path already exists: {staging}"
         )
-    staging.mkdir(mode=0o700)
+    if os.name == "nt":
+        staging.mkdir()
+    else:
+        staging.mkdir(mode=0o700)
 
     moved: list[tuple[Path, Path]] = []
     relative_files: list[str] = []
@@ -1234,19 +1243,27 @@ def _run_command(
     log_handle: TextIO,
     timeout_seconds: int,
 ) -> int:
+    popen_options: dict[str, Any] = {
+        "cwd": cwd,
+        "env": dict(environment),
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_handle,
+        "stderr": subprocess.STDOUT,
+        "shell": False,
+        "text": True,
+        "start_new_session": True,
+        "close_fds": True,
+    }
+    # POSIX umask is part of the sandbox boundary.  Passing it on Windows is
+    # not portable and can create directories with an unusable DACL under
+    # Microsoft Store Python, preventing even the desktop user from auditing
+    # or cleaning a completed run.
+    if os.name != "nt":
+        popen_options["umask"] = 0o077
     try:
         process = subprocess.Popen(
             list(command),
-            cwd=cwd,
-            env=dict(environment),
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            shell=False,
-            text=True,
-            start_new_session=True,
-            close_fds=True,
-            umask=0o077,
+            **popen_options,
         )
     except OSError as exc:
         raise ToolExecutionError(f"cannot start external runner: {exc}") from exc

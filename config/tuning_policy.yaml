@@ -1,0 +1,16 @@
+schema_version: 1
+contract: pgbench_tuning_policy_v1
+default_mode: official_default
+allowed_modes:
+  official_default:
+    parameter_source_required: official_default
+  official_recommended_sv_config:
+    parameter_source_required: official_documentation
+  validation_tuned:
+    parameter_source_required: independent_validation_sample
+    parameters_frozen_before_test: true
+forbidden:
+  tune_on_hg002_truth: true
+  tune_on_final_me_f1: true
+  choose_parameters_after_viewing_final_test_score: true
+required_result_fields: [tuning_mode, parameter_source, parameter_hash]
