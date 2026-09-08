@@ -23,7 +23,11 @@ RULE_SOURCE = "workflow/modules/generic_external/Snakefile"
 CORE_ENVIRONMENT = "workflow/envs/core.yaml"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
 # Resolve Python after Snakemake activates the plugin's declared environment.
-PYTHON_EXECUTABLE = sys.executable if os.name == "nt" else "python"
+# The generic executor performs schema/provenance validation before it enters
+# a plugin sandbox.  Use the workflow interpreter explicitly: a bare
+# ``python`` can resolve to a caller's pre-existing environment after Conda
+# activation on shared Linux hosts.
+PYTHON_EXECUTABLE = sys.executable
 GRAPH_ASSET_MANIFEST = SETTINGS.get("graph_asset_manifest")
 GRAPH_ASSET_LOCK = SETTINGS.get("graph_asset_lock")
 
