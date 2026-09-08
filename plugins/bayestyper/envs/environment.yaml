@@ -1,0 +1,7 @@
+name: pgbench-bayestyper
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - bayestyper=1.5
+  - kmc=3.2.4
+  - bcftools=1.21

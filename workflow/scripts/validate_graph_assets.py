@@ -28,8 +28,6 @@ PROFILE_ASSETS = {
     "vg_giraffe_shortread": {
         "gbz", "min", "zipcodes", "dist", "sample_list"
     },
-    "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
-    "svarp_minigraph_longread": {"gfa", "variation_calls"},
 }
 
 
@@ -181,7 +179,7 @@ def lock_graph_assets(
     zipcodes: Path | None = None,
     gfa: Path | None = None,
     variation_calls: Path | None = None,
-    profile: str = "vg_legacy_xg",
+    profile: str = "vg_giraffe_shortread",
     excluded_samples: tuple[str, ...] = ("HG002", "NA24385"),
 ) -> dict[str, Any]:
     """Validate one conventional graph directory and return its lock payload."""

@@ -25,7 +25,10 @@ def _score() -> dict:
         "score_profile_sha256": "a" * 64,
         "evaluation_mode": "synthetic_smoke",
         "score_status": "provisional",
-        "pgbench_score": 75.0,
+        "benchmark_score": 75.0,
+        "evaluator_scores": {"truvari": 74.0, "aardvark": 75.0, "vcfdist": 76.0},
+        "evaluator_range": 2.0,
+        "evaluator_sd": 0.82,
         "point_breakdown": {"evaluator_accuracy": 50.0},
     }
 

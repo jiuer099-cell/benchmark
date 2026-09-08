@@ -1,139 +1,27 @@
-# Tool plugin contract
+# Tool adapter contract
 
-PGBench has a fixed benchmark shell and a replaceable tool middle. This avoids
-forcing graph mappers, segment-discovery/integration pipelines, assemblers, and
-genotypers through the same algorithmic steps.
+Each adapter lives under `plugins/<tool>/` and contains `tool.yaml`, `run.py`,
+an environment definition, and a rule registry. The runner receives only
+allowlisted `PGBENCH_*` variables and writes only its assigned output tree.
 
-## Three benchmark phases
+For the formal track, `supported_modes.end_to_end_from_reads.required_inputs`
+must contain `short_fastq_r1`, `short_fastq_r2`, `candidate_panel`, reference,
+and panel provenance. Additional indexes or graph bundles must be registered as
+`tool_index` or `graph_assets`; their complete directory hashes enter the
+information contract.
 
-1. **Common preparation**
-   validates GRCh38/HG002 inputs, freezes the HG002-excluded pangenome panel,
-   creates stable allele IDs and a blinded challenge universe, and records
-   content provenance.
-2. **Tool-owned middle**
-   starts from the input authorized by the selected execution mode. The adapter may map,
-   discover segments, assemble, integrate calls, or genotype a frozen panel.
-   Its `tool.yaml` declares the paradigm, tasks, accepted read technology,
-   required inputs, output semantics, and execution isolation. Its
-   `rule-registry.yaml` describes the tool-specific internal stages.
-3. **Common postprocessing**
-   validates the tool VCF, normalizes it, links it to stable pangenome alleles,
-   evaluates it with Truvari/Aardvark/vcfdist against the same fixed GIAB truth
-   universe, and produces the unweighted consensus diagnostics and one unified
-   comparable report.
+The required output is an all-sites VCF over the supplied candidate IDs. A
+missing native record becomes `./.` plus `missing_output`; it must never be
+invented as 0/0. Conversion, unsupported representation, index failure, and
+linking failure must remain distinct. The core then canonicalizes, validates,
+links alleles, produces the addressability audit, and submits one identical
+query VCF to Truvari, Aardvark-GT, and vcfdist.
 
-The formal benchmark measures the entire tool-owned middle as one isolated,
-reproducible execution unit. Internal stages remain tool-specific and are
-listed in the plugin rule registry for auditability.
+`information_contract` must explicitly state that HG002 truth, HG002 assembly,
+family genotypes, and target-specific external calls were not used. Use either
+an official configuration frozen before the test or tuning performed only on
+an independent validation sample/region.
 
-## Built-in adapters
-
-| Adapter | Family | Starts from | Tool-owned stages |
-| --- | --- | --- | --- |
-| `kanpig` | long-read candidate genotyping | shared GRCh38 BAM | genotype, postprocess |
-| `vg` | graph mapping/calling | paired Illumina R1/R2 FASTQ | vg Giraffe map, vg pack, vg call |
-| `pangenie` | short-read pangenome genotyping | paired Illumina R1/R2 FASTQ | prepare, index, k-mer genotype |
-
-PanGenie and KanPIG are re-genotypers: they cannot discover an allele absent
-from their candidate/pangenome panel. The vg adapter has `variant_sites`
-semantics and can report novel graph-supported sites.
-
-## Fairness contract
-
-- All official runs must use HG002, the same GRCh38 reference build, primary
-  truth profile, benchmark BED, and frozen score-profile hash.
-- Tool-native read technology is allowed: PacBio tools use the registered
-  PacBio evidence and PanGenie uses the registered HG002 Illumina evidence.
-- A graph or population panel must exclude HG002 and NA24385.
-- The tool-owned middle cannot read truth assets.
-- `ConsensusScore` describes agreement on query results.
-- `Pangenome Genotyping Score` is the primary panel score: genotype macro-F1
-  on the common blinded candidate universe, with no-call counted incorrect.
-- `ComparableScore` is retained as the secondary Global End-to-End SV Recovery
-  Score; it uses the fixed eligible truth count as well as the query count.
-- Non-reference F1 and panel coverage are displayed separately and are never
-  hidden inside a weighted score.
-- Cross-technology scores compare complete pipeline utility; they are not
-  presented as separate task-type rankings.
-- Runtime, memory, disk, and provenance are reported or used as validity gates;
-  none is an accuracy-score weight.
-
-## Add a user-provided genotyper
-
-Copy `plugins/example_genotyper/` to a new plugin directory and edit:
-
-- `tool.yaml`: unique ID/version, `paradigm`, tasks, read technology, mode input
-  contract, output contract, runner/environment, and isolation policy;
-- `rule-registry.yaml`: the actual tool-specific stages and their artifacts;
-- `envs/environment.yaml`: exact dependencies;
-- `run.py` (or another executable runner): consume only the `PGBENCH_*`
-  environment variables and create exactly `PGBENCH_OUTPUT_VCF`.
-
-The most useful runner variables are:
-
-```text
-PGBENCH_INPUT_FASTQ
-PGBENCH_INPUT_FASTQ_R1
-PGBENCH_INPUT_FASTQ_R2
-PGBENCH_SHARED_ALIGNMENT
-PGBENCH_REFERENCE_FASTA
-PGBENCH_PANEL_VCF
-PGBENCH_CANDIDATE_VCF
-PGBENCH_GRAPH_DIR
-PGBENCH_SAMPLE_ID
-PGBENCH_THREADS
-PGBENCH_MEMORY_MB
-PGBENCH_OUTPUT_VCF
-```
-
-`PGBENCH_INPUT_FASTQ` is the registered single-file input for technologies
-such as PacBio long reads. A paired short-read plugin must require and consume
-both `PGBENCH_INPUT_FASTQ_R1` and `PGBENCH_INPUT_FASTQ_R2`; it must not accept
-a manually merged short-read file as a substitute for the pair.
-
-Register the plugin in a copied configuration:
-
-```yaml
-external_plugins:
-  - id: my_genotyper
-    manifest: plugins/my_genotyper/tool.yaml
-```
-
-For a BAM-based genotyper, implement `caller_only_shared_alignment`; for a
-FASTQ-based method, implement `end_to_end_from_reads`. A genotyping-only tool
-must emit every candidate record (`all_sites`, including `0/0` and `./.`).
-A discovery/calling tool emits only detected variants (`variant_sites`).
-For candidate-site diagnostics, omitted `variant_sites` records are interpreted
-exactly as the manifest declares in `outputs.absence_semantics` (`hom_ref` or
-`no_call`). The core then compares candidate IDs against its private hidden
-ledger after the sandboxed tool has finished. Only candidates inside the
-frozen BED/type/size/allele universe are scored; other panel records remain
-explicitly unscorable rather than becoming assumed `0/0` negatives. Under the
-primary profile, no-calls remain in the denominator as incorrect, with
-called-only concordance reported separately. A discovery plugin without
-blinded candidate IDs may be attributed through a unique
-`PANGENOME_LINKED_ID` only for `in_panel_exact` or `in_panel_equivalent`;
-ambiguous, unresolved, wrong, and conflicting links are audited and cannot be
-silently assigned. Plugins never receive the hidden ledger, and candidate
-GT/no-call diagnostics never alter detection credit.
-
-Validate before a production run:
-
-```bash
-cd /home/luzhiting/hg002-grch38-pangenome-sv-benchmark
-
-python workflow/scripts/validate_config.py \
-  --config config/my-tool.yaml \
-  --repo-root .
-
-snakemake --snakefile Snakefile \
-  --configfile config/my-tool.yaml \
-  --cores 1 --dry-run
-```
-
-Every plugin, including locally reviewed code, must use `bwrap` or `apptainer`
-in formal mode. `sandbox_backend: none` is accepted only for development
-fixtures and is rejected before formal execution. The executor fingerprints
-plugin code and inputs, rejects input mutation/path escape, disables network
-access, validates the fresh VCF, applies a timeout, and records
-attempt/log/provenance artifacts.
+An adapter is bundled only when its runner and environment are maintained and
+reviewed in this repository. Community adapters are executed through the same
+interface and receive no scoring exceptions.

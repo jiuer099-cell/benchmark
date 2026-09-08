@@ -52,22 +52,6 @@ strata:
     asset_id: grch38_autosomes
     category: chromosome
     required_for_score: false
-  chromosome_x:
-    asset_id: grch38_x
-    category: chromosome
-    required_for_score: false
-  chromosome_y:
-    asset_id: grch38_y
-    category: chromosome
-    required_for_score: false
-  par:
-    asset_id: grch38_par
-    category: chromosome
-    required_for_score: false
-  non_par:
-    asset_id: grch38_non_par
-    category: chromosome
-    required_for_score: false
 
 score_universes:
   difficult_context_v1:

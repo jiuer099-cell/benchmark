@@ -19,18 +19,6 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
 
 
 def _score_value(score: Mapping[str, object], field: str) -> str:
-    analysis = score.get("formal_analysis")
-    candidate = (
-        analysis.get("candidate_genotype_summary")
-        if isinstance(analysis, Mapping)
-        else None
-    )
-    if (
-        field in {"pangenome_genotyping_score", "non_reference_f1_score"}
-        and isinstance(candidate, Mapping)
-        and candidate.get("candidate_output_contract") == "variant_sites"
-    ):
-        return "N/A"
     value = score.get(field)
     return "N/A" if value is None else f"{float(value):.2f}"
 
@@ -58,7 +46,7 @@ def render_index(
     scores: Sequence[Mapping[str, object]] | None = None,
     manifests: Sequence[Mapping[str, object]] | None = None,
 ) -> str:
-    """Render links only for compatibility, or a comparable-score table."""
+    """Render links only, or a table of sealed ME-F1 results."""
 
     ordered_cards = sorted(card_paths, key=lambda path: path.name)
     if scores is None:
@@ -117,12 +105,12 @@ def render_index(
             f"<td>{escape(technology_text)}</td>"
             f"<td>{escape(track_id)}</td>"
             f"<td><code>{escape(track_sha256)}</code></td>"
-            f"<td>{_score_value(score, 'pgbench_score')}</td>"
-            f"<td>{_score_value(score, 'pangenome_genotyping_score')}</td>"
-            f"<td>{_score_value(score, 'non_reference_f1_score')}</td>"
-            f"<td>{_score_value(score, 'panel_coverage')}</td>"
-            f"<td>{_score_value(score, 'global_end_to_end_sv_recovery_score')}</td>"
-            f"<td>{_score_value(score, 'consensus_score')}</td>"
+            f"<td>{_score_value(score, 'benchmark_score')}</td>"
+            f"<td>{_score_value(score.get('evaluator_scores', {}), 'truvari')}</td>"
+            f"<td>{_score_value(score.get('evaluator_scores', {}), 'aardvark')}</td>"
+            f"<td>{_score_value(score.get('evaluator_scores', {}), 'vcfdist')}</td>"
+            f"<td>{_score_value(score, 'evaluator_range')}</td>"
+            f"<td>{_score_value(score, 'evaluator_sd')}</td>"
             f"<td>{escape(str(score.get('truth_eligible_count', '')))}</td>"
             f"<td>{escape(str(score.get('total_evaluated', '')))}</td>"
             f"<td>{escape(str(score.get('score_status', '')))}</td>"
@@ -139,15 +127,14 @@ th { background: #eef2ff; }
 .notice { border-left: 4px solid #536dfe; background: #f3f5ff; padding: .8rem; }
 </style></head><body>
 <h1>PGBench 泛基因组结构变异工具比较</h1>
-<p class="notice">PGBench Consensus Score 是所有工具统一的主分，三套冻结评测器
-各投一张等权检测票。Global End-to-End SV Recovery 在固定 truth universe 上
-同时惩罚 FP 与 FN，作为完整 pipeline 的独立召回诊断。资源消耗不参与得分。
+<p class="notice">ME-F1 是唯一主分：Truvari、Aardvark-GT 与 vcfdist
+在同一固定 truth denominator 上重算的 genotype-aware F1 算术平均。评估器差异
+仅作诊断，资源消耗不参与得分。
 比较只能在完全相同的运行轨道内进行；本表不生成跨轨道排名。</p>
 <table><thead><tr>
 <th>工具</th><th>范式</th><th>实际测序技术</th><th>运行轨道</th><th>轨道 SHA-256</th>
-<th>PGBench Consensus Score</th><th>Pangenome Genotyping Score</th><th>Non-reference F1</th>
-<th>Panel coverage (fraction)</th><th>Global End-to-End SV Recovery</th>
-<th>ConsensusScore</th>
+<th>ME-F1</th><th>Truvari F1</th><th>Aardvark-GT F1</th><th>vcfdist F1</th>
+<th>Evaluator range</th><th>Evaluator SD</th>
 <th>Truth 数量</th><th>输出数量</th><th>状态</th>
 </tr></thead><tbody>""" + "".join(rows) + """</tbody></table>
 </body></html>

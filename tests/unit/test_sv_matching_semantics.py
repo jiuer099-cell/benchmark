@@ -217,34 +217,6 @@ def test_ledger_separates_detection_genotype_and_no_call(tmp_path: Path) -> None
     }
 
 
-def test_detection_event_semantics_follow_plugin_output_contract() -> None:
-    queries = [
-        record("VARIANT", pos=1000, end=1100, gt="0/1"),
-        record("NO_GT", pos=2000, end=2100, gt="./."),
-    ]
-    scope = {"VARIANT", "NO_GT"}
-    assert event_query_indices(
-        queries,
-        scope_eligible_ids=scope,
-        candidate_output_contract="variant_sites",
-    ) == [0, 1]
-    assert event_query_indices(
-        queries,
-        scope_eligible_ids=scope,
-        candidate_output_contract="all_sites",
-    ) == [0]
-
-
-def test_variant_sites_contract_rejects_hom_ref_records() -> None:
-    queries = [record("HOM_REF", pos=1000, end=1100, gt="0/0")]
-    with pytest.raises(FormalEvaluatorError, match="hom-ref"):
-        event_query_indices(
-            queries,
-            scope_eligible_ids={"HOM_REF"},
-            candidate_output_contract="variant_sites",
-        )
-
-
 def test_query_scope_is_frozen_by_type_size_filter_and_region(
     tmp_path: Path,
 ) -> None:

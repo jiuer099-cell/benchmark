@@ -31,20 +31,20 @@ properties:
       tool_id:
         $ref: "#/$defs/identifier"
       official_score_mode:
-        enum:
-          - caller_only_shared_alignment
-          - end_to_end_from_reads
+        const: end_to_end_from_reads
       primary_truth_profile:
         $ref: "#/$defs/identifier"
       score_profile:
-        const: pgbench_consensus_v4
+        const: pgbench_me_f1_v1
   records:
     type: array
     minItems: 1
     items:
       $ref: "#/$defs/metricRecord"
   analysis:
-    $ref: "#/$defs/formalAnalysis"
+    oneOf:
+      - $ref: "#/$defs/formalAnalysis"
+      - $ref: "#/$defs/syntheticAnalysis"
 
 $defs:
   identifier:
@@ -55,10 +55,10 @@ $defs:
   metricId:
     enum:
       - benchmark.truth.eligible.count
-      - consensus.all_three_correct.count
-      - consensus.exactly_two_correct.count
-      - consensus.exactly_one_correct.count
-      - consensus.none_correct.count
+      - diagnostic.evaluator_agreement.all_three_correct.count
+      - diagnostic.evaluator_agreement.exactly_two_correct.count
+      - diagnostic.evaluator_agreement.exactly_one_correct.count
+      - diagnostic.evaluator_agreement.none_correct.count
       - truvari.event.overall.f1
       - truvari.event.svtype.macro_f1
       - truvari.event.length.macro_f1
@@ -160,6 +160,64 @@ $defs:
       seed_sha256:
         type: string
         pattern: "^[0-9a-f]{64}$"
+  evaluatorGtF1:
+    type: object
+    additionalProperties: false
+    required: [tp, fp, fn, precision, recall, f1]
+    properties:
+      tp: {type: integer, minimum: 0}
+      fp: {type: integer, minimum: 0}
+      fn: {type: integer, minimum: 0}
+      precision: {type: number, minimum: 0, maximum: 1}
+      recall: {type: number, minimum: 0, maximum: 1}
+      f1: {type: number, minimum: 0, maximum: 1}
+  syntheticAnalysis:
+    type: object
+    additionalProperties: false
+    required:
+      - contract_version
+      - evaluator_gt_metrics
+      - quality_gates
+      - panel_addressable_truth_count
+      - evaluator_agreement_counts
+      - evaluator_profile_sha256
+    properties:
+      contract_version:
+        const: synthetic_genotype_me_f1_v1
+      evaluator_gt_metrics:
+        type: object
+        additionalProperties: false
+        required: [truvari, aardvark, vcfdist]
+        properties:
+          truvari: {$ref: "#/$defs/evaluatorGtF1"}
+          aardvark: {$ref: "#/$defs/evaluatorGtF1"}
+          vcfdist: {$ref: "#/$defs/evaluatorGtF1"}
+      quality_gates:
+        type: object
+        additionalProperties: false
+        required:
+          - evaluator_semantic_contract_valid
+          - addressability_complete
+          - allowed_information_complete
+          - tuning_frozen
+        properties:
+          evaluator_semantic_contract_valid: {const: true}
+          addressability_complete: {const: true}
+          allowed_information_complete: {const: true}
+          tuning_frozen: {const: true}
+      panel_addressable_truth_count: {type: integer, minimum: 1}
+      evaluator_profile_sha256:
+        type: string
+        pattern: "^[0-9a-f]{64}$"
+      evaluator_agreement_counts:
+        type: object
+        additionalProperties: false
+        required: [all_three_correct, exactly_two_correct, exactly_one_correct, none_correct]
+        properties:
+          all_three_correct: {type: integer, minimum: 0}
+          exactly_two_correct: {type: integer, minimum: 0}
+          exactly_one_correct: {type: integer, minimum: 0}
+          none_correct: {type: integer, minimum: 0}
   formalAnalysis:
     type: object
     additionalProperties: false
@@ -170,6 +228,8 @@ $defs:
       - evaluator_bundle_sha256
       - evaluator_versions
       - evaluator_native_metrics
+      - evaluator_gt_metrics
+      - quality_gates
       - asset_hashes
       - evidence_profile
       - comparison_track
@@ -178,23 +238,29 @@ $defs:
       - matching
       - evaluator_event_mapping
       - maximum_unresolved_mapping_fraction
-      - global_recovery_status
+      - whole_truth_recovery_status
       - formal_score_status
       - formal_score_reason
-      - comparable_score
+      - whole_truth_recovery_score
       - pangenome_genotyping_score
       - non_reference_f1_score
       - panel_coverage
       - panel_truth_positive_events
-      - global_end_to_end_sv_recovery_score
-      - comparable_score_confidence_interval
+      - panel_addressable_truth_count
+      - me_f1
+      - evaluator_range
+      - evaluator_sd
+      - leave_one_evaluator_out
+      - evaluator_agreement_counts
+      - whole_truth_recovery_confidence_interval
       - semantic_summary
       - candidate_genotype_summary
+      - addressability_audit
       - stratified_summary
       - resource_summary
     properties:
       contract_version:
-        const: formal_detection_consensus_v4
+        const: formal_genotype_me_f1_v1
       evaluator_profile_id:
         $ref: "#/$defs/identifier"
       evaluator_profile_sha256:
@@ -239,6 +305,27 @@ $defs:
             precision: {type: number, minimum: 0, maximum: 1}
             recall: {type: number, minimum: 0, maximum: 1}
             f1: {type: number, minimum: 0, maximum: 1}
+      evaluator_gt_metrics:
+        type: object
+        additionalProperties: false
+        required: [truvari, aardvark, vcfdist]
+        properties:
+          truvari: {$ref: "#/$defs/evaluatorGtF1"}
+          aardvark: {$ref: "#/$defs/evaluatorGtF1"}
+          vcfdist: {$ref: "#/$defs/evaluatorGtF1"}
+      quality_gates:
+        type: object
+        additionalProperties: false
+        required:
+          - evaluator_semantic_contract_valid
+          - addressability_complete
+          - allowed_information_complete
+          - tuning_frozen
+        properties:
+          evaluator_semantic_contract_valid: {type: boolean}
+          addressability_complete: {type: boolean}
+          allowed_information_complete: {type: boolean}
+          tuning_frozen: {type: boolean}
       asset_hashes:
         type: object
         additionalProperties: false
@@ -304,7 +391,7 @@ $defs:
           contract:
             const: pgbench_evidence_v1
           actual_technology:
-            enum: [pacbio_clr, pacbio_hifi, ont, illumina_short_read]
+            const: illumina_short_read
           library_id:
             $ref: "#/$defs/identifier"
           source_evidence_id:
@@ -312,7 +399,7 @@ $defs:
           evidence_kind:
             enum: [paired_fastq, single_fastq, shared_alignment]
           official_score_mode:
-            enum: [caller_only_shared_alignment, end_to_end_from_reads]
+            const: end_to_end_from_reads
           alignment_kind:
             oneOf:
               - type: string
@@ -385,11 +472,11 @@ $defs:
           task:
             enum: [panel_genotyping, wg_discovery, novel_pangenome_discovery]
           official_score_mode:
-            enum: [caller_only_shared_alignment, end_to_end_from_reads]
+            const: end_to_end_from_reads
           candidate_output_contract:
-            enum: [all_sites, variant_sites]
+            const: all_sites
           actual_technology:
-            enum: [pacbio_clr, pacbio_hifi, ont, illumina_short_read]
+            const: illumina_short_read
           primary_truth_profile:
             $ref: "#/$defs/identifier"
           score_profile_sha256:
@@ -499,7 +586,7 @@ $defs:
         type: number
         minimum: 0
         maximum: 1
-      global_recovery_status:
+      whole_truth_recovery_status:
         enum: [valid, invalid_unresolved_mapping]
       formal_score_status:
         enum: [valid, invalid_evaluator_mapping, invalid_empty_submission]
@@ -508,7 +595,7 @@ $defs:
           - type: string
             minLength: 1
           - type: "null"
-      comparable_score:
+      whole_truth_recovery_score:
         type: number
         minimum: 0
         maximum: 100
@@ -533,11 +620,39 @@ $defs:
       panel_truth_positive_events:
         type: integer
         minimum: 0
-      global_end_to_end_sv_recovery_score:
+      panel_addressable_truth_count:
+        type: integer
+        minimum: 1
+      me_f1:
         type: number
         minimum: 0
         maximum: 100
-      comparable_score_confidence_interval:
+      evaluator_range:
+        type: number
+        minimum: 0
+        maximum: 100
+      evaluator_sd:
+        type: number
+        minimum: 0
+        maximum: 100
+      leave_one_evaluator_out:
+        type: object
+        additionalProperties: false
+        required: [truvari, aardvark, vcfdist]
+        properties:
+          truvari: {type: number, minimum: 0, maximum: 100}
+          aardvark: {type: number, minimum: 0, maximum: 100}
+          vcfdist: {type: number, minimum: 0, maximum: 100}
+      evaluator_agreement_counts:
+        type: object
+        additionalProperties: false
+        required: [all_three_correct, exactly_two_correct, exactly_one_correct, none_correct]
+        properties:
+          all_three_correct: {type: integer, minimum: 0}
+          exactly_two_correct: {type: integer, minimum: 0}
+          exactly_one_correct: {type: integer, minimum: 0}
+          none_correct: {type: integer, minimum: 0}
+      whole_truth_recovery_confidence_interval:
         oneOf:
           - $ref: "#/$defs/scoreConfidenceInterval"
           - type: "null"
@@ -613,7 +728,7 @@ $defs:
               contract:
                 const: hidden_candidate_genotype_v3
               candidate_output_contract:
-                enum: [all_sites, variant_sites]
+                const: all_sites
               absence_semantics:
                 enum: [hom_ref, no_call]
               no_call_is_incorrect:
@@ -740,6 +855,41 @@ $defs:
               no_call: {type: integer, minimum: 0}
               hom_ref: {type: integer, minimum: 0}
               variant: {type: integer, minimum: 0}
+      addressability_audit:
+        type: object
+        additionalProperties: false
+        required:
+          - schema_version
+          - contract
+          - denominator_policy
+          - canonical_candidate_count
+          - addressable_count
+          - unsupported_representation_count
+          - adapter_conversion_failure_count
+          - index_build_failure_count
+          - linking_failure_count
+          - called_count
+          - explicit_no_call_count
+          - missing_output_count
+          - off_panel_native_record_count
+          - silent_candidate_deletion_count
+          - addressability_rate
+        properties:
+          schema_version: {const: 1}
+          contract: {const: pgbench_addressability_v1}
+          denominator_policy: {const: canonical_panel_fail_closed}
+          canonical_candidate_count: {type: integer, minimum: 1}
+          addressable_count: {type: integer, minimum: 0}
+          unsupported_representation_count: {type: integer, minimum: 0}
+          adapter_conversion_failure_count: {type: integer, minimum: 0}
+          index_build_failure_count: {type: integer, minimum: 0}
+          linking_failure_count: {type: integer, minimum: 0}
+          called_count: {type: integer, minimum: 0}
+          explicit_no_call_count: {type: integer, minimum: 0}
+          missing_output_count: {type: integer, minimum: 0}
+          off_panel_native_record_count: {type: integer, minimum: 0}
+          silent_candidate_deletion_count: {const: 0}
+          addressability_rate: {type: number, minimum: 0, maximum: 1}
       stratified_summary:
         type: object
         additionalProperties:
@@ -752,7 +902,7 @@ $defs:
               - truth_events
               - query_events
               - soft_true_positive_count
-              - comparable_score
+              - whole_truth_recovery
               - all_three_correct
               - exactly_two_correct
               - exactly_one_correct
@@ -762,7 +912,7 @@ $defs:
               truth_events: {type: integer, minimum: 0}
               query_events: {type: integer, minimum: 0}
               soft_true_positive_count: {type: number, minimum: 0}
-              comparable_score: {type: number, minimum: 0, maximum: 100}
+              whole_truth_recovery: {type: number, minimum: 0, maximum: 100}
               all_three_correct: {type: integer, minimum: 0}
               exactly_two_correct: {type: integer, minimum: 0}
               exactly_one_correct: {type: integer, minimum: 0}

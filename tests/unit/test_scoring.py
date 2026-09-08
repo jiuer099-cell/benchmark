@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import math
-import sys
 from copy import deepcopy
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,8 +9,15 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[2] / "workflow" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from pgbench_scoring import ScoreInputError, calculate_pgbench_score  # noqa: E402
+from pgbench_scoring import ScoreInputError, calculate_me_f1  # noqa: E402
 from score_tools import _apply_provenance_audit  # noqa: E402
+
+
+def _metric(tp: int, fp: int, fn: int) -> dict[str, float | int]:
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
 
 def _payload() -> dict:
@@ -23,164 +29,78 @@ def _payload() -> dict:
             "official_score_mode": "end_to_end_from_reads",
             "primary_truth_profile": "giab_hg002_grch38_v5_0q",
         },
-        "score_profile": "pgbench_consensus_v4",
+        "score_profile": "pgbench_me_f1_v1",
         "eligibility_status": "eligible",
         "infrastructure_valid": True,
         "truth_eligible_count": 100,
-        "consensus": {
-            "all_three_correct": 60,
-            "exactly_two_correct": 20,
-            "exactly_one_correct": 10,
-            "none_correct": 10,
+        "evaluator_f1": {
+            "truvari": _metric(80, 10, 20),
+            "aardvark": _metric(75, 15, 25),
+            "vcfdist": _metric(70, 20, 30),
         },
+        "quality_gates": {
+            "evaluator_semantic_contract_valid": True,
+            "addressability_complete": True,
+            "allowed_information_complete": True,
+            "tuning_frozen": True,
+        },
+        "analysis": {"candidate_genotype_summary": {"candidate_output_contract": "all_sites"}},
     }
 
 
 def _calculate(payload: dict, evaluation_mode: str = "formal"):
-    return calculate_pgbench_score(
-        deepcopy(payload),
-        expected_tuple=payload["tuple"],
-        evaluation_mode=evaluation_mode,
+    return calculate_me_f1(
+        deepcopy(payload), expected_tuple=payload["tuple"], evaluation_mode=evaluation_mode
     )
 
 
-def test_equal_vote_consensus_formula_and_counts() -> None:
+def test_me_f1_is_unweighted_mean_of_three_recomputed_f1_values() -> None:
     result = _calculate(_payload())
-    assert result.consensus_counts == {
-        "all_three_correct": 60,
-        "exactly_two_correct": 20,
-        "exactly_one_correct": 10,
-        "none_correct": 10,
+    expected = sum(float(v["f1"]) for v in _payload()["evaluator_f1"].values()) / 3 * 100
+    assert result.me_f1 == round(expected, 2)
+    assert result.benchmark_score == result.me_f1
+    assert result.evaluator_scores == {
+        name: round(float(value["f1"]) * 100, 2)
+        for name, value in _payload()["evaluator_f1"].items()
     }
-    assert result.total_evaluated == 100
-    assert result.consensus_score == round(230 / 300 * 100, 2)
-    assert result.comparable_score == round(2 * (230 / 3) / 200 * 100, 2)
-    assert result.pgbench_score == result.consensus_score
-    assert result.truth_eligible_count == 100
-    assert result.comparable_precision == 230 / 3 / 100
-    assert result.comparable_recall == 230 / 3 / 100
-    assert result.unanimous_correct_rate == 0.6
-    assert result.majority_correct_rate == 0.8
-    assert result.evaluator_points is None
-    assert result.resource_points is None
 
 
-def test_panel_macro_f1_and_global_recovery_are_secondary() -> None:
+def test_f1_must_exactly_match_tp_fp_fn() -> None:
     payload = _payload()
-    global_score = 2 * (230 / 3) / 200 * 100
-    payload["analysis"] = {
-        "comparable_score": global_score,
-        "pangenome_genotyping_score": 86.10423,
-        "non_reference_f1_score": 84.4781,
-        "panel_coverage": 0.0626,
-    }
+    payload["evaluator_f1"]["aardvark"]["f1"] = 0.99
+    with pytest.raises(ScoreInputError, match="does not match TP/FP/FN"):
+        _calculate(payload)
 
+
+def test_all_three_evaluators_use_identical_truth_denominator() -> None:
+    payload = _payload()
+    payload["evaluator_f1"]["vcfdist"] = _metric(70, 20, 29)
+    with pytest.raises(ScoreInputError, match="frozen truth denominator"):
+        _calculate(payload)
+
+
+def test_failed_quality_gate_suppresses_primary_score() -> None:
+    payload = _payload()
+    payload["quality_gates"]["evaluator_semantic_contract_valid"] = False
     result = _calculate(payload)
-
-    assert result.pgbench_score == result.consensus_score
-    assert result.pangenome_genotyping_score == 86.10
-    assert result.non_reference_f1_score == 84.48
-    assert result.panel_coverage == 0.0626
-    assert result.global_end_to_end_sv_recovery_score == result.comparable_score
+    assert result.score_status == "invalid"
+    assert result.me_f1 is None
+    assert "evaluator_semantic_contract_valid" in result.reason
 
 
-def test_variant_sites_contract_uses_universal_consensus_not_no_call_gt_zero() -> None:
+def test_zero_callset_is_valid_zero_f1_not_missing_data() -> None:
     payload = _payload()
-    global_score = 2 * (230 / 3) / 200 * 100
-    payload["analysis"] = {
-        "comparable_score": global_score,
-        "pangenome_genotyping_score": 0.0,
-        "non_reference_f1_score": 0.0,
-        "candidate_genotype_summary": {
-            "candidate_output_contract": "variant_sites",
-        },
-    }
-
+    payload["evaluator_f1"] = {name: _metric(0, 0, 100) for name in payload["evaluator_f1"]}
     result = _calculate(payload)
-
-    assert result.pgbench_score == result.consensus_score
-    assert result.pangenome_genotyping_score is None
-    assert result.non_reference_f1_score is None
-
-
-def test_perfect_unanimous_consensus_is_one_hundred() -> None:
-    payload = _payload()
-    payload["consensus"] = {
-        "all_three_correct": 5,
-        "exactly_two_correct": 0,
-        "exactly_one_correct": 0,
-        "none_correct": 0,
-    }
-    assert _calculate(payload).consensus_score == 100.0
+    assert result.score_status == "valid"
+    assert result.me_f1 == 0.0
 
 
 def test_synthetic_result_is_provisional() -> None:
     assert _calculate(_payload(), "synthetic_smoke").score_status == "provisional"
 
 
-def test_counts_must_be_nonnegative_integers_and_empty_callsets_are_invalid() -> None:
-    payload = _payload()
-    payload["consensus"]["all_three_correct"] = 1.5
-    with pytest.raises(ScoreInputError, match="non-negative integer"):
-        _calculate(payload)
-    payload = _payload()
-    payload["consensus"] = {name: 0 for name in payload["consensus"]}
-    result = _calculate(payload)
-    assert result.score_status == "invalid"
-    assert result.pgbench_score is None
-    assert result.comparable_score is None
-    assert result.consensus_score is None
-    assert result.total_evaluated == 0
-    assert result.reason == "no submitted in-scope events were available for scoring"
-
-
-def test_unresolved_evaluator_mapping_is_invalid_but_keeps_diagnostics() -> None:
-    payload = _payload()
-    payload["eligibility_status"] = "invalid_evaluator_mapping"
-    payload["infrastructure_valid"] = False
-    payload["reason"] = "evaluator unresolved mapping exceeds 1.00%: aardvark=2/100 (2.00%)"
-    payload["analysis"] = {
-        "formal_score_status": "invalid_evaluator_mapping",
-        "formal_score_reason": payload["reason"],
-        "comparable_score": 12.34,
-    }
-
-    result = _calculate(payload)
-
-    assert result.score_status == "invalid"
-    assert result.pgbench_score is None
-    assert result.consensus_score is None
-    assert result.comparable_score is None
-    assert result.global_end_to_end_sv_recovery_score is None
-    assert result.formal_analysis == payload["analysis"]
-    assert result.reason == payload["reason"]
-
-
-def test_soft_true_positive_credit_cannot_exceed_truth_universe() -> None:
-    payload = _payload()
-    payload["truth_eligible_count"] = 10
-    payload["consensus"] = {
-        "all_three_correct": 11,
-        "exactly_two_correct": 0,
-        "exactly_one_correct": 0,
-        "none_correct": 0,
-    }
-    with pytest.raises(ScoreInputError, match="exceeds.*truth universe"):
-        _calculate(payload)
-
-
-def test_no_weights_or_ranking_can_be_injected() -> None:
-    payload = _payload()
-    payload["weights"] = {"truvari": 0.9}
-    with pytest.raises(ScoreInputError, match="unexpected weights"):
-        _calculate(payload)
-    payload = _payload()
-    payload["rank"] = 1
-    with pytest.raises(ScoreInputError, match="forbidden ranking"):
-        _calculate(payload)
-
-
-def test_provenance_is_gate_not_points() -> None:
+def test_provenance_is_a_gate_not_points() -> None:
     audit = {
         "audit_schema_version": "pgbench.provenance_audit.v1",
         "status": "provisional",
@@ -192,19 +112,11 @@ def test_provenance_is_gate_not_points() -> None:
     }
     result = _calculate(_apply_provenance_audit(_payload(), audit))
     assert result.score_status == "provisional"
-    assert result.consensus_score == _calculate(_payload()).consensus_score
-    assert result.traceability_points is None
+    assert result.me_f1 is not None
 
 
-def test_core_provenance_failure_suppresses_numeric_score() -> None:
+def test_non_all_sites_output_is_rejected() -> None:
     payload = _payload()
-    payload["traceability"] = {
-        "manifest_completeness": 1.0,
-        "hash_lineage_complete": True,
-        "environment_complete": True,
-        "run_context_complete": True,
-        "core_provenance_valid": False,
-    }
-    result = _calculate(payload)
-    assert result.score_status == "invalid"
-    assert result.consensus_score is None
+    payload["analysis"]["candidate_genotype_summary"]["candidate_output_contract"] = "unsupported_contract"
+    with pytest.raises(ScoreInputError, match="all-sites"):
+        _calculate(payload)

@@ -1,10 +1,10 @@
 schema_version: 1
 rules:
   - id: validate_config
-    description: Validate the merged workflow configuration before execution.
+    description: Validate the frozen short-read benchmark configuration and adapter manifests.
     phase: validation
     kind: core
-    inputs: [config, config_schema]
+    inputs: [config, schemas]
     outputs: [validated_config_json]
     upstream: []
     audit_scope: pre_score
@@ -15,9 +15,8 @@ rules:
     source_path: workflow/rules/common.smk
     environment: workflow/envs/core.yaml
     resource_class: local_small
-
   - id: snapshot_run_context
-    description: Freeze Git, hardware, profile, seed, and environment context.
+    description: Freeze software, hardware, configuration, seed, and environment context.
     phase: provenance
     kind: core
     inputs: [validated_config_json, score_profile]
@@ -31,206 +30,43 @@ rules:
     source_path: workflow/rules/common.smk
     environment: workflow/envs/core.yaml
     resource_class: local_small
-
-  - id: inspect_input_bam
-    description: Inspect HG002 BAM integrity and reference compatibility.
-    phase: validation
-    kind: core
-    inputs: [input_bam, reference_dict]
-    outputs: [bam_qc_json]
-    upstream: [validate_config]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/preflight.smk
-    environment: null
-    resource_class: local_medium
-
-  - id: prepare_reference
-    description: Prepare the GRCh38 FASTA, index, and sequence dictionary.
-    phase: reference
-    kind: core
-    inputs: [reference_source]
-    outputs: [reference_fasta, reference_fai, reference_dict]
-    upstream: [validate_config]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/reference.smk
-    environment: null
-    resource_class: local_medium
-
   - id: prepare_primary_truth
-    description: Materialize the frozen PASS/BED/SVTYPE/size-filtered GIAB v5.0q SV truth universe.
+    description: Freeze the independent GRCh38 truth and autosomal benchmark regions.
     phase: truth
     kind: core
-    inputs: [primary_truth_source, reference_fasta]
+    inputs: [truth_vcf, benchmark_bed, reference_fasta]
     outputs: [primary_truth_vcf, primary_truth_tbi, primary_truth_audit]
-    upstream: [prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/scripts/prepare_sv_truth.py
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: prepare_novel_truth
-    description: Materialize the GIAB truth subset absent from every compatible frozen minigraph allele.
-    phase: truth
-    kind: core
-    inputs: [primary_truth_vcf, graph_gfa, graph_variation_calls, graph_assets_lock_yaml, reference_fasta, evaluator_profile]
-    outputs: [novel_truth_vcf, novel_truth_tbi, novel_truth_audit, graph_exclusion_ledger]
-    upstream: [prepare_primary_truth, lock_graph_assets, build_pangenome_manifest]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/scripts/prepare_novel_truth.py
-    environment: workflow/envs/core.yaml
-    resource_class: compute_large
-
-  - id: prepare_legacy_truth
-    description: Prepare the independent legacy GIAB v0.6 truth profile.
-    phase: truth
-    kind: core
-    inputs: [legacy_truth_source, reference_fasta]
-    outputs: [legacy_truth_vcf, legacy_truth_bed]
-    upstream: [prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/truth.smk
-    environment: null
-    resource_class: local_medium
-
-  - id: prepare_stratifications
-    description: Normalize GRCh38 stratification BED files.
-    phase: truth
-    kind: core
-    inputs: [stratification_sources, reference_fai]
-    outputs: [normalized_stratifications]
-    upstream: [prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/truth.smk
-    environment: null
-    resource_class: local_medium
-
-  - id: extract_canonical_reads
-    description: Extract a common canonical FASTQ from the HG002 BAM.
-    phase: preprocessing
-    kind: core
-    inputs: [input_bam, bam_qc_json]
-    outputs: [canonical_fastq]
-    upstream: [inspect_input_bam]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/preprocessing.smk
-    environment: null
-    resource_class: compute_medium
-
-  - id: split_haplotype_reads
-    description: Extract HP1, HP2, and unphased FASTQ partitions.
-    phase: preprocessing
-    kind: core
-    inputs: [input_bam, bam_qc_json]
-    outputs: [hp1_fastq, hp2_fastq, unphased_fastq]
-    upstream: [inspect_input_bam]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/preprocessing.smk
-    environment: null
-    resource_class: compute_medium
-
-  - id: prepare_population_sv_source
-    description: Acquire and checksum the independent population SV source.
-    phase: pangenome
-    kind: core
-    inputs: [population_sv_catalog]
-    outputs: [population_source_vcf]
-    upstream: [validate_config]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/pangenome.smk
-    environment: null
-    resource_class: download
-
-  - id: normalize_population_panel
-    description: Normalize the population panel against GRCh38.
-    phase: pangenome
-    kind: core
-    inputs: [population_source_vcf, reference_fasta]
-    outputs: [normalized_population_vcf]
-    upstream: [prepare_population_sv_source, prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/pangenome.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: assign_pangenome_allele_ids
-    description: Assign stable PGSV allele identifiers and write the allele ledger.
-    phase: pangenome
-    kind: core
-    inputs: [normalized_population_vcf]
-    outputs: [id_panel_vcf, allele_ledger_tsv]
-    upstream: [normalize_population_panel]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/scripts/build_pangenome_manifest.py
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: build_pangenome_manifest
-    description: Freeze pangenome assets, hashes, sources, and truth exclusions.
-    phase: pangenome
-    kind: core
-    inputs: [id_panel_vcf, allele_ledger_tsv, reference_fasta, graph_assets_lock_yaml]
-    outputs: [pangenome_manifest_yaml]
-    upstream: [assign_pangenome_allele_ids, prepare_reference, lock_graph_assets]
+    upstream: [snapshot_run_context]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/pangenome.smk
+    source_path: workflow/scripts/prepare_sv_truth.py
     environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: lock_graph_assets
-    description: Validate the conventional vg bundle and freeze every graph asset identity.
+    resource_class: local_medium
+  - id: build_pangenome_manifest
+    description: Build the family-aware leave-one-out population panel and canonical IDs.
     phase: pangenome
     kind: core
-    inputs: [graph_source_manifest, graph_gbz, graph_xg, graph_min, graph_dist, graph_sample_list]
-    outputs: [graph_assets_lock_yaml]
-    upstream: [validate_config, snapshot_run_context]
+    inputs: [population_vcf, reference_fasta]
+    outputs: [canonical_panel_vcf, allele_ledger_tsv, pangenome_manifest_yaml]
+    upstream: [snapshot_run_context]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/build_pangenome_manifest.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_medium
+  - id: lock_graph_assets
+    description: Verify and freeze any adapter-specific graph assets built from the same population source.
+    phase: pangenome
+    kind: core
+    inputs: [pangenome_manifest_yaml]
+    outputs: [graph_asset_lock_yaml]
+    upstream: [build_pangenome_manifest]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
@@ -238,644 +74,214 @@ rules:
     implementation_status: verified
     source_path: workflow/scripts/validate_graph_assets.py
     environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: audit_truth_leakage
-    description: Prove that HG002 truth was not injected into pangenome assets.
-    phase: pangenome
+    resource_class: local_medium
+  - id: build_blinded_challenge_panel
+    description: Freeze the truth-independent main-track panel and hidden panel-addressable truth labels.
+    phase: challenge_panel
     kind: core
-    inputs: [pangenome_manifest_yaml, primary_truth_vcf]
-    outputs: [truth_leakage_audit_json]
-    upstream: [build_pangenome_manifest, prepare_primary_truth]
+    inputs: [canonical_panel_vcf, primary_truth_vcf, benchmark_bed]
+    outputs: [blinded_panel_vcf, hidden_truth_ledger_tsv, panel_scope_tsv, challenging_panel_vcf, challenge_audit_json]
+    upstream: [prepare_primary_truth, build_pangenome_manifest]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/pangenome.smk
+    implementation_status: verified
+    source_path: workflow/scripts/build_challenge_panel.py
     environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: build_canonical_graph_recipe
-    description: Build a backend-neutral graph construction recipe.
-    phase: pangenome
+    resource_class: local_medium
+  - id: validate_evaluator_semantics
+    description: Validate the three evaluator parsers against the versioned genotype-semantic cases.
+    phase: validation
     kind: core
-    inputs: [pangenome_manifest_yaml, id_panel_vcf, allele_ledger_tsv]
-    outputs: [canonical_graph_recipe]
-    upstream: [build_pangenome_manifest]
-    audit_scope: pre_score
+    inputs: [semantic_cases, evaluator_profile]
+    outputs: [semantic_validation_json]
+    upstream: [validate_config]
+    audit_scope: formal_validity_gate
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/pangenome.smk
+    implementation_status: verified
+    source_path: workflow/scripts/validate_evaluator_semantics.py
     environment: workflow/envs/core.yaml
     resource_class: local_small
-
-  - id: "build_shared_alignment__{kind}"
-    description: Build a registered shared BAM, GAF, or GAM for caller-only mode.
+  - id: freeze_information_contract
+    description: Materialize allowed inputs, resource hashes, frozen parameters, and tuning status.
+    phase: provenance
+    kind: core
+    inputs: [tool_manifest, resolved_inputs_json]
+    outputs: [allowed_inputs_json, parameter_manifest_json, external_resource_hashes_json, tuning_status_json]
+    upstream: [snapshot_run_context]
+    audit_scope: formal_validity_gate
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/freeze_information_contract.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_small
+  - id: build_coverage_datasets
+    description: Build byte-identical paired FASTQ subsets for 10x, 20x, 30x, and full-depth replicates.
     phase: preprocessing
     kind: core
-    inputs: [canonical_fastq, registered_reference_or_graph]
-    outputs: [shared_alignment]
-    upstream: [extract_canonical_reads, build_canonical_graph_recipe]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/preprocessing.smk
-    environment: null
-    resource_class: compute_large
-
-  - id: match_hidden_panel_truth
-    description: Match panel alleles to hidden HG002 truth genotypes.
-    phase: challenge_panel
-    kind: core
-    inputs: [id_panel_vcf, primary_truth_vcf, primary_truth_bed]
-    outputs: [hidden_truth_ledger]
-    upstream: [assign_pangenome_allele_ids, prepare_primary_truth]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/scripts/build_challenge_panel.py
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: build_blinded_challenge_panel
-    description: Write a truth-blinded candidate VCF for genotyping tools.
-    phase: challenge_panel
-    kind: core
-    inputs: [id_panel_vcf, hidden_truth_ledger, random_seed]
-    outputs: [blinded_challenge_vcf]
-    upstream: [match_hidden_panel_truth]
+    inputs: [short_fastq_r1, short_fastq_r2]
+    outputs: [coverage_manifest_json]
+    upstream: [snapshot_run_context]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/panel.smk
+    source_path: workflow/scripts/build_coverage_fastqs.py
     environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: audit_challenge_panel
-    description: Audit panel balance, negative sites, and truth leakage.
-    phase: challenge_panel
-    kind: core
-    inputs: [blinded_challenge_vcf, hidden_truth_ledger]
-    outputs: [challenge_panel_audit_json]
-    upstream: [build_blinded_challenge_panel]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/scripts/build_challenge_panel.py
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: "tool__{tool}__preflight"
-    description: Resolve tool compatibility and per-mode input contract.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [tool_manifest, available_assets, validated_config_json]
-    outputs: [tool_compatibility_json]
-    upstream: [validate_config, build_pangenome_manifest]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/modules/generic_external/Snakefile
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
+    resource_class: compute_medium
   - id: "tool__{tool}__execute"
-    description: Execute one validated external runner in the selected official mode.
+    description: Execute one adapter from the common paired FASTQ and frozen candidate panel.
     phase: tool_execution
     kind: tool_template
-    inputs: [tool_manifest, mode_allowed_assets, pangenome_manifest_yaml, blinded_challenge_vcf, graph_asset_directory, graph_source_manifest, graph_assets_lock_yaml]
-    outputs: [tool_raw_vcf, resolved_inputs_json, tool_attempt_record]
-    upstream: ["tool__{tool}__preflight", build_blinded_challenge_panel]
+    inputs: [short_fastq_r1, short_fastq_r2, blinded_panel_vcf]
+    outputs: [raw_tool_vcf, resolved_inputs_json]
+    upstream: [build_blinded_challenge_panel, build_coverage_datasets]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/modules/generic_external/Snakefile
-    environment: workflow/envs/core.yaml
-    resource_class: compute_large
-
-  - id: "tool__{tool}__prepare_assets"
-    description: Prepare tool-specific assets from common pangenome semantics.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [pangenome_manifest_yaml, tool_manifest]
-    outputs: [tool_asset_recipe]
-    upstream: ["tool__{tool}__preflight"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
-    environment: null
-    resource_class: compute_medium
-
-  - id: "tool__{tool}__index"
-    description: Build a clean tool-specific graph or index.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [tool_asset_recipe, reference_or_graph]
-    outputs: [tool_index]
-    upstream: ["tool__{tool}__prepare_assets"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
+    source_path: workflow/scripts/pgbench_exec.py
     environment: null
     resource_class: compute_large
-
-  - id: "tool__{tool}__map"
-    description: Map canonical reads with the tool-specific mapper.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [canonical_fastq, tool_index]
-    outputs: [tool_alignment]
-    upstream: ["tool__{tool}__index", extract_canonical_reads]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
-    environment: null
-    resource_class: compute_large
-
-  - id: "tool__{tool}__discover"
-    description: Discover SV signatures or fragments.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [tool_reads_or_alignment]
-    outputs: [tool_signatures]
-    upstream: ["tool__{tool}__preflight"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
-    environment: null
-    resource_class: compute_large
-
-  - id: "tool__{tool}__assemble"
-    description: Assemble canonical or haplotype-partitioned reads.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [canonical_or_haplotype_fastq]
-    outputs: [tool_assembly]
-    upstream: ["tool__{tool}__preflight"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
-    environment: null
-    resource_class: compute_xlarge
-
-  - id: "tool__{tool}__integrate"
-    description: Integrate signatures or fragments into candidate events.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [tool_signatures]
-    outputs: [integrated_tool_candidates]
-    upstream: ["tool__{tool}__discover"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
-    environment: null
-    resource_class: compute_medium
-
-  - id: "tool__{tool}__call"
-    description: Produce raw discovery/calling output in the current run.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [declared_tool_call_inputs]
-    outputs: [tool_raw_calls]
-    upstream: ["tool__{tool}__preflight"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: null
-    environment: null
-    resource_class: compute_large
-
-  - id: "tool__{tool}__genotype"
-    description: Genotype the blinded panel in the current run.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [declared_alignment_or_reads, blinded_challenge_vcf]
-    outputs: [tool_raw_genotypes]
-    upstream: ["tool__{tool}__preflight", build_blinded_challenge_panel]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/modules/generic_external/Snakefile
-    environment: null
-    resource_class: compute_large
-
-  - id: "tool__{tool}__postprocess"
-    description: Convert native tool output to the raw VCF contract.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [tool_native_output]
-    outputs: [tool_raw_vcf]
-    upstream: ["tool__{tool}__call"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/modules/generic_external/Snakefile
-    environment: null
-    resource_class: compute_medium
-
-  - id: "tool__{tool}__validate_raw"
-    description: Validate VCF syntax, sample, mode, and current-run provenance.
-    phase: tool_execution
-    kind: tool_template
-    inputs: [tool_raw_vcf, tool_attempt_record]
-    outputs: [tool_validation_json]
-    upstream: ["tool__{tool}__postprocess"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: partial
-    source_path: workflow/scripts/validate_tool_output.py
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
   - id: canonicalize_vcf
-    description: Conservatively normalize one tool VCF without representation loss.
+    description: Normalize tool VCF output without changing missing genotypes.
     phase: normalization
     kind: core
-    inputs: [tool_raw_vcf, reference_fasta]
-    outputs: [canonical_vcf]
-    upstream: ["tool__{tool}__validate_raw", prepare_reference]
+    inputs: [raw_tool_vcf, reference_fasta]
+    outputs: [normalized_vcf]
+    upstream: ["tool__{tool}__execute"]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/normalization.smk
+    source_path: workflow/scripts/normalize_sv_vcf.py
     environment: workflow/envs/core.yaml
     resource_class: local_medium
-
   - id: link_pangenome_alleles
-    description: Link canonical calls to stable pangenome alleles.
+    description: Link normalized tool alleles to frozen canonical candidate IDs.
     phase: normalization
     kind: core
-    inputs: [canonical_vcf, allele_ledger_tsv]
-    outputs: [linked_vcf, allele_links_tsv]
-    upstream: [canonicalize_vcf, assign_pangenome_allele_ids]
+    inputs: [normalized_vcf, allele_ledger_tsv]
+    outputs: [linked_vcf, allele_linkage_tsv]
+    upstream: [canonicalize_vcf]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/normalization.smk
+    source_path: workflow/scripts/link_pangenome_alleles.py
     environment: workflow/envs/core.yaml
     resource_class: local_medium
-
-  - id: make_truvari_view
-    description: Produce the Truvari-specific comparison view.
-    phase: evaluation
+  - id: materialize_all_sites
+    description: Project every tool answer onto every frozen candidate and emit addressability failures explicitly.
+    phase: normalization
     kind: core
-    inputs: [linked_vcf]
-    outputs: [truvari_view_vcf]
+    inputs: [linked_vcf, blinded_panel_vcf]
+    outputs: [all_sites_vcf, addressability_tsv, addressability_audit_json]
     upstream: [link_pangenome_alleles]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: null
-    resource_class: local_medium
-
-  - id: make_aardvark_view
-    description: Produce the Aardvark-specific haplotype view.
-    phase: evaluation
-    kind: core
-    inputs: [linked_vcf]
-    outputs: [aardvark_view_vcf]
-    upstream: [link_pangenome_alleles]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: null
-    resource_class: local_medium
-
-  - id: make_vcfdist_view
-    description: Produce the phased vcfdist-eligible view.
-    phase: evaluation
-    kind: core
-    inputs: [linked_vcf]
-    outputs: [vcfdist_view_vcf]
-    upstream: [link_pangenome_alleles]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: null
-    resource_class: local_medium
-
-  - id: evaluate_truvari
-    description: Run Truvari bench and emit one binary vote for every canonical query result.
-    phase: evaluation
-    kind: core
-    inputs: [linked_vcf, evaluation_truth_vcf, primary_truth_bed, reference_fasta]
-    outputs: [truvari_vote_ledger, truvari_artifacts, evaluator_complete_json]
-    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_novel_truth, prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/scripts/run_formal_evaluator.py
-    environment: workflow/envs/core.yaml
-    resource_class: compute_large
-
-  - id: evaluate_aardvark
-    description: Run Aardvark haplotype comparison and emit one binary vote for every canonical query result.
-    phase: evaluation
-    kind: core
-    inputs: [linked_vcf, evaluation_truth_vcf, primary_truth_bed, reference_fasta]
-    outputs: [aardvark_vote_ledger, aardvark_artifacts, evaluator_complete_json]
-    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_novel_truth, prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/scripts/run_formal_evaluator.py
-    environment: workflow/envs/core.yaml
-    resource_class: compute_large
-
-  - id: evaluate_vcfdist
-    description: Run vcfdist representation and phase comparison and threshold credit into one equal binary vote per result.
-    phase: evaluation
-    kind: core
-    inputs: [linked_vcf, evaluation_truth_vcf, primary_truth_bed, reference_fasta]
-    outputs: [vcfdist_vote_ledger, vcfdist_artifacts, evaluator_complete_json]
-    upstream: [link_pangenome_alleles, prepare_primary_truth, prepare_novel_truth, prepare_reference]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/scripts/run_formal_evaluator.py
-    environment: workflow/envs/core.yaml
-    resource_class: compute_large
-
-  - id: parse_truvari_metrics
-    description: Parse Truvari artifacts into the standard metric schema.
-    phase: evaluation
-    kind: core
-    inputs: [truvari_artifacts]
-    outputs: [truvari_metrics_json, truvari_ledger]
-    upstream: [evaluate_truvari]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: parse_aardvark_metrics
-    description: Parse Aardvark artifacts into the standard metric schema.
-    phase: evaluation
-    kind: core
-    inputs: [aardvark_artifacts]
-    outputs: [aardvark_metrics_json, aardvark_ledger]
-    upstream: [evaluate_aardvark]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: parse_vcfdist_metrics
-    description: Parse vcfdist artifacts into the standard metric schema.
-    phase: evaluation
-    kind: core
-    inputs: [vcfdist_artifacts]
-    outputs: [vcfdist_metrics_json, vcfdist_ledger]
-    upstream: [evaluate_vcfdist]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluation.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: stratify_evaluator_metrics
-    description: Stratify evaluator ledgers by type, length, context, AF, and graph class.
-    phase: fusion
-    kind: core
-    inputs: [evaluator_ledgers, normalized_stratifications, allele_ledger_tsv]
-    outputs: [stratified_metrics_json]
-    upstream: [parse_truvari_metrics, parse_aardvark_metrics, parse_vcfdist_metrics]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/evaluator_weighting.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_medium
-
-  - id: fuse_evaluator_metrics
-    description: Fuse three equal binary evaluator ledgers into all-three, exactly-two, exactly-one, and none-correct counts without evaluator weights.
-    phase: fusion
-    kind: core
-    inputs: [standard_evaluator_metrics, metric_dictionary, score_profile]
-    outputs: [metrics_json]
-    upstream: [evaluate_truvari, evaluate_aardvark, evaluate_vcfdist]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/rules/scoring.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: collect_tool_resources
-    description: Aggregate only official-mode billable stage resources.
-    phase: resources
-    kind: core
-    inputs: [tool_benchmark_records, resolved_billable_stages]
-    outputs: [tool_resource_metrics_json]
-    upstream: ["tool__{tool}__validate_raw"]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: planned
-    source_path: workflow/rules/scoring.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: audit_score_inputs
-    description: Audit all pre-score ancestor manifests without self-auditing.
-    phase: provenance
-    kind: core
-    inputs: [pre_score_manifests, pre_score_rule_lineage_json]
-    outputs: [pre_score_provenance_audit_json]
-    upstream: [fuse_evaluator_metrics, build_rule_lineage]
     audit_scope: formal_validity_gate
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/provenance.smk
+    source_path: workflow/scripts/materialize_all_sites.py
     environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: compute_pgbench_score
-    description: Calculate the single fixed-profile score and point breakdown.
+    resource_class: local_medium
+  - id: evaluate_truvari
+    description: Run genotype-aware Truvari and emit benchmark-defined TP FP FN.
+    phase: evaluation
+    kind: core
+    inputs: [all_sites_vcf, primary_truth_vcf, evaluator_profile]
+    outputs: [truvari_ledger_tsv]
+    upstream: [materialize_all_sites, validate_evaluator_semantics]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/run_formal_evaluator.py
+    environment: workflow/envs/core.yaml
+    resource_class: compute_medium
+  - id: evaluate_aardvark
+    description: Run Aardvark GT mode and emit benchmark-defined TP FP FN.
+    phase: evaluation
+    kind: core
+    inputs: [all_sites_vcf, primary_truth_vcf, evaluator_profile]
+    outputs: [aardvark_ledger_tsv]
+    upstream: [materialize_all_sites, validate_evaluator_semantics]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/run_formal_evaluator.py
+    environment: workflow/envs/core.yaml
+    resource_class: compute_medium
+  - id: evaluate_vcfdist
+    description: Run genotype-aware vcfdist and emit benchmark-defined TP FP FN.
+    phase: evaluation
+    kind: core
+    inputs: [all_sites_vcf, primary_truth_vcf, evaluator_profile]
+    outputs: [vcfdist_ledger_tsv]
+    upstream: [materialize_all_sites, validate_evaluator_semantics]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/run_formal_evaluator.py
+    environment: workflow/envs/core.yaml
+    resource_class: compute_medium
+  - id: compute_me_f1
+    description: Compute ME-F1 as the arithmetic mean of the three evaluator F1 values.
     phase: scoring
     kind: core
-    inputs: [metrics_json, pre_score_provenance_audit_json, run_context_json, metric_dictionary, score_profile]
-    outputs: [pgbench_score_json]
-    upstream: [fuse_evaluator_metrics, audit_score_inputs]
+    inputs: [evaluator_ledgers, addressability_audit_json, information_contracts]
+    outputs: [score_json]
+    upstream: [evaluate_truvari, evaluate_aardvark, evaluate_vcfdist, freeze_information_contract]
     audit_scope: formal_validity_gate
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/scoring.smk
+    source_path: workflow/scripts/pgbench_scoring.py
     environment: workflow/envs/core.yaml
     resource_class: local_small
-
   - id: finalize_score_provenance
-    description: Validate audit and scoring manifests and seal the score package.
+    description: Seal the score and its complete provenance lineage.
     phase: provenance
-    kind: core
-    inputs: [pgbench_score_json, metrics_json, scoring_manifest, pre_score_provenance_audit_json]
-    outputs: [final_score_package_json, rule_lineage_json, rule_lineage_tsv, provenance_audit_json]
-    upstream: [compute_pgbench_score]
-    audit_scope: formal_validity_gate
+    kind: post_score
+    inputs: [score_json, rule_manifests]
+    outputs: [sealed_score_package]
+    upstream: [compute_me_f1]
+    audit_scope: post_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/provenance.smk
+    source_path: workflow/scripts/finalize_score_provenance.py
     environment: workflow/envs/core.yaml
     resource_class: local_small
-
-  - id: build_rule_lineage
-    description: Build the deterministic pre-score rule lineage JSON and TSV.
-    phase: provenance
-    kind: core
-    inputs: [pre_score_manifests]
-    outputs: [pre_score_rule_lineage_json, pre_score_rule_lineage_tsv]
-    upstream: [fuse_evaluator_metrics]
-    audit_scope: formal_validity_gate
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: verified
-    source_path: workflow/rules/provenance.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
   - id: render_report
-    description: Render per-tool ComparableScore and consensus HTML cards.
+    description: Render the main and stratified short-read benchmark report.
     phase: reporting
     kind: post_score
-    inputs: [pgbench_score_json, final_score_package_json]
-    outputs: [html_report, summary_tables]
+    inputs: [sealed_score_package]
+    outputs: [report_html]
     upstream: [finalize_score_provenance]
     audit_scope: post_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/rules/report.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: render_report_index
-    description: Render a no-ranking comparison table over tool score cards.
-    phase: reporting
-    kind: post_score
-    inputs: [tool_html_reports, sealed_tool_scores, metrics_json]
-    outputs: [html_report_index, score_tsv, point_breakdown_tsv, metrics_long_tsv, metrics_json]
-    upstream: [render_report]
-    audit_scope: post_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: verified
-    source_path: workflow/rules/report.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: check_obsidian_sync
-    description: Read-only verification of design, Git, registry, and implementation hashes.
-    phase: obsidian_sync
-    kind: post_score
-    inputs: [repo_state, obsidian_canonical_note]
-    outputs: [obsidian_sync_check_json]
-    upstream: [snapshot_run_context]
-    audit_scope: post_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/rules/obsidian.smk
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-
-  - id: sync_obsidian_design
-    description: Atomically synchronize generated design content and implementation metadata.
-    phase: obsidian_sync
-    kind: post_score
-    inputs: [repo_design, repo_state, obsidian_binding]
-    outputs: [obsidian_sync_record_json]
-    upstream: [snapshot_run_context]
-    audit_scope: post_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: workflow/rules/obsidian.smk
+    source_path: workflow/scripts/render_report.py
     environment: workflow/envs/core.yaml
     resource_class: local_small

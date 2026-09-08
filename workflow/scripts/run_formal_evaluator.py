@@ -558,18 +558,13 @@ def write_variant_query(
     *,
     reference: Path | None = None,
     phase_unphased_genotypes: bool = False,
-    project_detection_genotypes: bool = False,
 ) -> None:
     """Write evaluator input with canonical definitions for fields we emit.
 
     Upstream callers sometimes omit INFO declarations or declare FORMAT/FT as
     an integer flag.  htslib may tolerate those records while formal
     evaluators reject them, so the benchmark owns and freezes these four
-    definitions in its evaluator-facing VCF.  For ``variant_sites`` tools,
-    the evaluator-facing copy may additionally represent a no-call as a
-    heterozygous *detection proxy*.  This is solely for site matching: the
-    canonical VCF is never changed and its no-call remains a separate
-    genotype diagnostic in the score ledger.
+    definitions in its evaluator-facing VCF.
     """
 
     replaced = set(CANONICAL_VCF_HEADER_LINES)
@@ -607,12 +602,6 @@ def write_variant_query(
                         '##pgbench_vcfdist_detection_phase="deterministic 0|1; '
                         'phase is ignored for detection voting"\n'
                     )
-                if project_detection_genotypes:
-                    writer.write(
-                        '##pgbench_detection_genotype_projection="no-call '
-                        'projected to heterozygous only in evaluator input; '
-                        'canonical genotype semantics are unchanged"\n'
-                    )
                 writer.write(line)
                 continue
             if line.startswith("#"):
@@ -621,7 +610,7 @@ def write_variant_query(
             fields = line.rstrip("\n").split("\t")
             if len(fields) >= 3 and fields[2] in allowed_ids:
                 if (
-                    phase_unphased_genotypes or project_detection_genotypes
+                    phase_unphased_genotypes
                 ) and len(fields) >= 10:
                     format_keys = fields[8].split(":")
                     sample_values = fields[9].split(":")
@@ -629,16 +618,6 @@ def write_variant_query(
                         gt_index = format_keys.index("GT")
                         if gt_index < len(sample_values):
                             gt = sample_values[gt_index]
-                            if (
-                                project_detection_genotypes
-                                and gt in {".", "./.", ".|."}
-                            ):
-                                sample_values[gt_index] = (
-                                    "0|1"
-                                    if phase_unphased_genotypes
-                                    else "0/1"
-                                )
-                                gt = sample_values[gt_index]
                             if phase_unphased_genotypes and gt in {"0/1", "1/0"}:
                                 sample_values[gt_index] = "0|1"
                             fields[9] = ":".join(sample_values)
@@ -824,7 +803,6 @@ def recover_vcfdist_unresolved_events(
     threads: int,
     version_sha256: str,
     credit_threshold: float,
-    project_detection_genotypes: bool,
 ) -> tuple[dict[str, bool], list[dict[str, Any]]]:
     """Recover only bulk-unresolved vcfdist events by isolated execution.
 
@@ -864,7 +842,6 @@ def recover_vcfdist_unresolved_events(
             {result_id},
             reference=reference,
             phase_unphased_genotypes=True,
-            project_detection_genotypes=project_detection_genotypes,
         )
         if len(vcf_records(plain)) != 1:
             raise FormalEvaluatorError(
@@ -959,7 +936,7 @@ def event_query_indices(
 ) -> list[int]:
     """Select submitted detection events without conflating GT and detection."""
 
-    if candidate_output_contract not in {"all_sites", "variant_sites"}:
+    if candidate_output_contract != "all_sites":
         raise FormalEvaluatorError(
             f"invalid candidate_output_contract: {candidate_output_contract!r}"
         )
@@ -968,17 +945,7 @@ def event_query_indices(
         if record.record_id not in scope_eligible_ids:
             continue
         state = gt_state(record.gt)
-        if candidate_output_contract == "variant_sites":
-            if state == "hom_ref":
-                raise FormalEvaluatorError(
-                    "variant_sites output contains an in-scope hom-ref record: "
-                    f"{record.record_id}"
-                )
-            # Discovery VCFs commonly omit GT. Presence in a variant-sites VCF
-            # is the detection assertion; no-call remains a separate GT
-            # diagnostic and must not erase the detection.
-            selected.append(index)
-        elif state == "variant":
+        if state == "variant":
             selected.append(index)
     return selected
 
@@ -1192,9 +1159,6 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 event_ids,
                 reference=args.reference,
                 phase_unphased_genotypes=args.evaluator == "vcfdist",
-                project_detection_genotypes=(
-                    str(candidate_output_contract) == "variant_sites"
-                ),
             )
             prepared = work / "input" / "query.events.vcf.gz"
             bcftools = command_prefix(config, "bcftools")
@@ -1301,9 +1265,6 @@ def run_evaluator(args: argparse.Namespace) -> None:
                             version_sha256=version["sha256"],
                             credit_threshold=float(
                                 evaluator_profile["credit_threshold"]
-                            ),
-                            project_detection_genotypes=(
-                                str(candidate_output_contract) == "variant_sites"
                             ),
                         )
                     )

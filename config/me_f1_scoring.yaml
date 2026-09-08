@@ -1,0 +1,64 @@
+schema_version: 3
+
+profile:
+  id: pgbench_me_f1_v1
+  final_score_name: ME-F1
+  score_min: 0.0
+  score_max: 100.0
+  display_decimals: 2
+  produce_ranking: true
+
+primary_score:
+  metric: multi_evaluator_genotype_f1
+  formula: (F1_truvari + F1_aardvark_gt + F1_vcfdist) / 3
+  scale: percent
+  denominator: frozen_panel_addressable_truth
+  evaluator_weights:
+    truvari: 1
+    aardvark: 1
+    vcfdist: 1
+  requirements:
+    - identical_query_vcf
+    - identical_truth_vcf
+    - identical_benchmark_bed
+    - identical_biallelic_del_ins_50_10000_universe
+    - genotype_mismatch_counts_as_false_positive_and_false_negative
+    - explicit_no_call_counts_as_false_negative_for_truth_positive
+    - no_silent_candidate_deletion
+
+validity_gates:
+  evaluator_semantic_contract: pgbench_genotype_evaluator_contract_v1
+  evaluator_semantic_status_required: valid
+  addressability_manifest_required: true
+  allowed_information_manifest_required: true
+  tuning_manifest_required: true
+  maximum_unresolved_mapping_fraction: 0.01
+  require_all_three_evaluators: true
+
+published_metrics:
+  - truvari_precision
+  - truvari_recall
+  - truvari_f1
+  - aardvark_gt_precision
+  - aardvark_gt_recall
+  - aardvark_gt_f1
+  - vcfdist_precision
+  - vcfdist_recall
+  - vcfdist_f1
+  - me_f1
+  - evaluator_range
+  - evaluator_sd
+  - call_rate
+  - no_call_rate
+  - explicit_no_call_count
+  - missing_output_count
+  - linking_failure_count
+  - unsupported_representation_count
+  - addressability_rate
+
+diagnostics_only:
+  - candidate_genotype_macro_f1
+  - non_reference_f1
+  - conditional_f1_on_addressable_candidates
+  - evaluator_agreement_counts
+  - whole_truth_recovery

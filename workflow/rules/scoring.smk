@@ -81,7 +81,7 @@ def hidden_candidate_ledger(wildcards):
 def metrics_materializer(wildcards):
     if SYNTHETIC_MODE:
         return "workflow/scripts/materialize_synthetic_metrics.py"
-    return "workflow/scripts/materialize_formal_consensus_metrics.py"
+    return "workflow/scripts/materialize_formal_metrics.py"
 
 
 def scoring_truth_input(wildcards):
@@ -92,6 +92,27 @@ def scoring_regions_input(wildcards):
     if SYNTHETIC_MODE:
         return config["development"]["benchmark_bed"]
     return config["evaluation"]["benchmark_bed"]
+
+
+def information_contract_files(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    root = f"{RESULTS_ROOT}/provenance/{wildcards.tool}/contracts"
+    return [
+        f"{root}/allowed_inputs.json",
+        f"{root}/parameter_manifest.json",
+        f"{root}/external_resource_hashes.json",
+        f"{root}/training_or_tuning_status.json",
+    ]
+
+
+def addressability_audit(wildcards):
+    if SYNTHETIC_MODE:
+        return []
+    return (
+        f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+        f"{wildcards.tool}/canonical/addressability.audit.json"
+    )
 
 
 def dynamic_metric_inputs(wildcards):
@@ -105,6 +126,8 @@ def dynamic_metric_inputs(wildcards):
         *formal_evaluator_completions(wildcards),
         *([tool_resource_benchmark(wildcards)] if not SYNTHETIC_MODE else []),
         *([scoring_resolved_inputs(wildcards)] if not SYNTHETIC_MODE else []),
+        *information_contract_files(wildcards),
+        *([SEMANTIC_VALIDATION_JSON, addressability_audit(wildcards)] if not SYNTHETIC_MODE else []),
     ]
 
 
@@ -115,6 +138,14 @@ def dynamic_metric_upstreams(wildcards):
             f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
         ),
         *formal_evaluator_manifests(wildcards),
+        *(
+            [
+                SEMANTIC_VALIDATION_RULE_MANIFEST,
+                f"{RESULTS_ROOT}/provenance/rules/freeze_information_contract/{wildcards.tool}.json",
+            ]
+            if not SYNTHETIC_MODE
+            else []
+        ),
     ]
 
 
@@ -130,11 +161,13 @@ def materializer_arguments(wildcards):
             "workflow/schemas/metrics.schema.yaml",
             "--score-profile",
             config["catalogs"]["score_weights"],
+            "--evaluator-profile",
+            config["catalogs"]["evaluator_profile"],
             "--evaluator-manifest",
             (
                 RESULTS_ROOT + "/provenance/rules/"
                 f"tool__{wildcards.tool}__execute/"
-                f"{SAMPLE_ID}.{OFFICIAL_MODE}.json"
+                f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}.json"
             ),
             "--pangenome-manifest",
             (
@@ -145,7 +178,7 @@ def materializer_arguments(wildcards):
             (
                 RESULTS_ROOT + "/provenance/rules/"
                 f"tool__{wildcards.tool}__execute/"
-                f"{SAMPLE_ID}.{OFFICIAL_MODE}.json"
+                f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}.json"
             ),
             "--output",
             output,
@@ -169,6 +202,18 @@ def materializer_arguments(wildcards):
         ),
         "--evaluator-profile",
         config["catalogs"]["evaluator_profile"],
+        "--semantic-validation",
+        SEMANTIC_VALIDATION_JSON,
+        "--addressability-audit",
+        addressability_audit(wildcards),
+        "--allowed-information",
+        information_contract_files(wildcards)[0],
+        "--parameter-manifest",
+        information_contract_files(wildcards)[1],
+        "--external-resource-hashes",
+        information_contract_files(wildcards)[2],
+        "--tuning-status",
+        information_contract_files(wildcards)[3],
         "--resource-benchmark",
         tool_resource_benchmark(wildcards),
         "--cache-policy",
@@ -201,7 +246,7 @@ def materializer_arguments(wildcards):
         "--query-vcf",
         (
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-            f"{wildcards.tool}/canonical/linked.vcf"
+            f"{wildcards.tool}/canonical/all-sites.vcf"
         ),
         "--hidden-truth-ledger",
         hidden_candidate_ledger(wildcards),
@@ -259,7 +304,7 @@ rule fuse_evaluator_metrics:
         resolved_inputs=scoring_resolved_inputs,
         linked=(
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-            "{tool}/canonical/linked.vcf"
+            "{tool}/canonical/all-sites.vcf"
         ),
         links=(
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
@@ -271,12 +316,15 @@ rule fuse_evaluator_metrics:
         ),
         tool_rule_manifest=(
             RESULTS_ROOT + "/provenance/rules/tool__{tool}__execute/"
-            f"{SAMPLE_ID}.{OFFICIAL_MODE}.json"
+            f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
         context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
         evaluator_profile=config["catalogs"]["evaluator_profile"],
+        semantic_validation=([] if SYNTHETIC_MODE else [SEMANTIC_VALIDATION_JSON]),
+        addressability_audit=addressability_audit,
+        information_contracts=information_contract_files,
         metric_dictionary=config["catalogs"]["metric_dictionary"],
         metrics_schema="workflow/schemas/metrics.schema.yaml",
         pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
@@ -388,7 +436,7 @@ rule fuse_evaluator_metrics:
         """
 
 
-rule compute_pgbench_score:
+rule compute_me_f1:
     input:
         metrics=RESULTS_ROOT + "/summary/{tool}/metrics.json",
         metrics_rule_manifest=fused_metrics_rule_manifest,
@@ -414,17 +462,17 @@ rule compute_pgbench_score:
     output:
         score=RESULTS_ROOT + "/summary/{tool}/score.json",
         rule_manifest=(
-            RESULTS_ROOT + "/provenance/rules/compute_pgbench_score/"
+            RESULTS_ROOT + "/provenance/rules/compute_me_f1/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
     log:
         (
-            f"{LOG_ROOT}/rules/compute_pgbench_score/{SAMPLE_ID}."
+            f"{LOG_ROOT}/rules/compute_me_f1/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".log"
         ),
     benchmark:
         (
-            f"{BENCHMARK_ROOT}/rules/compute_pgbench_score/{SAMPLE_ID}."
+            f"{BENCHMARK_ROOT}/rules/compute_me_f1/{SAMPLE_ID}."
             "{tool}." + OFFICIAL_MODE + ".jsonl"
         ),
     conda:
@@ -432,7 +480,7 @@ rule compute_pgbench_score:
     shell:
         """
         {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
-          --rule-name compute_pgbench_score \
+          --rule-name compute_me_f1 \
           --job-key {SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE} \
           --run-id {RUN_ID:q} \
           --module-or-tool-id pgbench-core \

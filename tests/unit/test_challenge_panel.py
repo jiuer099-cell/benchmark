@@ -12,15 +12,31 @@ from build_challenge_panel import build_challenge_panel  # noqa: E402
 from build_pangenome_manifest import assign_stable_alleles  # noqa: E402
 
 
-def test_challenge_panel_is_blinded_and_has_negative_sites(tmp_path: Path) -> None:
+def _del(chrom: str, pos: int, record_id: str, size: int, extra: str = "") -> str:
+    ref = "A" * (size + 1)
+    return (
+        f"{chrom}\t{pos}\t{record_id}\t{ref}\tA\t.\tPASS\t"
+        f"SVTYPE=DEL;END={pos + size};SVLEN=-{size}{extra}\n"
+    )
+
+
+def _ins(chrom: str, pos: int, record_id: str, size: int, extra: str = "") -> str:
+    alt = "A" + "T" * size
+    return (
+        f"{chrom}\t{pos}\t{record_id}\tA\t{alt}\t.\tPASS\t"
+        f"SVTYPE=INS;END={pos};SVLEN={size}{extra}\n"
+    )
+
+
+def test_challenge_panel_is_blinded_and_unmatched_truth_is_unscorable(
+    tmp_path: Path,
+) -> None:
     population = tmp_path / "population.vcf"
     population.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "1\t20\tpositive\tA\t<DEL>\t.\tPASS\t"
-        "SVTYPE=DEL;END=80;SVLEN=-60;AF=0.02\n"
-        "1\t80\tnegative\tA\tATTT\t.\tPASS\t"
-        "SVTYPE=INS;END=80;SVLEN=60;AF=0.10\n",
+        + _del("chr1", 20, "positive", 60, ";AF=0.02")
+        + _ins("chr1", 180, "unmatched", 60, ";AF=0.10"),
         encoding="utf-8",
     )
     panel = tmp_path / "panel.vcf"
@@ -31,8 +47,8 @@ def test_challenge_panel_is_blinded_and_has_negative_sites(tmp_path: Path) -> No
     truth.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
-        "1\t20\ttruth1\tA\t<DEL>\t.\tPASS\t"
-        "SVTYPE=DEL;END=80;SVLEN=-60\tGT\t0/1\n",
+        + _del("chr1", 20, "truth1", 60).rstrip("\n")
+        + "\tGT\t0/1\n",
         encoding="utf-8",
     )
     challenge = tmp_path / "challenge.vcf"
@@ -48,7 +64,8 @@ def test_challenge_panel_is_blinded_and_has_negative_sites(tmp_path: Path) -> No
         seed="fixed-seed",
     )
     assert summary["truth_positive_count"] == 1
-    assert summary["truth_negative_count"] == 1
+    assert summary["truth_negative_count"] == 0
+    assert summary["truth_unscorable_count"] == 1
     challenge_text = challenge.read_text(encoding="utf-8")
     assert "positive" not in challenge_text.lower()
     assert "negative" not in challenge_text.lower()
@@ -58,8 +75,8 @@ def test_challenge_panel_is_blinded_and_has_negative_sites(tmp_path: Path) -> No
 
     with hidden.open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
-    assert {row["truth_gt"] for row in rows} == {"0/0", "0/1"}
-    assert all(row["candidate_id"].startswith("CAND_") for row in rows)
+    assert {row["truth_gt"] for row in rows} == {"UNSCORABLE", "0/1"}
+    assert all(row["candidate_id"].startswith("PGSV_") for row in rows)
     assert json.loads(audit.read_text())["truth_labels_exposed_to_tool"] == 0
 
 
@@ -68,8 +85,8 @@ def test_candidate_ids_are_seed_deterministic(tmp_path: Path) -> None:
     population.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "1\t20\ta\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=80;SVLEN=-60\n"
-        "1\t180\tb\tA\t<INS>\t.\tPASS\tSVTYPE=INS;END=180;SVLEN=60\n",
+        + _del("chr1", 20, "a", 60)
+        + _ins("chr1", 180, "b", 60),
         encoding="utf-8",
     )
     panel = tmp_path / "panel.vcf"
@@ -78,7 +95,7 @@ def test_candidate_ids_are_seed_deterministic(tmp_path: Path) -> None:
     truth.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
-        "1\t20\tt\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL;END=80;SVLEN=-60\tGT\t1/1\n",
+        + _del("chr1", 20, "t", 60).rstrip("\n") + "\tGT\t1/1\n",
         encoding="utf-8",
     )
 
@@ -104,17 +121,17 @@ def test_multisample_panel_columns_are_removed_from_blinded_vcf(
     panel.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tPANEL1\tPANEL2\n"
-        "chr1\t10\tv1\tA\tAT\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_1;SVTYPE=INS;END=10;SVLEN=60\tGT\t0|1\t1|0\n"
-        "chr1\t20\tv2\tAT\tA\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_2;SVTYPE=DEL;END=80;SVLEN=-60\tGT\t0|0\t0|1\n",
+        + _ins("chr1", 10, "v1", 60, ";PANGENOME_ALLELE_ID=PGSV_1").rstrip("\n")
+        + "\tGT\t0|1\t1|0\n"
+        + _del("chr1", 120, "v2", 60, ";PANGENOME_ALLELE_ID=PGSV_2").rstrip("\n")
+        + "\tGT\t0|0\t0|1\n",
         encoding="utf-8",
     )
     truth = tmp_path / "truth.vcf"
     truth.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
-        "chr1\t10\tt1\tA\tAT\t.\tPASS\tSVTYPE=INS;END=10;SVLEN=60\tGT\t0/1\n",
+        + _ins("chr1", 10, "t1", 60).rstrip("\n") + "\tGT\t0/1\n",
         encoding="utf-8",
     )
     output = tmp_path / "challenge.vcf"
@@ -156,20 +173,16 @@ def test_formal_candidate_truth_only_scores_frozen_bed_universe(
     panel.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "chr1\t100\tp1\tA\t<DEL>\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_1;SVTYPE=DEL;END=200;SVLEN=-100\n"
-        "chr1\t250\tp2\tA\t<INS>\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_2;SVTYPE=INS;END=250;SVLEN=80\n"
-        "chr1\t500\tp3\tA\t<DEL>\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_3;SVTYPE=DEL;END=600;SVLEN=-100\n",
+        + _del("chr1", 100, "p1", 100, ";PANGENOME_ALLELE_ID=PGSV_1")
+        + _ins("chr1", 250, "p2", 80, ";PANGENOME_ALLELE_ID=PGSV_2")
+        + _del("chr1", 500, "p3", 100, ";PANGENOME_ALLELE_ID=PGSV_3"),
         encoding="utf-8",
     )
     truth = tmp_path / "truth.vcf"
     truth.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
-        "chr1\t100\tt1\tA\t<DEL>\t.\tPASS\t"
-        "SVTYPE=DEL;END=200;SVLEN=-100\tGT\t0/1\n",
+        + _del("chr1", 100, "t1", 100).rstrip("\n") + "\tGT\t0/1\n",
         encoding="utf-8",
     )
     regions = tmp_path / "benchmark.bed"
@@ -188,16 +201,17 @@ def test_formal_candidate_truth_only_scores_frozen_bed_universe(
 
     assert summary["candidate_count"] == 2
     assert summary["source_candidate_count"] == 3
-    assert summary["truth_scorable_count"] == 2
-    assert summary["truth_unscorable_count"] == 0
+    assert summary["truth_scorable_count"] == 1
+    assert summary["truth_unscorable_count"] == 1
     assert summary["excluded_region_count"] == 1
     assert summary["truth_positive_count"] == 1
-    assert summary["truth_negative_count"] == 1
+    assert summary["truth_negative_count"] == 0
     with hidden.open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     by_allele = {row["pangenome_allele_id"]: row for row in rows}
     assert by_allele["PGSV_1"]["truth_scorable"] == "1"
-    assert by_allele["PGSV_2"]["truth_gt"] == "0/0"
+    assert by_allele["PGSV_2"]["truth_gt"] == "UNSCORABLE"
+    assert by_allele["PGSV_2"]["truth_scorable"] == "0"
     assert "PGSV_3" not in by_allele
 
 
@@ -206,26 +220,23 @@ def test_formal_candidate_universe_exclusions_are_audited(tmp_path: Path) -> Non
     panel.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "chr1\t100\tok1\tA\t<DEL>\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_OK1;SVTYPE=DEL;END=200;SVLEN=-100\n"
-        "chr1\t250\tok2\tA\t<INS>\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_OK2;SVTYPE=INS;END=250;SVLEN=80\n"
-        "chr1\t300\tmulti\tA\t<DEL>,<INS>\t.\tPASS\t"
+        + _del("chr1", 100, "ok1", 100, ";PANGENOME_ALLELE_ID=PGSV_OK1")
+        + _ins("chr1", 250, "ok2", 80, ";PANGENOME_ALLELE_ID=PGSV_OK2")
+        + "chr1\t300\tmulti\tA\t<DEL>,<INS>\t.\tPASS\t"
         "PANGENOME_ALLELE_ID=PGSV_MULTI;SVTYPE=DEL;END=400;SVLEN=-100\n"
+        "chr1\t420\tsymbolic\tA\t<DEL>\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_SYMBOLIC;SVTYPE=DEL;END=520;SVLEN=-100\n"
         "chr1\t450\ttype\tA\t<INV>\t.\tPASS\t"
         "PANGENOME_ALLELE_ID=PGSV_TYPE;SVTYPE=INV;END=550;SVLEN=100\n"
-        "chr1\t600\tsmall\tA\t<DEL>\t.\tPASS\t"
-        "PANGENOME_ALLELE_ID=PGSV_SMALL;SVTYPE=DEL;END=620;SVLEN=-20\n"
-        "chr1\t700\tfiltered\tA\t<INS>\t.\tLowQual\t"
-        "PANGENOME_ALLELE_ID=PGSV_FILTER;SVTYPE=INS;END=700;SVLEN=80\n",
+        + _del("chr1", 600, "small", 20, ";PANGENOME_ALLELE_ID=PGSV_SMALL")
+        + _ins("chr1", 700, "filtered", 80, ";PANGENOME_ALLELE_ID=PGSV_FILTER").replace("\tPASS\t", "\tLowQual\t"),
         encoding="utf-8",
     )
     truth = tmp_path / "truth.vcf"
     truth.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
-        "chr1\t100\tt1\tA\t<DEL>\t.\tPASS\t"
-        "SVTYPE=DEL;END=200;SVLEN=-100\tGT\t0/1\n",
+        + _del("chr1", 100, "t1", 100).rstrip("\n") + "\tGT\t0/1\n",
         encoding="utf-8",
     )
     regions = tmp_path / "benchmark.bed"
@@ -242,10 +253,11 @@ def test_formal_candidate_universe_exclusions_are_audited(tmp_path: Path) -> Non
         seed="fixed",
     )
 
-    assert summary["source_candidate_count"] == 6
+    assert summary["source_candidate_count"] == 7
     assert summary["candidate_count"] == 2
     assert summary["excluded_multiallelic_count"] == 1
     assert summary["excluded_svtype_count"] == 1
+    assert summary["excluded_unresolved_sequence_count"] == 1
     assert summary["excluded_size_count"] == 1
     assert summary["excluded_filter_count"] == 1
     emitted = [

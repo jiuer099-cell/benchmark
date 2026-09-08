@@ -50,18 +50,10 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
     )
 
 
-SUPPORTED_MODES = {
-    "caller_only_shared_alignment",
-    "end_to_end_from_reads",
-}
+SUPPORTED_MODES = {"end_to_end_from_reads"}
 MODE_INPUTS = {
-    "canonical_fastq",
     "short_fastq_r1",
     "short_fastq_r2",
-    "haplotype_fastq",
-    "original_input_bam",
-    "shared_alignment",
-    "shared_alignment_index",
     "reference",
     "reference_index",
     "pangenome_manifest",
@@ -71,15 +63,8 @@ MODE_INPUTS = {
     "graph_assets",
     "tool_index",
 }
-TRANSPORT_INPUTS = (MODE_INPUTS - {"haplotype_fastq"}) | {
-    "hp1_fastq",
-    "hp2_fastq",
-}
-TRANSPORT_TO_CONTRACT = {
-    **{name: name for name in MODE_INPUTS if name != "haplotype_fastq"},
-    "hp1_fastq": "haplotype_fastq",
-    "hp2_fastq": "haplotype_fastq",
-}
+TRANSPORT_INPUTS = MODE_INPUTS
+TRANSPORT_TO_CONTRACT = {name: name for name in MODE_INPUTS}
 
 
 def _fastq_records(path: Path) -> Iterator[tuple[str, int]]:
@@ -166,26 +151,10 @@ def validate_read_evidence(supplied_inputs: Mapping[str, Path]) -> dict[str, Any
             "read_bases": read_bases,
             "mate_names_match": True,
         }
-    canonical = supplied_inputs.get("canonical_fastq")
-    if canonical is not None:
-        read_count = 0
-        read_bases = 0
-        for _, length in _fastq_records(canonical):
-            read_count += 1
-            read_bases += length
-        if read_count == 0:
-            raise ToolContractError("canonical FASTQ evidence is empty")
-        result["canonical_fastq"] = {
-            "read_count": read_count,
-            "read_bases": read_bases,
-        }
     return result
 INPUT_ENVIRONMENT = {
-    "canonical_fastq": "PGBENCH_INPUT_FASTQ",
     "short_fastq_r1": "PGBENCH_INPUT_FASTQ_R1",
     "short_fastq_r2": "PGBENCH_INPUT_FASTQ_R2",
-    "hp1_fastq": "PGBENCH_HP1_FASTQ",
-    "hp2_fastq": "PGBENCH_HP2_FASTQ",
     "reference": "PGBENCH_REFERENCE_FASTA",
     "reference_index": "PGBENCH_REFERENCE_INDEX",
     "candidate_panel": "PGBENCH_CANDIDATE_VCF",
@@ -194,8 +163,6 @@ INPUT_ENVIRONMENT = {
     "allele_fasta": "PGBENCH_ALLELES_FASTA",
     "graph_assets": "PGBENCH_GRAPH_DIR",
     "tool_index": "PGBENCH_INDEX_DIR",
-    "shared_alignment": "PGBENCH_SHARED_ALIGNMENT",
-    "shared_alignment_index": "PGBENCH_SHARED_ALIGNMENT_INDEX",
 }
 BASE_PGBENCH_ENVIRONMENT = {
     "PGBENCH_RUN_ID",
@@ -304,10 +271,8 @@ def _json_path(error: jsonschema.ValidationError) -> str:
 
 def _semantic_manifest_errors(manifest: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
-    if manifest.get("source") != "external":
-        errors.append("generic external runner requires source: external")
     if not isinstance(manifest.get("version"), str) or not manifest.get("version"):
-        errors.append("external tools must declare a non-empty version")
+        errors.append("tools must declare a non-empty version")
 
     execution = manifest.get("execution")
     if isinstance(execution, Mapping) and "module" in execution:
@@ -342,24 +307,16 @@ def _semantic_manifest_errors(manifest: Mapping[str, Any]) -> list[str]:
     if isinstance(graph, Mapping) and graph.get("required") is True:
         globally_required.add("graph_assets")
 
-    auxiliary_reads = inputs.get("read_sequences_auxiliary") is True
     for mode, raw_contract in supported_modes.items():
         if mode not in SUPPORTED_MODES or not isinstance(raw_contract, Mapping):
             continue
         required = set(cast(Sequence[str], raw_contract.get("required_inputs", [])))
         optional = set(cast(Sequence[str], raw_contract.get("optional_inputs", [])))
-        forbidden = set(cast(Sequence[str], raw_contract.get("forbidden_inputs", [])))
-        overlaps = {
-            "required/optional": required & optional,
-            "required/forbidden": required & forbidden,
-            "optional/forbidden": optional & forbidden,
-        }
-        for label, overlap_values in overlaps.items():
-            overlap = sorted(overlap_values)
-            if not overlap:
-                continue
+        overlap = sorted(required & optional)
+        if overlap:
             errors.append(
-                f"supported_modes.{mode} has {label} overlap: " + ", ".join(overlap)
+                f"supported_modes.{mode} has required/optional overlap: "
+                + ", ".join(overlap)
             )
         for asset in sorted(globally_required):
             if asset not in required:
@@ -367,43 +324,10 @@ def _semantic_manifest_errors(manifest: Mapping[str, Any]) -> list[str]:
                     f"supported_modes.{mode}.required_inputs must include {asset}"
                 )
 
-        if mode == "caller_only_shared_alignment":
-            if "shared_alignment" not in required:
-                errors.append(
-                    "caller_only_shared_alignment must require shared_alignment"
-                )
-            if "original_input_bam" not in forbidden:
-                errors.append(
-                    "caller_only_shared_alignment must forbid original_input_bam"
-                )
-            read_inputs = {
-                "canonical_fastq",
-                "short_fastq_r1",
-                "short_fastq_r2",
-            }
-            if not auxiliary_reads and not read_inputs.issubset(forbidden):
-                errors.append(
-                    "caller_only_shared_alignment must forbid all FASTQ inputs "
-                    "unless read_sequences_auxiliary is true"
-                )
-        elif mode == "end_to_end_from_reads":
-            has_single = "canonical_fastq" in required
-            has_pair = {"short_fastq_r1", "short_fastq_r2"}.issubset(required)
-            has_partial_pair = bool(
-                {"short_fastq_r1", "short_fastq_r2"} & required
-            ) and not has_pair
-            if not has_single and not has_pair:
-                errors.append(
-                    "end_to_end_from_reads must require canonical_fastq or "
-                    "the complete short_fastq_r1/short_fastq_r2 pair"
-                )
-            if has_partial_pair:
-                errors.append(
-                    "end_to_end_from_reads must require both paired FASTQ inputs"
-                )
-            for forbidden_name in ("original_input_bam", "shared_alignment"):
-                if forbidden_name not in forbidden:
-                    errors.append(f"end_to_end_from_reads must forbid {forbidden_name}")
+        if mode != "end_to_end_from_reads":
+            errors.append(f"unsupported execution mode: {mode}")
+        if not {"short_fastq_r1", "short_fastq_r2"}.issubset(required):
+            errors.append("end_to_end_from_reads must require paired FASTQ inputs")
 
         if paradigm == "genotyping_only" and "candidate_panel" not in required:
             errors.append(
@@ -489,8 +413,6 @@ def _parse_inputs(values: Sequence[str]) -> dict[str, Path]:
 
 
 def _contract_input_is_present(name: str, supplied: Mapping[str, Path]) -> bool:
-    if name == "haplotype_fastq":
-        return "hp1_fastq" in supplied and "hp2_fastq" in supplied
     return name in supplied
 
 
@@ -498,10 +420,8 @@ def validate_mode_inputs(
     manifest: Mapping[str, Any],
     mode: str,
     supplied_inputs: Mapping[str, Path],
-    *,
-    alignment_kind: str | None,
 ) -> None:
-    """Enforce required, forbidden, and declared input constraints for one mode."""
+    """Enforce required and declared short-read inputs for one mode."""
 
     supported_modes = cast(Mapping[str, Mapping[str, Any]], manifest["supported_modes"])
     if mode not in supported_modes:
@@ -511,7 +431,6 @@ def validate_mode_inputs(
     contract = supported_modes[mode]
     required = set(cast(Sequence[str], contract["required_inputs"]))
     optional = set(cast(Sequence[str], contract.get("optional_inputs", [])))
-    forbidden = set(cast(Sequence[str], contract["forbidden_inputs"]))
 
     missing = sorted(
         name
@@ -523,18 +442,8 @@ def validate_mode_inputs(
             f"missing required input(s) for {mode}: {', '.join(missing)}"
         )
 
-    forbidden_present = sorted(
-        name for name in forbidden if _contract_input_is_present(name, supplied_inputs)
-    )
-    if forbidden_present:
-        raise ToolContractError(
-            f"forbidden input(s) supplied for {mode}: " + ", ".join(forbidden_present)
-        )
-
     for transport_name, path in supplied_inputs.items():
         contract_name = TRANSPORT_TO_CONTRACT[transport_name]
-        if contract_name == "original_input_bam":
-            raise ToolContractError("original_input_bam is never exposed to plugins")
         if not path.exists():
             raise ToolContractError(
                 f"declared input does not exist: {transport_name}={path}"
@@ -544,21 +453,6 @@ def validate_mode_inputs(
                 f"input {contract_name} is not whitelisted by supported_modes.{mode}"
             )
 
-    if "shared_alignment" in supplied_inputs:
-        if not alignment_kind:
-            raise ToolContractError(
-                "alignment_kind is required when shared_alignment is supplied"
-            )
-        input_contract = cast(Mapping[str, Any], manifest["inputs"])
-        alignment_contract = cast(Mapping[str, Any], input_contract["shared_alignment"])
-        accepted = set(cast(Sequence[str], alignment_contract["accepted_formats"]))
-        if alignment_kind not in accepted:
-            raise ToolContractError(
-                f"shared alignment kind {alignment_kind!r} is not accepted by "
-                f"tool {manifest['id']}"
-            )
-
-
 def resolve_inputs(
     *,
     manifest: Mapping[str, Any],
@@ -567,7 +461,6 @@ def resolve_inputs(
     supplied_inputs: Mapping[str, Path],
     resolved_inputs_path: Path,
     run_id: str,
-    alignment_kind: str | None,
 ) -> tuple[ResolvedInput, ...]:
     """Resolve and atomically freeze authorized inputs with content hashes."""
 
@@ -600,14 +493,10 @@ def resolve_inputs(
         "tool_manifest_path": str(tool_manifest_path.resolve(strict=True)),
         "tool_manifest_sha256": sha256_file(tool_manifest_path.resolve(strict=True)),
         "mode": mode,
-        "alignment_kind": alignment_kind,
         "billable_stages": list(cast(Sequence[str], mode_contract["billable_stages"])),
         "required_inputs": list(cast(Sequence[str], mode_contract["required_inputs"])),
         "optional_inputs": list(
             cast(Sequence[str], mode_contract.get("optional_inputs", []))
-        ),
-        "forbidden_inputs": list(
-            cast(Sequence[str], mode_contract["forbidden_inputs"])
         ),
         "inputs": [item.to_dict() for item in resolved],
         "read_validation": validate_read_evidence(supplied_inputs),
@@ -755,12 +644,14 @@ def build_tool_environment(
     output_vcf: Path,
     threads: int,
     memory_mb: int,
+    alignment_kind: str | None = None,
     cache_policy: str = "isolated_empty_tool_cache",
-    alignment_kind: str | None,
     attempt_work_dir: Path,
     random_seed: int = 0,
 ) -> dict[str, str]:
     """Build a minimal deterministic environment with PGBENCH values scrubbed."""
+
+    del alignment_kind  # mapping is tool-owned in the only supported execution mode
 
     inherited_allowlist = {
         "PATH",
@@ -815,18 +706,12 @@ def build_tool_environment(
     graph_reference_path = _locked_graph_reference_path(resolved_inputs)
     if graph_reference_path is not None:
         pgbench_values["PGBENCH_GRAPH_REFERENCE_PATH"] = graph_reference_path
-    if alignment_kind is not None and any(
-        item.name == "shared_alignment" for item in resolved_inputs
-    ):
-        pgbench_values["PGBENCH_ALIGNMENT_KIND"] = alignment_kind
 
     allowed = BASE_PGBENCH_ENVIRONMENT | {
         item.environment_variable
         for item in resolved_inputs
         if item.environment_variable is not None
     }
-    if "PGBENCH_ALIGNMENT_KIND" in pgbench_values:
-        allowed.add("PGBENCH_ALIGNMENT_KIND")
     unexpected = sorted(set(pgbench_values) - allowed)
     if unexpected:  # defensive assertion against interface drift
         raise ToolContractError(
@@ -1411,7 +1296,6 @@ def execute_tool(
     threads: int,
     memory_mb: int,
     cache_policy: str = "isolated_empty_tool_cache",
-    alignment_kind: str | None = None,
     execution_purpose: str = "development_only",
     timeout_seconds: int = 3600,
     random_seed: int = 0,
@@ -1435,7 +1319,6 @@ def execute_tool(
         manifest,
         mode,
         supplied_inputs,
-        alignment_kind=alignment_kind,
     )
     execution_contract = cast(Mapping[str, Any], manifest["execution"])
     sandbox_backend = cast(str, execution_contract.get("sandbox_backend", "none"))
@@ -1460,7 +1343,6 @@ def execute_tool(
         supplied_inputs=supplied_inputs,
         resolved_inputs_path=resolved_inputs_path,
         run_id=run_id,
-        alignment_kind=alignment_kind,
     )
 
     output_contract = cast(Mapping[str, Any], manifest["outputs"])
@@ -1511,7 +1393,6 @@ def execute_tool(
         threads=threads,
         memory_mb=memory_mb,
         cache_policy=cache_policy,
-        alignment_kind=alignment_kind,
         attempt_work_dir=attempt_work_dir,
         random_seed=random_seed,
     )
@@ -1773,7 +1654,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("isolated_empty_tool_cache",),
         default="isolated_empty_tool_cache",
     )
-    parser.add_argument("--alignment-kind")
     parser.add_argument(
         "--execution-purpose",
         choices=("development_only", "formal"),
@@ -1801,7 +1681,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             threads=args.threads,
             memory_mb=args.memory_mb,
             cache_policy=args.cache_policy,
-            alignment_kind=args.alignment_kind,
             execution_purpose=args.execution_purpose,
             timeout_seconds=args.timeout_seconds,
             random_seed=args.random_seed,

@@ -1,0 +1,17 @@
+schema_version: 1
+rules:
+  - id: paragraph
+    description: Map the common paired reads, run Paragraph on the frozen panel, and retain all candidates.
+    phase: tool_execution
+    kind: plugin
+    inputs: [short_fastq_r1, short_fastq_r2, reference, candidate_panel]
+    outputs: [raw_tool_vcf]
+    upstream: ["tool__{tool}__execute"]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: run.py
+    environment: envs/environment.yaml
+    resource_class: compute_large

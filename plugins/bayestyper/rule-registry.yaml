@@ -1,0 +1,34 @@
+schema_version: 1
+rules:
+  - id: tool__bayestyper__prepare_assets
+    description: Count paired-read 55-mers and cluster the frozen canonical candidate panel.
+    phase: tool_execution
+    kind: plugin
+    inputs: [short_fastq_r1, short_fastq_r2, blinded_candidate_panel, frozen_bayestyper_grch38_bundle]
+    outputs: [sample_kmers, variant_clusters]
+    upstream: [build_blinded_challenge_panel]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/bayestyper/run.py
+    environment: plugins/bayestyper/envs/environment.yaml
+    resource_class: tool_large
+    active_when: {tool: bayestyper, task: prepare_assets}
+  - id: tool__bayestyper__genotype
+    description: Genotype every BayesTyper cluster and project calls to the complete canonical panel.
+    phase: tool_execution
+    kind: plugin
+    inputs: [sample_kmers, variant_clusters]
+    outputs: [raw_all_sites_vcf]
+    upstream: [tool__bayestyper__prepare_assets]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/bayestyper/run.py
+    environment: plugins/bayestyper/envs/environment.yaml
+    resource_class: tool_large
+    active_when: {tool: bayestyper, task: genotyping}

@@ -83,8 +83,6 @@ properties:
             enum:
               - vg_gbz_min_dist
               - vg_giraffe_shortread
-              - vg_legacy_xg
-              - svarp_minigraph_longread
           reference_path:
             type: string
             minLength: 1
@@ -125,14 +123,6 @@ properties:
                   profile:
                     const: vg_giraffe_shortread
                 required: [gbz, min, zipcodes, dist, sample_list]
-              - properties:
-                  profile:
-                    const: vg_legacy_xg
-                required: [gbz, xg, min, dist, sample_list]
-              - properties:
-                  profile:
-                    const: svarp_minigraph_longread
-                required: [gfa]
   graph_build_recipe_sha256:
     oneOf:
       - $ref: "#/$defs/sha256"

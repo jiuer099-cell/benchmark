@@ -53,7 +53,7 @@ rules:
       - graph_support_pack
       - frozen_vg_graph_assets
     outputs:
-      - raw_variant_sites_vcf
+      - raw_calls_vcf
     upstream:
       - tool__vg__pack
     audit_scope: pre_score

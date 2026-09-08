@@ -2,30 +2,33 @@ interface_version: 1
 id: pangenie
 name: PanGenie short-read pangenome genotyper
 version: 4.2.1
-source: external
+source: builtin
 paradigm: short_read_pangenome_genotyping
 comparison_task: panel_genotyping
+
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_status: official_configuration
 
 tasks: [prepare_assets, index, genotyping, postprocess]
 
 inputs:
-  reads: short_fastq
   reference: required
   candidates: required
   pangenome_manifest: required
   pangenome_panel: required
   graph_assets:
     required: false
-    accepted_formats: [vg, xg_gbwt]
+    accepted_formats: [gbz, xg_gbwt]
     accepted_profiles: []
-  shared_alignment:
-    required: false
-    accepted_formats: [bam]
-  read_sequences_auxiliary: false
 
 capabilities:
   technology: [illumina_short_read]
-  svtypes: [DEL, INS, DUP, INV, CNV, CPX]
+  svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
@@ -48,12 +51,6 @@ supported_modes:
       - pangenome_panel
       - candidate_panel
     optional_inputs: []
-    forbidden_inputs:
-      - original_input_bam
-      - shared_alignment
-      - haplotype_fastq
-      - canonical_fastq
-      - graph_assets
     billable_stages:
       - prepare_assets
       - index

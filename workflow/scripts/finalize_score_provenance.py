@@ -110,10 +110,7 @@ METRICS_TUPLE_FIELDS = (
     "primary_truth_profile",
     "score_profile",
 )
-OFFICIAL_SCORE_MODES = {
-    "caller_only_shared_alignment",
-    "end_to_end_from_reads",
-}
+OFFICIAL_SCORE_MODES = {"end_to_end_from_reads"}
 EVALUATION_MODES = {"formal", "synthetic_smoke"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 AUDIT_REPLAY_FIELDS = (
@@ -179,11 +176,11 @@ def _validate_score(
         raise FinalScoreSealError(
             "score_status must be valid, provisional, or invalid"
         )
-    score_value = score.get("pgbench_score")
+    score_value = score.get("benchmark_score")
     if score_status == "invalid":
         if score_value is not None:
             raise FinalScoreSealError(
-                "invalid scores must set pgbench_score to null"
+                "invalid scores must set benchmark_score to null"
             )
         reason = score.get("reason")
         if not isinstance(reason, str) or not reason.strip():
@@ -195,13 +192,9 @@ def _validate_score(
         # promoted into the sealed result.  In particular, this prevents a
         # diagnostic recovery statistic from being rendered as a formal score.
         for field in (
-            "pgbench_score_raw",
-            "consensus_score",
-            "comparable_score",
-            "comparable_score_raw",
+            "benchmark_score_raw",
             "pangenome_genotyping_score",
             "non_reference_f1_score",
-            "global_end_to_end_sv_recovery_score",
         ):
             if score.get(field) is not None:
                 raise FinalScoreSealError(
@@ -214,7 +207,7 @@ def _validate_score(
         or not 0.0 <= float(score_value) <= 100.0
     ):
         raise FinalScoreSealError(
-            "pgbench_score must be a finite numeric value in [0, 100]"
+            "benchmark_score must be a finite numeric value in [0, 100]"
         )
     tuple_key = score.get("tuple_key")
     if not isinstance(tuple_key, Mapping) or set(tuple_key) != set(SCORE_TUPLE_FIELDS):
@@ -309,9 +302,9 @@ def _validate_manifest_roles(
     score_manifest: Mapping[str, Any],
     audit_manifest: Mapping[str, Any],
 ) -> None:
-    if score_manifest.get("rule_name") != "compute_pgbench_score":
+    if score_manifest.get("rule_name") != "compute_me_f1":
         raise FinalScoreSealError(
-            "score rule manifest must have rule_name=compute_pgbench_score"
+            "score rule manifest must have rule_name=compute_me_f1"
         )
     if audit_manifest.get("rule_name") != "audit_score_inputs":
         raise FinalScoreSealError(
@@ -471,118 +464,31 @@ def _validate_metrics_records(
             )
         return
 
-    if score.get("score_profile") in {
-        "pgbench_consensus_v2",
-        "pgbench_consensus_v3",
-        "pgbench_consensus_v4",
-    }:
-        consensus_counts = score.get("consensus_counts")
-        if not isinstance(consensus_counts, Mapping):
-            raise FinalScoreSealError(
-                "score.consensus_counts must be a mapping for consensus scoring"
-            )
-        expected_fields = {
-            "all_three_correct",
-            "exactly_two_correct",
-            "exactly_one_correct",
-            "none_correct",
-        }
-        if set(consensus_counts) != expected_fields:
-            raise FinalScoreSealError(
-                "score.consensus_counts must contain exactly the four support tiers"
-            )
-        total = 0
-        for field in sorted(expected_fields):
-            count = consensus_counts[field]
-            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-                raise FinalScoreSealError(
-                    f"score.consensus_counts.{field} must be a non-negative integer"
-                )
-            metric_id = f"consensus.{field}.count"
-            aggregate = aggregates.get(metric_id)
-            if aggregate is None:
-                raise FinalScoreSealError(
-                    f"metrics is missing required consensus aggregate {metric_id}"
-                )
-            if (
-                aggregate.get("status") != "defined"
-                or aggregate.get("value_type") != "count"
-                or aggregate.get("value") != count
-            ):
-                raise FinalScoreSealError(
-                    f"score consensus count does not match metrics aggregate {metric_id}"
-                )
-            total += count
-        if score.get("total_evaluated") != total:
-            raise FinalScoreSealError(
-                "score.total_evaluated does not equal the consensus count sum"
-            )
-        truth_record = aggregates.get("benchmark.truth.eligible.count")
+    if score.get("score_profile") == "pgbench_me_f1_v1":
+        evaluator_scores = score.get("evaluator_scores")
+        evaluator_metrics = score.get("required_f1_metrics")
+        if not isinstance(evaluator_scores, Mapping) or set(evaluator_scores) != {
+            "truvari", "aardvark", "vcfdist"
+        }:
+            raise FinalScoreSealError("ME-F1 requires exactly three evaluator scores")
+        if not isinstance(evaluator_metrics, Mapping) or set(evaluator_metrics) != {
+            "truvari", "aardvark", "vcfdist"
+        }:
+            raise FinalScoreSealError("ME-F1 requires exactly three evaluator ledgers")
         truth_total = score.get("truth_eligible_count")
-        if (
-            truth_record is None
-            or truth_record.get("status") != "defined"
-            or truth_record.get("value_type") != "count"
-            or truth_record.get("value") != truth_total
-            or isinstance(truth_total, bool)
-            or not isinstance(truth_total, int)
-            or truth_total <= 0
-        ):
-            raise FinalScoreSealError(
-                "score truth_eligible_count does not match the fixed truth metric"
-            )
-        vote_points = (
-            3 * consensus_counts["all_three_correct"]
-            + 2 * consensus_counts["exactly_two_correct"]
-            + consensus_counts["exactly_one_correct"]
-        )
-        effective_tp = vote_points / 3.0
-        if effective_tp > float(truth_total) + 1e-9:
-            raise FinalScoreSealError(
-                "soft true-positive credit exceeds the one-to-one truth universe"
-            )
-        expected_raw = 2.0 * effective_tp / (total + truth_total) * 100.0
-        comparable_raw = score.get("comparable_score_raw")
-        if (
-            isinstance(comparable_raw, bool)
-            or not isinstance(comparable_raw, int | float)
-            or abs(float(comparable_raw) - expected_raw) > 1e-9
-        ):
-            raise FinalScoreSealError(
-                "score ComparableScore does not match the fixed-universe formula"
-            )
-        consensus_raw = vote_points / (3.0 * total) * 100.0 if total else 0.0
-        analysis = score.get("formal_analysis")
-        panel_score = (
-            analysis.get("pangenome_genotyping_score")
-            if isinstance(analysis, Mapping)
-            else None
-        )
-        candidate_summary = (
-            analysis.get("candidate_genotype_summary")
-            if isinstance(analysis, Mapping)
-            else None
-        )
-        # Discovery-only adapters submit variant sites, not genotype calls.
-        # A zero panel macro-F1 is therefore non-applicable, but the universal
-        # primary score is still the same equal-vote evaluator consensus used
-        # for every other tool contract.
-        if (
-            isinstance(candidate_summary, Mapping)
-            and candidate_summary.get("candidate_output_contract")
-            == "variant_sites"
-        ):
-            panel_score = None
-        if (
-            score.get("pgbench_score_raw") != consensus_raw
-            or score.get("pangenome_genotyping_score")
-            != (round(float(panel_score), 2) if panel_score is not None else None)
-            or score.get("global_end_to_end_sv_recovery_score")
-            != score.get("comparable_score")
-        ):
-            raise FinalScoreSealError(
-                "primary score does not match equal-vote evaluator consensus"
-            )
+        if isinstance(truth_total, bool) or not isinstance(truth_total, int) or truth_total <= 0:
+            raise FinalScoreSealError("ME-F1 requires a positive frozen truth denominator")
+        raw_values = []
+        for evaluator in ("truvari", "aardvark", "vcfdist"):
+            metrics = evaluator_metrics[evaluator]
+            if not isinstance(metrics, Mapping):
+                raise FinalScoreSealError(f"invalid evaluator metrics: {evaluator}")
+            if metrics.get("tp", 0) + metrics.get("fn", 0) != truth_total:
+                raise FinalScoreSealError(f"{evaluator} does not use the frozen denominator")
+            raw_values.append(float(metrics["f1"]) * 100.0)
+        expected_raw = sum(raw_values) / 3.0
+        if abs(float(score.get("benchmark_score_raw")) - expected_raw) > 1e-9:
+            raise FinalScoreSealError("primary score is not the arithmetic mean of evaluator F1")
         return
 
     required_f1 = score.get("required_f1_metrics")
@@ -716,68 +622,6 @@ def _expected_jobs(
     ]
 
 
-def _derived_truth_profile_audit_reconciliation(
-    stored: Mapping[str, Any],
-    replay: Mapping[str, Any],
-    mismatches: Sequence[str],
-) -> dict[str, Any] | None:
-    """Recognize the one audited correction for derived novel-truth profiles.
-
-    Older audits incorrectly made every manifest's ``truth_profile`` a frozen
-    execution-context field. A primary-truth manifest and a hash-bound
-    derived-novel-truth manifest therefore produced an invalid pre-score audit
-    even when their lineage and every artifact hash were intact. This is not a
-    general escape hatch for historical audit drift: accept only that exact
-    obsolete error, and preserve the stored artifact hash plus a machine-
-    readable reconciliation record in the final seal.
-    """
-
-    if set(mismatches) != {
-        "status",
-        "run_context_complete",
-        "core_provenance_valid",
-    }:
-        return None
-    if (
-        stored.get("status") != "invalid"
-        or stored.get("run_context_complete") is not False
-        or stored.get("core_provenance_valid") is not False
-        or replay.get("status") not in {"valid", "provisional"}
-        or replay.get("run_context_complete") is not True
-        or replay.get("core_provenance_valid") is not True
-    ):
-        return None
-    stored_issues = stored.get("issues")
-    replay_issues = replay.get("issues")
-    if not isinstance(stored_issues, list) or not isinstance(replay_issues, list):
-        return None
-    stored_errors = [
-        issue
-        for issue in stored_issues
-        if isinstance(issue, Mapping) and issue.get("severity") == "error"
-    ]
-    if len(stored_errors) != 1 or (
-        stored_errors[0].get("code") != "run_context_mismatch"
-        or stored_errors[0].get("field") != "truth_profile"
-    ):
-        return None
-    if any(
-        isinstance(issue, Mapping) and issue.get("severity") == "error"
-        for issue in replay_issues
-    ):
-        return None
-    return {
-        "kind": "derived_truth_profile_execution_context_correction",
-        "reconciled_fields": sorted(mismatches),
-        "stored_status": stored["status"],
-        "replayed_status": replay["status"],
-        "superseded_error": {
-            "code": "run_context_mismatch",
-            "field": "truth_profile",
-        },
-    }
-
-
 def _replay_pre_score_audit(
     pre_score_audit: Mapping[str, Any],
     manifest_by_id: Mapping[str, Mapping[str, Any]],
@@ -815,12 +659,7 @@ def _replay_pre_score_audit(
         for field in AUDIT_REPLAY_FIELDS
         if pre_score_audit.get(field) != replay.get(field)
     ]
-    reconciliation = _derived_truth_profile_audit_reconciliation(
-        pre_score_audit,
-        replay,
-        mismatches,
-    )
-    if mismatches and reconciliation is None:
+    if mismatches:
         raise FinalScoreSealError(
             "pre-score audit does not reproduce from supplied manifests: "
             + ", ".join(mismatches)
@@ -829,7 +668,7 @@ def _replay_pre_score_audit(
         raise FinalScoreSealError("pre-score core/hash provenance gate failed")
     if replay["manifest_completeness"] != 1.0:
         raise FinalScoreSealError("pre-score manifest completeness must equal 1.0")
-    return replay, reconciliation
+    return replay, None
 
 
 def _validate_upstream_relationships(
@@ -1165,15 +1004,7 @@ def finalize_score_provenance(
         "score_artifact_hash_verified": True,
         "metrics_artifact_hash_verified": True,
         "metrics_provenance_ids_verified": True,
-        "required_f1_metrics_verified": (
-            score.get("score_profile")
-            not in {"pgbench_consensus_v2", "pgbench_consensus_v3", "pgbench_consensus_v4"}
-        ),
-        "consensus_counts_verified": (
-            score_status != "invalid"
-            and score.get("score_profile")
-            in {"pgbench_consensus_v2", "pgbench_consensus_v3", "pgbench_consensus_v4"}
-        ),
+        "required_f1_metrics_verified": True,
         "upstream_relationships_verified": True,
         "valid_score_gates": valid_gates,
     }

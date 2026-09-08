@@ -1,0 +1,126 @@
+schema_version: 1
+
+benchmark_contract:
+  track: short_read_fixed_panel_genotyping
+  chromosomes: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12, chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22]
+  svtypes: [DEL, INS]
+  minimum_sv_size: 50
+  maximum_sv_size: 10000
+  biallelic_only: true
+  sequence_resolved_only: true
+  truth_absence_policy: unscorable_without_explicit_reference_confidence
+  coverage_levels: [10, 20, 30, full]
+  downsampling_seeds: [1701, 1702, 1703]
+  source_coverage_x: 35
+  target_family_exclusion: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
+  score_status: experimental
+  conclusion_scope: sample_and_configuration_specific
+  independent_samples_status: not_available
+
+project:
+  id: hg002_grch38_sv_benchmark
+  run_id: hg002_illumina_pangenie
+
+sample:
+  id: HG002
+  sex: male
+  technology: illumina_short_read
+  library_id: HG002_Illumina_canonical
+  source_evidence_id: HG002_Illumina_paired_fastq
+  coverage_x: null
+  read_count: null
+  read_bases: null
+  downsampling_seed: null
+  # Formal PanGenie execution consumes the explicit R1/R2 pair below.
+  fastq_r1: resources/reads/HG002.Illumina.R1.fastq.gz
+  fastq_r2: resources/reads/HG002.Illumina.R2.fastq.gz
+
+reference:
+  id: grch38
+  fasta: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta
+  fai: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta.fai
+  dict: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.dict
+
+pangenome:
+  id: HG002_LOO_HPRC_GRCh38_SV_v1
+  backbone: grch38
+  population_panel: HG002_LOO_HPRC_GRCh38_SV_v1
+  truth_leakage_policy: exclude_hg002_truth
+  build_graph_assets: false
+  allele_namespace: PGSV
+  excluded_samples: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
+  # Must be a PanGenie-ready, fully phased, non-overlapping,
+  # sequence-resolved multi-sample VCF with HG002 removed.
+  population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz
+  graph_assets:
+    profile: none
+    manifest: null
+    gbz: null
+    xg: null
+    min: null
+    dist: null
+    sample_list: null
+    reference_path: GRCh38
+
+truth:
+  primary: giab_hg002_grch38_v5_0q
+  secondary: []
+
+catalogs:
+  truthsets: config/truthsets.yaml
+  stratifications: config/stratifications.yaml
+  score_weights: config/me_f1_scoring.yaml
+  evaluator_profile: config/evaluator_profile.yaml
+  metric_dictionary: config/metric_dictionary.yaml
+
+execution:
+  tracks: [end_to_end_from_reads]
+  official_score_mode: end_to_end_from_reads
+  use_conda: true
+  use_apptainer: false
+  keep_going: true
+  benchmark_repeats: 1
+  cache_policy: isolated_empty_tool_cache
+  random_seed: 20260716
+  tool_threads: 16
+  tool_memory_mb: 65536
+  tool_timeout_seconds: 604800
+
+development:
+  synthetic_mode: false
+  population_vcf: null
+  truth_vcf: null
+  benchmark_bed: null
+  evaluator_fixture_dir: null
+
+score:
+  profile: pgbench_me_f1_v1
+  final_score_name: ME-F1
+  produce_ranking: true
+
+evaluation:
+  evaluators: [truvari, aardvark, vcfdist]
+  truth_vcf: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.vcf.gz
+  benchmark_bed: resources/truth/giab_hg002_grch38_v5_0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed
+  commands:
+    bcftools: [mamba, run, -n, pgbench-bio, bcftools]
+    tabix: [mamba, run, -n, pgbench-bio, tabix]
+    truvari: [mamba, run, -n, eval-truvari, truvari]
+    aardvark: [mamba, run, -n, eval-aardvark, aardvark]
+    vcfdist: [mamba, run, -n, eval-vcfdist, vcfdist]
+
+obsidian:
+  enabled: false
+  vault_root: null
+  vault_root_env: PGBENCH_OBSIDIAN_VAULT
+  project_relpath: Research/hg002-grch38-pangenome-sv-benchmark
+  canonical_note: Writing/HG002-GRCh38-pangenome-SV-benchmark.md
+  binding_file: .claude/project-memory/hg002-grch38-pangenome-sv-benchmark.md
+
+tools:
+  enabled: []
+  planned_tools: []
+
+external_plugins:
+  - id: paragraph
+    manifest: plugins/paragraph/tool.yaml

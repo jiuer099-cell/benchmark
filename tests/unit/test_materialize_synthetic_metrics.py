@@ -27,7 +27,8 @@ FIXTURE_PATH = (
 )
 METRIC_DICTIONARY_PATH = ROOT / "config" / "metric_dictionary.yaml"
 METRICS_SCHEMA_PATH = ROOT / "workflow" / "schemas" / "metrics.schema.yaml"
-SCORE_PROFILE_PATH = ROOT / "config" / "consensus_scoring.yaml"
+SCORE_PROFILE_PATH = ROOT / "config" / "me_f1_scoring.yaml"
+EVALUATOR_PROFILE_PATH = ROOT / "config" / "evaluator_profile.yaml"
 EVALUATOR_MANIFEST_ID = "a" * 64
 PANGENOME_MANIFEST_ID = "b" * 64
 RESOURCE_MANIFEST_ID = "c" * 64
@@ -48,6 +49,7 @@ def _materialize(fixture: dict[str, Any]) -> dict[str, Any]:
         fixture=fixture,
         metric_dictionary=_metric_dictionary(),
         score_profile_path=SCORE_PROFILE_PATH,
+        evaluator_profile_path=EVALUATOR_PROFILE_PATH,
         evaluator_manifest_id=EVALUATOR_MANIFEST_ID,
         pangenome_manifest_id=PANGENOME_MANIFEST_ID,
         resource_manifest_id=RESOURCE_MANIFEST_ID,
@@ -93,9 +95,11 @@ def test_complete_fixture_materializes_to_valid_metrics_contract() -> None:
         "tool_id": "example_genotyper",
         "official_score_mode": "end_to_end_from_reads",
         "primary_truth_profile": "giab_hg002_grch38_v5_0q",
-        "score_profile": "pgbench_consensus_v4",
+            "score_profile": "pgbench_me_f1_v1",
     }
-    assert score_payload["consensus"] == fixture["consensus"]
+    assert score_payload["evaluator_f1"] == document["analysis"]["evaluator_gt_metrics"]
+    assert score_payload["truth_eligible_count"] == 100
+    assert all(score_payload["quality_gates"].values())
     assert records["vcfdist.phase.accuracy"]["status"] == (
         "completed_with_tool_ineligible_zero"
     )

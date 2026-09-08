@@ -6,12 +6,19 @@ source: external
 paradigm: genotyping_only
 comparison_task: panel_genotyping
 
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_status: official_configuration
+
 tasks:
   - genotyping
   - postprocess
 
 inputs:
-  reads: long_fastq
   reference: required
   candidates: required
   pangenome_manifest: required
@@ -19,29 +26,19 @@ inputs:
   graph_assets:
     required: false
     accepted_formats:
-      - vg
+      - gbz
       - xg_gbwt
     accepted_profiles:
       - vg_gbz_min_dist
-      - vg_legacy_xg
-  shared_alignment:
-    required: false
-    accepted_formats:
-      - bam
-  read_sequences_auxiliary: false
 
 capabilities:
-  technology:
-    - pacbio_clr
+  technology: [illumina_short_read]
   svtypes:
     - DEL
     - INS
-    - DUP
-    - INV
-    - CNV
   phasing: false
   novel_discovery: false
-  allele_linkage_output: none
+  allele_linkage_output: benchmark_inferred
   allele_namespace:
     - PGSV
 
@@ -54,37 +51,15 @@ execution:
   sandbox_backend: none
 
 supported_modes:
-  caller_only_shared_alignment:
-    required_inputs:
-      - shared_alignment
-      - reference
-      - pangenome_manifest
-      - pangenome_panel
-      - candidate_panel
-    optional_inputs: []
-    forbidden_inputs:
-      - canonical_fastq
-      - short_fastq_r1
-      - short_fastq_r2
-      - haplotype_fastq
-      - original_input_bam
-    billable_stages:
-      - genotype
-      - postprocess
   end_to_end_from_reads:
     required_inputs:
-      - canonical_fastq
+      - short_fastq_r1
+      - short_fastq_r2
       - reference
       - pangenome_manifest
       - pangenome_panel
       - candidate_panel
     optional_inputs: []
-    forbidden_inputs:
-      - original_input_bam
-      - shared_alignment
-      - short_fastq_r1
-      - short_fastq_r2
-      - haplotype_fastq
     billable_stages:
       - genotype
       - postprocess

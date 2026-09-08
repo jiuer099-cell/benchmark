@@ -134,7 +134,7 @@ def _write_companions(
     root: Path,
     manifest: dict[str, Any],
     *,
-    run_scoped: bool = False,
+    run_scoped: bool = True,
 ) -> None:
     scope = [manifest["run_id"]] if run_scoped else []
     log = (
@@ -333,7 +333,7 @@ def test_lineage_links_shared_hashes_and_has_stable_tsv(tmp_path: Path) -> None:
         outputs=[intermediate],
     )
     downstream = _prepared_manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key="hg002",
         attempt_id="attempt-1",
         inputs=[intermediate],
@@ -356,7 +356,7 @@ def test_lineage_links_shared_hashes_and_has_stable_tsv(tmp_path: Path) -> None:
     )
     tsv = lineage_tsv(lineage)
     assert "canonicalize_vcf" in tsv
-    assert "compute_pgbench_score" in tsv
+    assert "compute_me_f1" in tsv
     assert "true" in tsv
 
 
@@ -471,7 +471,7 @@ def test_audit_calculates_exact_traceability_fields(tmp_path: Path) -> None:
         outputs=[intermediate],
     )
     downstream = _prepared_manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key="hg002",
         attempt_id="attempt-1",
         inputs=[intermediate],
@@ -484,7 +484,7 @@ def test_audit_calculates_exact_traceability_fields(tmp_path: Path) -> None:
     expected = [
         {"rule_name": "canonicalize_vcf", "job_key": "hg002", "core": True},
         {
-            "rule_name": "compute_pgbench_score",
+            "rule_name": "compute_me_f1",
             "job_key": "hg002",
             "core": True,
         },
@@ -510,7 +510,7 @@ def test_audit_discovers_run_id_scoped_companions(tmp_path: Path) -> None:
     result = tmp_path / "score.json"
     result.write_text("{}\n", encoding="utf-8")
     manifest = _prepared_manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key="hg002",
         attempt_id="attempt-1",
         inputs=[],
@@ -575,7 +575,7 @@ def test_missing_noncore_package_is_provisional_but_missing_core_is_invalid(
         [manifest],
         expected_jobs=[
             {"rule_name": "prepare_reference", "job_key": "hg002"},
-            {"rule_name": "compute_pgbench_score", "job_key": "hg002", "core": True},
+            {"rule_name": "compute_me_f1", "job_key": "hg002", "core": True},
         ],
         target_manifest_ids=[manifest["manifest_id"]],
         workspace_root=tmp_path,
@@ -585,10 +585,10 @@ def test_missing_noncore_package_is_provisional_but_missing_core_is_invalid(
     assert core["core_provenance_valid"] is False
 
 
-def test_legacy_validate_profile_drift_is_superseded_by_frozen_context(
+def test_validate_profile_drift_invalidates_frozen_context(
     tmp_path: Path,
 ) -> None:
-    profile = tmp_path / "config" / "consensus_scoring.yaml"
+    profile = tmp_path / "config" / "me_f1_scoring.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("version: old\n", encoding="utf-8")
     validated = tmp_path / "validated.json"
@@ -628,11 +628,8 @@ def test_legacy_validate_profile_drift_is_superseded_by_frozen_context(
         verify_paths=True,
     )
 
-    assert audit["core_provenance_valid"] is True
-    assert any(
-        issue["code"] == "superseded_validation_profile"
-        for issue in audit["issues"]
-    )
+    assert audit["core_provenance_valid"] is False
+    assert any(issue["severity"] == "error" for issue in audit["issues"])
 
 
 def test_tracked_input_drift_is_verified_against_frozen_git_commit(
@@ -749,7 +746,7 @@ def test_audit_requires_one_consistent_frozen_run_context(tmp_path: Path) -> Non
         outputs=[intermediate],
     )
     downstream = _prepared_manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key="hg002",
         attempt_id="two",
         inputs=[intermediate],
@@ -764,7 +761,7 @@ def test_audit_requires_one_consistent_frozen_run_context(tmp_path: Path) -> Non
         [upstream, downstream],
         expected_jobs=[
             {"rule_name": "canonicalize_vcf", "job_key": "hg002"},
-            {"rule_name": "compute_pgbench_score", "job_key": "hg002"},
+            {"rule_name": "compute_me_f1", "job_key": "hg002"},
         ],
         target_manifest_ids=[downstream["manifest_id"]],
         workspace_root=tmp_path,
@@ -775,59 +772,6 @@ def test_audit_requires_one_consistent_frozen_run_context(tmp_path: Path) -> Non
     assert audit["status"] == "invalid"
     assert audit["core_provenance_valid"] is False
     assert any(issue["code"] == "run_context_mismatch" for issue in audit["issues"])
-
-
-def test_audit_allows_hash_bound_derived_truth_profile(tmp_path: Path) -> None:
-    primary_truth = tmp_path / "primary-truth.vcf.gz"
-    novel_truth = tmp_path / "novel-truth.vcf.gz"
-    primary_truth.write_text("primary", encoding="utf-8")
-    novel_truth.write_text("derived", encoding="utf-8")
-    primary = _prepared_manifest(
-        rule_name="prepare_primary_truth",
-        job_key="giab_hg002_grch38_v5_0q",
-        attempt_id="primary",
-        inputs=[],
-        outputs=[primary_truth],
-    )
-    derived = _prepared_manifest(
-        rule_name="prepare_novel_truth",
-        job_key="giab_hg002_grch38_v5_0q.graph",
-        attempt_id="derived",
-        inputs=[primary_truth],
-        outputs=[novel_truth],
-        upstream_manifest_ids=[primary["manifest_id"]],
-    )
-    # The derived VCF is independently content-bound by the manifest lineage;
-    # its profile is not the primary-truth identity used by the formal score.
-    derived["truth_profile"] = "pgbench_minigraph_novel_truth_v2"
-    _write_companions(tmp_path, primary)
-    _write_companions(tmp_path, derived)
-
-    audit = audit_manifests(
-        [primary, derived],
-        expected_jobs=[
-            {
-                "rule_name": "prepare_primary_truth",
-                "job_key": primary["job_key"],
-            },
-            {
-                "rule_name": "prepare_novel_truth",
-                "job_key": derived["job_key"],
-            },
-        ],
-        target_manifest_ids=[derived["manifest_id"]],
-        workspace_root=tmp_path,
-        require_companions=True,
-    )
-
-    assert audit["status"] == "valid"
-    assert audit["run_context_complete"] is True
-    assert audit["hash_lineage_complete"] is True
-    assert not any(
-        issue.get("code") == "run_context_mismatch"
-        and issue.get("field") == "truth_profile"
-        for issue in audit["issues"]
-    )
 
 
 def test_audit_requires_nonempty_snakemake_version(tmp_path: Path) -> None:
@@ -871,7 +815,7 @@ def test_audit_rejects_mixed_run_id(tmp_path: Path) -> None:
         outputs=[intermediate],
     )
     downstream = _prepared_manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key="hg002",
         attempt_id="two",
         inputs=[intermediate],
@@ -886,7 +830,7 @@ def test_audit_rejects_mixed_run_id(tmp_path: Path) -> None:
         [upstream, downstream],
         expected_jobs=[
             {"rule_name": "canonicalize_vcf", "job_key": "hg002"},
-            {"rule_name": "compute_pgbench_score", "job_key": "hg002"},
+            {"rule_name": "compute_me_f1", "job_key": "hg002"},
         ],
         target_manifest_ids=[downstream["manifest_id"]],
         workspace_root=tmp_path,
@@ -915,7 +859,7 @@ def test_audit_allows_rescoring_with_a_new_score_profile(tmp_path: Path) -> None
         outputs=[intermediate],
     )
     downstream = _prepared_manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key="hg002",
         attempt_id="two",
         inputs=[intermediate],
@@ -930,7 +874,7 @@ def test_audit_allows_rescoring_with_a_new_score_profile(tmp_path: Path) -> None
         [upstream, downstream],
         expected_jobs=[
             {"rule_name": "canonicalize_vcf", "job_key": "hg002"},
-            {"rule_name": "compute_pgbench_score", "job_key": "hg002"},
+            {"rule_name": "compute_me_f1", "job_key": "hg002"},
         ],
         target_manifest_ids=[downstream["manifest_id"]],
         workspace_root=tmp_path,

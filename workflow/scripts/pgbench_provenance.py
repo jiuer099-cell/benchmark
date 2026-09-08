@@ -27,16 +27,6 @@ MANIFEST_SCHEMA_VERSION = "pgbench.rule_manifest.v1"
 LINEAGE_SCHEMA_VERSION = "pgbench.rule_lineage.v1"
 AUDIT_SCHEMA_VERSION = "pgbench.provenance_audit.v1"
 
-# Before the run-context snapshot became the authoritative owner of evaluator
-# and scoring profiles, validate_config also recorded these files as inputs.
-# validate_config only verifies that the evaluator profile path exists; it does
-# not consume either profile's contents.  Old manifests can therefore report
-# harmless drift after a profile is frozen correctly by snapshot_run_context.
-_LEGACY_VALIDATE_PROFILE_SUFFIXES = (
-    "/config/consensus_scoring.yaml",
-    "/config/evaluator_profile.yaml",
-)
-
 MANIFEST_ID_FIELDS = (
     "manifest_schema_version",
     "run_id",
@@ -105,7 +95,7 @@ DEFAULT_CORE_RULE_PATTERNS = (
     "fuse_evaluator_metrics",
     "collect_tool_resources",
     "audit_score_inputs",
-    "compute_pgbench_score",
+    "compute_me_f1",
     "finalize_score_provenance",
 )
 
@@ -1241,20 +1231,10 @@ def _companion_path_candidates(
     *,
     run_id: Any,
 ) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    """Return preferred run-scoped and legacy companion locations.
+    """Return the run-scoped log and benchmark companion locations."""
 
-    Current workflows isolate companions below ``logs/<run_id>`` and
-    ``benchmarks/<run_id>``.  The unscoped paths remain a read-only fallback so
-    manifests produced by releases before run isolation can still be audited.
-    Unsafe run identifiers are never interpolated into a filesystem path.
-    """
-
-    legacy = (
-        root / "logs" / "rules" / job.rule_name / f"{job.job_key}.log",
-        root / "benchmarks" / "rules" / job.rule_name / f"{job.job_key}.jsonl",
-    )
     if not isinstance(run_id, str) or not _SAFE_KEY_RE.fullmatch(run_id):
-        return ((legacy[0],), (legacy[1],))
+        return ((), ())
     scoped = (
         root / "logs" / run_id / "rules" / job.rule_name / f"{job.job_key}.log",
         root
@@ -1264,7 +1244,7 @@ def _companion_path_candidates(
         / job.rule_name
         / f"{job.job_key}.jsonl",
     )
-    return ((scoped[0], legacy[0]), (scoped[1], legacy[1]))
+    return ((scoped[0],), (scoped[1],))
 
 
 def audit_manifests(
@@ -1312,32 +1292,6 @@ def audit_manifests(
     valid_manifests: list[Mapping[str, Any]] = []
     selected_by_job: dict[tuple[str, str], Mapping[str, Any]] = {}
     root = Path(workspace_root) if workspace_root is not None else Path.cwd()
-
-    # A legacy validate_config manifest may contain the scoring/evaluator
-    # profiles even though validate_config never reads their contents.  Treat
-    # drift as superseded only when snapshot_run_context independently froze
-    # the *current* content of that exact profile path.  This keeps the
-    # compatibility exception narrow and still rejects unfrozen profile drift.
-    frozen_legacy_profiles: dict[str, str] = {}
-    for manifest in manifests:
-        if manifest.get("rule_name") != "snapshot_run_context":
-            continue
-        input_hashes = manifest.get("input_sha256")
-        if not isinstance(input_hashes, Mapping):
-            continue
-        for raw_path, digest in input_hashes.items():
-            normalized = "/" + str(raw_path).replace("\\", "/").lstrip("/")
-            if not normalized.endswith(_LEGACY_VALIDATE_PROFILE_SUFFIXES):
-                continue
-            candidate = Path(str(raw_path))
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            if (
-                isinstance(digest, str)
-                and candidate.is_file()
-                and sha256_file(candidate) == digest
-            ):
-                frozen_legacy_profiles[str(raw_path)] = digest
 
     historical_git_hashes: dict[tuple[str, str], str | None] = {}
 
@@ -1415,28 +1369,6 @@ def audit_manifests(
         for message in validation_errors:
             prefix = "input hash mismatch: "
             drift_path = message[len(prefix) :] if message.startswith(prefix) else None
-            if (
-                job.rule_name == "validate_config"
-                and drift_path in frozen_legacy_profiles
-                and (
-                    "/" + str(drift_path).replace("\\", "/").lstrip("/")
-                ).endswith(_LEGACY_VALIDATE_PROFILE_SUFFIXES)
-            ):
-                issues.append(
-                    {
-                        "code": "superseded_validation_profile",
-                        "severity": "warning",
-                        "manifest_id": selected_manifest.get("manifest_id"),
-                        "rule_name": job.rule_name,
-                        "job_key": job.job_key,
-                        "path": drift_path,
-                        "message": (
-                            "legacy non-semantic validate_config profile drift "
-                            "is superseded by the frozen run-context profile"
-                        ),
-                    }
-                )
-                continue
             if drift_path is not None:
                 expected_hashes = selected_manifest.get("input_sha256")
                 expected_hash = (
@@ -1505,7 +1437,7 @@ def audit_manifests(
                             ],
                             "message": (
                                 f"required {kind} record is missing from "
-                                "run-scoped and legacy locations"
+                                "its run-scoped location"
                             ),
                         }
                     )
@@ -1643,7 +1575,7 @@ def audit_manifests(
     scoring_manifests = [
         manifest
         for manifest in valid_manifests
-        if manifest.get("rule_name") == "compute_pgbench_score"
+        if manifest.get("rule_name") == "compute_me_f1"
     ]
     if scoring_manifests:
         scoring_profile_declared = all(
@@ -1660,7 +1592,7 @@ def audit_manifests(
                     "code": "missing_scoring_profile",
                     "severity": "error",
                     "message": (
-                        "compute_pgbench_score must declare params.score_profile"
+                        "compute_me_f1 must declare params.score_profile"
                     ),
                 }
             )

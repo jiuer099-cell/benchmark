@@ -6,6 +6,8 @@ is launched only by ``pgbench_exec.py``.
 """
 
 from pathlib import Path
+import os
+import sys
 
 import yaml
 
@@ -21,7 +23,7 @@ RULE_SOURCE = "workflow/modules/generic_external/Snakefile"
 CORE_ENVIRONMENT = "workflow/envs/core.yaml"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
 # Resolve Python after Snakemake activates the plugin's declared environment.
-PYTHON_EXECUTABLE = "python"
+PYTHON_EXECUTABLE = sys.executable if os.name == "nt" else "python"
 GRAPH_ASSET_MANIFEST = SETTINGS.get("graph_asset_manifest")
 GRAPH_ASSET_LOCK = SETTINGS.get("graph_asset_lock")
 
@@ -50,18 +52,17 @@ if PLUGIN_RUNNER is None:
 PLUGIN_ENVIRONMENT = resolve_plugin_execution_path(
     PLUGIN_EXECUTION.get("environment")
 )
-PLUGIN_ENVIRONMENT_LOCK = (
-    str(
-        Path(PLUGIN_ENVIRONMENT).with_name("environment.linux-64.explicit.txt")
-    )
+PLUGIN_ENVIRONMENT_LOCK_CANDIDATE = (
+    Path(PLUGIN_ENVIRONMENT).with_name("environment.linux-64.explicit.txt")
     if PLUGIN_ENVIRONMENT is not None
     else None
 )
-if PLUGIN_ENVIRONMENT_LOCK is None or not Path(PLUGIN_ENVIRONMENT_LOCK).is_file():
-    raise ValueError(
-        "generic external tool manifest must ship an exact "
-        "environment.linux-64.explicit.txt lock beside its environment spec"
-    )
+PLUGIN_ENVIRONMENT_LOCK = (
+    str(PLUGIN_ENVIRONMENT_LOCK_CANDIDATE)
+    if PLUGIN_ENVIRONMENT_LOCK_CANDIDATE is not None
+    and PLUGIN_ENVIRONMENT_LOCK_CANDIDATE.is_file()
+    else None
+)
 PLUGIN_RULE_REGISTRY = resolve_plugin_execution_path(
     PLUGIN_EXECUTION.get("rule_registry")
 )
@@ -128,10 +129,10 @@ PROVENANCE_INPUTS = [
     SETTINGS["config_snapshot"],
     SETTINGS["score_profile"],
     SETTINGS["run_context"],
-    PLUGIN_ENVIRONMENT_LOCK,
     *([GRAPH_ASSET_MANIFEST] if GRAPH_ASSET_MANIFEST is not None else []),
     *([GRAPH_ASSET_LOCK] if GRAPH_ASSET_LOCK is not None else []),
     *ASSETS.values(),
+    *([PLUGIN_ENVIRONMENT_LOCK] if PLUGIN_ENVIRONMENT_LOCK is not None else []),
 ]
 PROVENANCE_INPUT_ARGUMENTS = [
     item
@@ -173,7 +174,9 @@ rule generic_external_tool:
         plugin_environment=(
             [PLUGIN_ENVIRONMENT] if PLUGIN_ENVIRONMENT is not None else []
         ),
-        plugin_environment_lock=PLUGIN_ENVIRONMENT_LOCK,
+        plugin_environment_lock=(
+            [PLUGIN_ENVIRONMENT_LOCK] if PLUGIN_ENVIRONMENT_LOCK is not None else []
+        ),
         plugin_rule_registry=(
             [PLUGIN_RULE_REGISTRY]
             if PLUGIN_RULE_REGISTRY is not None
@@ -203,6 +206,11 @@ rule generic_external_tool:
         output_dir=str(OUTPUT_DIR),
         input_arguments=INPUT_ARGUMENTS,
         alignment_arguments=ALIGNMENT_ARGUMENTS,
+        conda_lock_arguments=(
+            ["--conda-lock", PLUGIN_ENVIRONMENT_LOCK]
+            if PLUGIN_ENVIRONMENT_LOCK is not None
+            else []
+        ),
         provenance_input_arguments=PROVENANCE_INPUT_ARGUMENTS,
         upstream_arguments=UPSTREAM_ARGUMENTS,
         execution_purpose=SETTINGS.get("execution_purpose", "development_only"),
@@ -234,7 +242,7 @@ rule generic_external_tool:
           --script-or-wrapper-path {input.executor:q} \
           --config-snapshot {input.config_snapshot:q} \
           --score-profile {input.score_profile:q} \
-          --conda-lock {input.plugin_environment_lock:q} \
+          {params.conda_lock_arguments:q} \
           --run-context {input.run_context:q} \
           --pangenome-manifest {params.pangenome_manifest:q} \
           --reference {params.reference:q} \

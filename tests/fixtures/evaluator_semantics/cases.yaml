@@ -1,0 +1,43 @@
+contract: pgbench_genotype_evaluator_contract_v1
+cases:
+  - id: exact_het
+    truth_gt: 0/1
+    query_gt: 0/1
+    biological_match: true
+    expected: {tp: 1, fp: 0, fn: 0}
+  - id: het_to_hom_alt_mismatch
+    truth_gt: 0/1
+    query_gt: 1/1
+    biological_match: true
+    expected: {tp: 0, fp: 1, fn: 1}
+  - id: hom_alt_to_het_mismatch
+    truth_gt: 1/1
+    query_gt: 0/1
+    biological_match: true
+    expected: {tp: 0, fp: 1, fn: 1}
+  - id: truth_alt_query_hom_ref
+    truth_gt: 0/1
+    query_gt: 0/0
+    biological_match: true
+    expected: {tp: 0, fp: 0, fn: 1}
+  - id: truth_hom_ref_query_alt
+    truth_gt: 0/0
+    query_gt: 0/1
+    biological_match: true
+    expected: {tp: 0, fp: 1, fn: 0}
+  - id: equivalent_representation
+    truth_gt: 0/1
+    query_gt: 0/1
+    biological_match: true
+    representation_only_difference: true
+    expected: {tp: 1, fp: 0, fn: 0}
+  - id: explicit_no_call
+    truth_gt: 0/1
+    query_gt: ./.
+    biological_match: true
+    expected: {tp: 0, fp: 0, fn: 1}
+  - id: nearby_biologically_distinct
+    truth_gt: 0/1
+    query_gt: 0/1
+    biological_match: false
+    expected: {tp: 0, fp: 1, fn: 1}

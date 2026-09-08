@@ -9,6 +9,7 @@ configuration.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -32,10 +33,10 @@ class SyntheticMetricError(ValueError):
 
 COMPONENT_PATHS = {
     "benchmark.truth.eligible.count": ("truth_eligible_count",),
-    "consensus.all_three_correct.count": ("consensus", "all_three_correct"),
-    "consensus.exactly_two_correct.count": ("consensus", "exactly_two_correct"),
-    "consensus.exactly_one_correct.count": ("consensus", "exactly_one_correct"),
-    "consensus.none_correct.count": ("consensus", "none_correct"),
+    "diagnostic.evaluator_agreement.all_three_correct.count": ("evaluator_agreement", "all_three_correct"),
+    "diagnostic.evaluator_agreement.exactly_two_correct.count": ("evaluator_agreement", "exactly_two_correct"),
+    "diagnostic.evaluator_agreement.exactly_one_correct.count": ("evaluator_agreement", "exactly_one_correct"),
+    "diagnostic.evaluator_agreement.none_correct.count": ("evaluator_agreement", "none_correct"),
     "truvari.event.overall.f1": ("evaluators", "truvari", "overall_event_f1"),
     "truvari.event.svtype.macro_f1": (
         "evaluators",
@@ -185,6 +186,7 @@ def materialize(
     fixture: Mapping[str, Any],
     metric_dictionary: Mapping[str, Any],
     score_profile_path: Path,
+    evaluator_profile_path: Path,
     evaluator_manifest_id: str,
     pangenome_manifest_id: str,
     resource_manifest_id: str,
@@ -276,6 +278,16 @@ def materialize(
             "score_profile": score_profile["profile"]["id"],
         },
         "records": records,
+        "analysis": {
+            "contract_version": "synthetic_genotype_me_f1_v1",
+            "evaluator_profile_sha256": hashlib.sha256(
+                evaluator_profile_path.read_bytes()
+            ).hexdigest(),
+            "evaluator_gt_metrics": fixture.get("evaluator_gt_metrics"),
+            "quality_gates": fixture.get("quality_gates"),
+            "panel_addressable_truth_count": fixture.get("truth_eligible_count"),
+            "evaluator_agreement_counts": fixture.get("evaluator_agreement"),
+        },
     }
     build_score_payload_from_metrics(
         document,
@@ -305,6 +317,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--metric-dictionary", required=True, type=Path)
     parser.add_argument("--metrics-schema", required=True, type=Path)
     parser.add_argument("--score-profile", required=True, type=Path)
+    parser.add_argument("--evaluator-profile", required=True, type=Path)
     parser.add_argument("--evaluator-manifest", required=True, type=Path)
     parser.add_argument("--pangenome-manifest", required=True, type=Path)
     parser.add_argument("--resource-manifest", required=True, type=Path)
@@ -321,6 +334,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             fixture=_load_json_object(args.fixture, "smoke fixture"),
             metric_dictionary=dictionary,
             score_profile_path=args.score_profile,
+            evaluator_profile_path=args.evaluator_profile,
             evaluator_manifest_id=_manifest_id(args.evaluator_manifest),
             pangenome_manifest_id=_manifest_id(args.pangenome_manifest),
             resource_manifest_id=_manifest_id(args.resource_manifest),

@@ -381,24 +381,19 @@ def aggregate(
                 "score_profile_sha256": score.get("score_profile_sha256"),
                 "evaluation_mode": score.get("evaluation_mode"),
                 "score_status": score.get("score_status"),
+                "ME-F1": score.get("benchmark_score"),
+                "TruvariF1": (score.get("evaluator_scores") or {}).get("truvari"),
+                "AardvarkGTF1": (score.get("evaluator_scores") or {}).get("aardvark"),
+                "vcfdistF1": (score.get("evaluator_scores") or {}).get("vcfdist"),
+                "EvaluatorRange": score.get("evaluator_range"),
+                "EvaluatorSD": score.get("evaluator_sd"),
                 "PangenomeGenotypingScore": score.get(
                     "pangenome_genotyping_score"
                 ),
                 "NonReferenceF1": score.get("non_reference_f1_score"),
                 "PanelCoverage": score.get("panel_coverage"),
-                "GlobalEndToEndSVRecoveryScore": score.get(
-                    "global_end_to_end_sv_recovery_score"
-                ),
-                "ComparableScore": score.get(
-                    "comparable_score", score.get("pgbench_score")
-                ),
-                "ConsensusScore": score.get("consensus_score"),
                 "total_evaluated": score.get("total_evaluated"),
                 "truth_eligible_count": score.get("truth_eligible_count"),
-                "comparable_precision": score.get("comparable_precision"),
-                "comparable_recall": score.get("comparable_recall"),
-                "unanimous_correct_rate": score.get("unanimous_correct_rate"),
-                "majority_correct_rate": score.get("majority_correct_rate"),
             }
         )
         breakdown = score.get("point_breakdown")
@@ -433,18 +428,17 @@ def aggregate(
             "score_profile_sha256",
             "evaluation_mode",
             "score_status",
+            "ME-F1",
+            "TruvariF1",
+            "AardvarkGTF1",
+            "vcfdistF1",
+            "EvaluatorRange",
+            "EvaluatorSD",
             "PangenomeGenotypingScore",
             "NonReferenceF1",
             "PanelCoverage",
-            "GlobalEndToEndSVRecoveryScore",
-            "ComparableScore",
-            "ConsensusScore",
             "total_evaluated",
             "truth_eligible_count",
-            "comparable_precision",
-            "comparable_recall",
-            "unanimous_correct_rate",
-            "majority_correct_rate",
         ),
         score_rows,
     )

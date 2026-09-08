@@ -6,16 +6,27 @@
     "official_score_mode": "end_to_end_from_reads",
     "primary_truth_profile": "giab_hg002_grch38_v5_0q"
   },
-  "score_profile": "pgbench_consensus_v4",
+  "score_profile": "pgbench_me_f1_v1",
   "evaluation_mode": "synthetic_smoke",
   "eligibility_status": "eligible",
   "infrastructure_valid": true,
-  "truth_eligible_count": 1200,
-  "consensus": {
-    "all_three_correct": 620,
-    "exactly_two_correct": 210,
-    "exactly_one_correct": 120,
-    "none_correct": 50
+  "truth_eligible_count": 100,
+  "evaluator_agreement": {
+    "all_three_correct": 62,
+    "exactly_two_correct": 21,
+    "exactly_one_correct": 12,
+    "none_correct": 5
+  },
+  "evaluator_gt_metrics": {
+    "truvari": {"tp": 82, "fp": 18, "fn": 18, "precision": 0.82, "recall": 0.82, "f1": 0.82},
+    "aardvark": {"tp": 79, "fp": 21, "fn": 21, "precision": 0.79, "recall": 0.79, "f1": 0.79},
+    "vcfdist": {"tp": 75, "fp": 25, "fn": 25, "precision": 0.75, "recall": 0.75, "f1": 0.75}
+  },
+  "quality_gates": {
+    "evaluator_semantic_contract_valid": true,
+    "addressability_complete": true,
+    "allowed_information_complete": true,
+    "tuning_frozen": true
   },
   "evaluators": {
     "truvari": {

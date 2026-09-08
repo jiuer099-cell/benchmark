@@ -15,25 +15,25 @@ metrics:
     required_for_valid_score: true
     point_component: null
     universe: Fixed primary-truth VCF records overlapping the benchmark BED.
-  consensus.all_three_correct.count:
+  diagnostic.evaluator_agreement.all_three_correct.count:
     value_type: count
     source: fusion
     required_for_valid_score: true
     point_component: null
     universe: Query results accepted independently by all three evaluators.
-  consensus.exactly_two_correct.count:
+  diagnostic.evaluator_agreement.exactly_two_correct.count:
     value_type: count
     source: fusion
     required_for_valid_score: true
     point_component: null
     universe: Query results accepted independently by exactly two evaluators.
-  consensus.exactly_one_correct.count:
+  diagnostic.evaluator_agreement.exactly_one_correct.count:
     value_type: count
     source: fusion
     required_for_valid_score: true
     point_component: null
     universe: Query results accepted independently by exactly one evaluator.
-  consensus.none_correct.count:
+  diagnostic.evaluator_agreement.none_correct.count:
     value_type: count
     source: fusion
     required_for_valid_score: true
@@ -203,7 +203,7 @@ metrics:
     source: fusion
     required_for_valid_score: false
     point_component: null
-    universe: Unweighted diagnostic mean of evaluator-specific in-panel genotype macro-F1; never a ComparableScore component.
+    universe: Unweighted diagnostic mean of evaluator-specific in-panel genotype macro-F1; never an ME-F1 component.
   pangenome.link.precision:
     value_type: ratio
     source: pangenome_linker

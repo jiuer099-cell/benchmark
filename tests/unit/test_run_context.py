@@ -13,7 +13,7 @@ from snapshot_run_context import capture_run_context  # noqa: E402
 def test_run_context_records_dirty_state_and_profile_hash(tmp_path: Path) -> None:
     root = tmp_path / "repository"
     root.mkdir()
-    profile = root / "consensus_scoring.yaml"
+    profile = root / "me_f1_scoring.yaml"
     profile.write_text("schema_version: 1\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(

@@ -1,8 +1,25 @@
 schema_version: 1
 
 profile:
-  id: pgbench_evaluators_grch38_v3
-  description: Frozen evaluator, event-matching, genotype, bootstrap, and vcfdist identity-recovery contract.
+  id: pgbench_evaluators_grch38_gt_v1
+  description: Frozen, common genotype-aware evaluator contract for short-read fixed-panel SV genotyping.
+
+semantic_validation:
+  contract: pgbench_genotype_evaluator_contract_v1
+  status: enforced_by_runtime_artifact
+  suite: tests/fixtures/evaluator_semantics/cases.yaml
+  required_cases:
+    - exact_het
+    - het_to_hom_alt_mismatch
+    - hom_alt_to_het_mismatch
+    - truth_alt_query_hom_ref
+    - truth_hom_ref_query_alt
+    - equivalent_representation
+    - explicit_no_call
+    - nearby_biologically_distinct
+  genotype_mismatch_policy: one_false_positive_plus_one_false_negative
+  no_call_policy: false_negative_for_truth_positive
+  summary_policy: recompute_tp_fp_fn_from_detailed_ledger
 
 universe:
   truth_filter_policy: pass_only
@@ -26,8 +43,8 @@ sv_match:
 
 semantics:
   primary_vote: detection
-  # A formal three-evaluator consensus is invalid when representation mapping
-  # leaves more than one percent of submitted events unresolved.
+  # Formal ME-F1 is invalid when representation mapping leaves more than one
+  # percent of submitted events unresolved.
   maximum_unresolved_mapping_fraction: 0.01
   # vcfdist standardizes all query variants in one supercluster and does not
   # retain submitted IDs. A bulk run may therefore emit fewer query rows than

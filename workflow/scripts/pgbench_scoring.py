@@ -1,4 +1,9 @@
-"""Deterministic, unweighted three-evaluator consensus scoring."""
+"""Deterministic multi-evaluator genotype-F1 scoring.
+
+The primary score is the arithmetic mean of three independently materialized,
+genotype-aware evaluator F1 values. Evaluator agreement is diagnostic only and
+can never affect the primary score.
+"""
 
 from __future__ import annotations
 
@@ -14,17 +19,24 @@ import yaml  # type: ignore[import-untyped]
 
 
 class ScoreInputError(ValueError):
-    """Raised when consensus input violates the frozen contract."""
+    """Raised when ME-F1 input violates the frozen contract."""
 
 
 DEFAULT_SCORE_PROFILE_PATH = (
-    Path(__file__).resolve().parents[2] / "config" / "consensus_scoring.yaml"
+    Path(__file__).resolve().parents[2] / "config" / "me_f1_scoring.yaml"
 )
 SCORE_TUPLE_FIELDS = frozenset(
     {"run_id", "sample", "tool", "official_score_mode", "primary_truth_profile"}
 )
-CONSENSUS_FIELDS = frozenset(
-    {"all_three_correct", "exactly_two_correct", "exactly_one_correct", "none_correct"}
+EVALUATORS = ("truvari", "aardvark", "vcfdist")
+EVALUATOR_FIELDS = frozenset({"tp", "fp", "fn", "precision", "recall", "f1"})
+QUALITY_GATE_FIELDS = frozenset(
+    {
+        "evaluator_semantic_contract_valid",
+        "addressability_complete",
+        "allowed_information_complete",
+        "tuning_frozen",
+    }
 )
 SCORE_PAYLOAD_FIELDS = frozenset(
     {
@@ -33,7 +45,8 @@ SCORE_PAYLOAD_FIELDS = frozenset(
         "eligibility_status",
         "infrastructure_valid",
         "truth_eligible_count",
-        "consensus",
+        "evaluator_f1",
+        "quality_gates",
     }
 )
 NON_SCORABLE_STATUSES = {
@@ -53,41 +66,30 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
     try:
         profile = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        raise ScoreInputError(f"cannot load consensus profile {path}: {exc}") from exc
-    if not isinstance(profile, dict) or profile.get("schema_version") != 2:
-        raise ScoreInputError("consensus profile schema_version must be 2")
+        raise ScoreInputError(f"cannot load ME-F1 profile {path}: {exc}") from exc
+    if not isinstance(profile, dict) or profile.get("schema_version") != 3:
+        raise ScoreInputError("ME-F1 profile schema_version must be 3")
     meta = profile.get("profile")
-    consensus = profile.get("consensus")
-    if not isinstance(meta, dict) or meta.get("id") != "pgbench_consensus_v4":
-        raise ScoreInputError("unsupported consensus profile id")
-    if meta.get("produce_ranking") is not False:
-        raise ScoreInputError("consensus profile must disable ranking")
-    if not isinstance(consensus, dict):
-        raise ScoreInputError("consensus profile is missing consensus settings")
-    if consensus.get("evaluators") != ["truvari", "aardvark", "vcfdist"]:
-        raise ScoreInputError("consensus evaluators must be Truvari, Aardvark, vcfdist")
-    if consensus.get("formula") != "(3*n3 + 2*n2 + n1) / (3*N) * 100":
-        raise ScoreInputError("unsupported consensus formula")
-    comparability = profile.get("comparability")
-    if (
-        not isinstance(comparability, dict)
-        or comparability.get("truth_metric") != "benchmark.truth.eligible.count"
-        or comparability.get("formula") != "2*min(softTP,T)/(Q+T)*100"
+    if not isinstance(meta, dict) or meta.get("id") != "pgbench_me_f1_v1":
+        raise ScoreInputError("unsupported ME-F1 profile id")
+    primary = profile.get("primary_score")
+    if not isinstance(primary, dict):
+        raise ScoreInputError("ME-F1 profile is missing primary_score")
+    if primary.get("formula") != (
+        "(F1_truvari + F1_aardvark_gt + F1_vcfdist) / 3"
     ):
-        raise ScoreInputError("unsupported unified comparability contract")
+        raise ScoreInputError("unsupported ME-F1 formula")
+    if primary.get("denominator") != "frozen_panel_addressable_truth":
+        raise ScoreInputError("ME-F1 must use frozen panel-addressable truth")
+    weights = primary.get("evaluator_weights")
+    if weights != {name: 1 for name in EVALUATORS}:
+        raise ScoreInputError("ME-F1 requires equal evaluator weights")
     profile["_source_path"] = str(path)
     profile["_sha256"] = _profile_sha256(path)
     return profile
 
 
 SCORE_PROFILE = load_score_profile()
-# Kept as empty compatibility exports; weighted components no longer exist.
-EVALUATOR_COMPONENTS: dict[str, dict[str, float]] = {}
-EVALUATOR_WEIGHTS: dict[str, float] = {}
-PANGENOME_COMPONENTS: dict[str, float] = {}
-RESOURCE_COMPONENTS: dict[str, float] = {}
-TRACEABILITY_COMPONENTS: dict[str, float] = {}
-RESOURCE_PROFILES: dict[str, dict[str, tuple[float, float]]] = {}
 
 
 @dataclass(frozen=True)
@@ -97,28 +99,18 @@ class ScoreResult:
     score_profile_sha256: str
     evaluation_mode: str
     score_status: str
-    pgbench_score: float | None
-    pgbench_score_raw: float | None
-    consensus_score: float | None
-    comparable_score: float | None
-    comparable_score_raw: float | None
+    benchmark_score: float | None
+    benchmark_score_raw: float | None
+    me_f1: float | None
+    evaluator_range: float | None
+    evaluator_sd: float | None
     pangenome_genotyping_score: float | None
     non_reference_f1_score: float | None
     panel_coverage: float | None
-    global_end_to_end_sv_recovery_score: float | None
-    consensus_counts: Mapping[str, int]
+    evaluator_agreement_counts: Mapping[str, int]
     total_evaluated: int
     truth_eligible_count: int
-    soft_true_positive_count: float | None
-    comparable_precision: float | None
-    comparable_recall: float | None
-    unanimous_correct_rate: float | None
-    majority_correct_rate: float | None
     point_breakdown: Mapping[str, float]
-    evaluator_points: None = None
-    pangenome_points: None = None
-    resource_points: None = None
-    traceability_points: None = None
     evaluator_scores: Mapping[str, float] | None = None
     required_f1_metrics: Mapping[str, Mapping[str, Any]] | None = None
     formal_analysis: Mapping[str, Any] | None = None
@@ -160,16 +152,74 @@ def _validated_tuple(value: Any, context: str) -> dict[str, str]:
 
 def _count(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ScoreInputError(f"consensus.{name} must be a non-negative integer")
+        raise ScoreInputError(f"evaluator_agreement.{name} must be a non-negative integer")
     return value
 
 
-def resource_fraction(value: float, target: float, limit: float) -> float:
-    """Removed weighted-resource helper retained only to fail clearly."""
-    raise ScoreInputError("resource weighting was removed in pgbench_consensus_v4")
+def _unit_interval(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ScoreInputError(f"{name} must be numeric")
+    numeric = float(value)
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise ScoreInputError(f"{name} must be finite in [0, 1]")
+    return numeric
 
 
-def calculate_pgbench_score(
+def _validated_evaluator_metrics(value: Any) -> dict[str, dict[str, float | int]]:
+    if not isinstance(value, Mapping) or set(value) != set(EVALUATORS):
+        raise ScoreInputError(
+            "evaluator_f1 must contain exactly truvari, aardvark, and vcfdist"
+        )
+    validated: dict[str, dict[str, float | int]] = {}
+    for evaluator in EVALUATORS:
+        raw = value[evaluator]
+        if not isinstance(raw, Mapping):
+            raise ScoreInputError(f"evaluator_f1.{evaluator} must be a mapping")
+        _exact_fields(raw, EVALUATOR_FIELDS, f"evaluator_f1.{evaluator}")
+        tp = _count(raw["tp"], f"{evaluator}.tp")
+        fp = _count(raw["fp"], f"{evaluator}.fp")
+        fn = _count(raw["fn"], f"{evaluator}.fn")
+        precision = _unit_interval(raw["precision"], f"{evaluator}.precision")
+        recall = _unit_interval(raw["recall"], f"{evaluator}.recall")
+        f1 = _unit_interval(raw["f1"], f"{evaluator}.f1")
+        expected_precision = tp / (tp + fp) if tp + fp else 0.0
+        expected_recall = tp / (tp + fn) if tp + fn else 0.0
+        expected_f1 = (
+            2.0 * expected_precision * expected_recall
+            / (expected_precision + expected_recall)
+            if expected_precision + expected_recall
+            else 0.0
+        )
+        for name, observed, expected in (
+            ("precision", precision, expected_precision),
+            ("recall", recall, expected_recall),
+            ("f1", f1, expected_f1),
+        ):
+            if not math.isclose(observed, expected, rel_tol=0.0, abs_tol=1e-9):
+                raise ScoreInputError(
+                    f"evaluator_f1.{evaluator}.{name} does not match TP/FP/FN"
+                )
+        validated[evaluator] = {
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        }
+    return validated
+
+
+def _validated_quality_gates(value: Any) -> dict[str, bool]:
+    if not isinstance(value, Mapping):
+        raise ScoreInputError("quality_gates must be a mapping")
+    _exact_fields(value, QUALITY_GATE_FIELDS, "quality_gates")
+    if not all(isinstance(value[field], bool) for field in QUALITY_GATE_FIELDS):
+        raise ScoreInputError("all quality_gates values must be boolean")
+    return {field: bool(value[field]) for field in QUALITY_GATE_FIELDS}
+
+
+def calculate_me_f1(
     payload: Mapping[str, Any], *, expected_tuple: Mapping[str, str],
     evaluation_mode: str, score_profile_path: Path | None = None,
 ) -> ScoreResult:
@@ -198,36 +248,25 @@ def calculate_pgbench_score(
             score_profile_sha256=profile["_sha256"],
             evaluation_mode=evaluation_mode,
             score_status="invalid" if status in INVALID_SCORE_STATUSES else str(status),
-            pgbench_score=None,
-            pgbench_score_raw=None,
-            consensus_score=None,
-            comparable_score=None,
-            comparable_score_raw=None,
+            benchmark_score=None,
+            benchmark_score_raw=None,
+            me_f1=None,
+            evaluator_range=None,
+            evaluator_sd=None,
             pangenome_genotyping_score=None,
             non_reference_f1_score=None,
             panel_coverage=None,
-            global_end_to_end_sv_recovery_score=None,
-            consensus_counts={},
+            evaluator_agreement_counts={},
             total_evaluated=0,
             truth_eligible_count=0,
-            soft_true_positive_count=None,
-            comparable_precision=None,
-            comparable_recall=None,
-            unanimous_correct_rate=None,
-            majority_correct_rate=None,
             point_breakdown={},
             formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
             reason=str(payload.get("reason") or status),
         )
     if status != "eligible" or payload.get("infrastructure_valid") is not True:
-        raise ScoreInputError("eligible consensus input requires valid infrastructure")
-    raw_counts = payload.get("consensus")
-    if not isinstance(raw_counts, Mapping):
-        raise ScoreInputError("consensus must be a mapping")
-    _exact_fields(raw_counts, CONSENSUS_FIELDS, "consensus")
-    counts = {name: _count(raw_counts[name], name) for name in CONSENSUS_FIELDS}
-    total = sum(counts.values())
-    n3, n2, n1 = counts["all_three_correct"], counts["exactly_two_correct"], counts["exactly_one_correct"]
+        raise ScoreInputError("eligible ME-F1 input requires valid infrastructure")
+    evaluator_metrics = _validated_evaluator_metrics(payload.get("evaluator_f1"))
+    quality_gates = _validated_quality_gates(payload.get("quality_gates"))
     truth_total = payload.get("truth_eligible_count")
     if (
         isinstance(truth_total, bool)
@@ -235,76 +274,42 @@ def calculate_pgbench_score(
         or truth_total <= 0
     ):
         raise ScoreInputError("truth_eligible_count must be a positive integer")
-    if total == 0:
-        return ScoreResult(
-            tuple_key=trusted,
-            score_profile=profile_id,
-            score_profile_sha256=profile["_sha256"],
-            evaluation_mode=evaluation_mode,
-            score_status="invalid",
-            pgbench_score=None,
-            pgbench_score_raw=None,
-            consensus_score=None,
-            comparable_score=None,
-            comparable_score_raw=None,
-            pangenome_genotyping_score=None,
-            non_reference_f1_score=None,
-            panel_coverage=None,
-            global_end_to_end_sv_recovery_score=None,
-            consensus_counts=counts,
-            total_evaluated=0,
-            truth_eligible_count=truth_total,
-            soft_true_positive_count=None,
-            comparable_precision=None,
-            comparable_recall=None,
-            unanimous_correct_rate=None,
-            majority_correct_rate=None,
-            point_breakdown={},
-            formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
-            reason="no submitted in-scope events were available for scoring",
-        )
-    vote_points = 3 * n3 + 2 * n2 + n1
-    consensus_raw = vote_points / (3 * total) * 100.0 if total else 0.0
-    soft_tp = vote_points / 3.0
-    if soft_tp > float(truth_total) + 1e-9:
-        raise ScoreInputError(
-            "soft true-positive credit exceeds the one-to-one truth universe"
-        )
-    effective_tp = soft_tp
-    comparable_raw = 2.0 * soft_tp / (total + truth_total) * 100.0
-    decimals = int(profile["profile"].get("display_decimals", 2))
-    consensus_score = round(consensus_raw, decimals)
-    comparable_score = round(comparable_raw, decimals)
-    if isinstance(analysis, Mapping):
-        independently_materialized = analysis.get("comparable_score")
-        if (
-            isinstance(independently_materialized, bool)
-            or not isinstance(independently_materialized, (int, float))
-            or not math.isclose(
-                float(independently_materialized),
-                comparable_raw,
-                rel_tol=0.0,
-                abs_tol=1e-9,
-            )
-        ):
+    for evaluator, metrics in evaluator_metrics.items():
+        if int(metrics["tp"]) + int(metrics["fn"]) != truth_total:
             raise ScoreInputError(
-                "formal analysis ComparableScore does not match consensus counts"
+                f"evaluator_f1.{evaluator} does not use the frozen truth denominator"
             )
+    decimals = int(profile["profile"].get("display_decimals", 2))
+    f1_values = [float(evaluator_metrics[name]["f1"]) for name in EVALUATORS]
+    me_f1_raw = sum(f1_values) / len(f1_values) * 100.0
+    me_f1 = round(me_f1_raw, decimals)
+    evaluator_range = round((max(f1_values) - min(f1_values)) * 100.0, decimals)
+    evaluator_mean = sum(f1_values) / len(f1_values)
+    evaluator_sd = round(
+        math.sqrt(sum((value - evaluator_mean) ** 2 for value in f1_values) / 3)
+        * 100.0,
+        decimals,
+    )
+    total = max(
+        int(metrics["tp"]) + int(metrics["fp"])
+        for metrics in evaluator_metrics.values()
+    )
+    counts = (
+        dict(analysis.get("evaluator_agreement_counts", {}))
+        if isinstance(analysis, Mapping)
+        and isinstance(analysis.get("evaluator_agreement_counts"), Mapping)
+        else {}
+    )
     panel_score: float | None = None
     nonref_score: float | None = None
     panel_coverage: float | None = None
-    detection_only_contract = False
     if isinstance(analysis, Mapping):
         candidate_summary = analysis.get("candidate_genotype_summary")
-        if isinstance(candidate_summary, Mapping):
-            # A discovery adapter may intentionally emit variant sites with
-            # no GT assertion. Its site-recovery score is comparable, but GT
-            # macro-F1 and non-reference F1 are not applicable and must never
-            # be promoted as misleading zero-valued scores.
-            detection_only_contract = (
-                candidate_summary.get("candidate_output_contract")
-                == "variant_sites"
-            )
+        if (
+            isinstance(candidate_summary, Mapping)
+            and candidate_summary.get("candidate_output_contract") != "all_sites"
+        ):
+            raise ScoreInputError("formal ME-F1 requires an all-sites output contract")
         for field, target in (
             ("pangenome_genotyping_score", "panel"),
             ("non_reference_f1_score", "nonref"),
@@ -326,58 +331,62 @@ def calculate_pgbench_score(
                     nonref_score = numeric
                 else:
                     panel_coverage = numeric
-    if detection_only_contract:
-        panel_score = None
-        nonref_score = None
     score_status = "valid" if evaluation_mode == "formal" else "provisional"
+    gate_failures = sorted(field for field, passed in quality_gates.items() if not passed)
     traceability = payload.get("traceability")
-    if isinstance(traceability, Mapping):
-        if traceability.get("core_provenance_valid") is False:
+    provenance_failed = (
+        isinstance(traceability, Mapping)
+        and traceability.get("core_provenance_valid") is False
+    )
+    if gate_failures or provenance_failed:
             return ScoreResult(
                 tuple_key=trusted,
                 score_profile=profile_id,
                 score_profile_sha256=profile["_sha256"],
                 evaluation_mode=evaluation_mode,
                 score_status="invalid",
-                pgbench_score=None,
-                pgbench_score_raw=None,
-                consensus_score=None,
-                comparable_score=None,
-                comparable_score_raw=None,
+                benchmark_score=None,
+                benchmark_score_raw=None,
+                me_f1=None,
+                evaluator_range=None,
+                evaluator_sd=None,
                 pangenome_genotyping_score=None,
                 non_reference_f1_score=None,
                 panel_coverage=None,
-                global_end_to_end_sv_recovery_score=None,
-                consensus_counts=counts,
+                evaluator_agreement_counts=counts,
                 total_evaluated=total,
                 truth_eligible_count=truth_total,
-                soft_true_positive_count=soft_tp,
-                comparable_precision=effective_tp / total if total else 0.0,
-                comparable_recall=effective_tp / truth_total,
-                unanimous_correct_rate=n3 / total if total else 0.0,
-                majority_correct_rate=(n3 + n2) / total if total else 0.0,
                 point_breakdown={},
+                evaluator_scores={
+                    name: float(metrics["f1"]) * 100.0
+                    for name, metrics in evaluator_metrics.items()
+                },
+                required_f1_metrics=evaluator_metrics,
                 formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
-                reason="core provenance validation failed",
+                reason=(
+                    "quality gates failed: " + ", ".join(gate_failures)
+                    if gate_failures
+                    else "core provenance validation failed"
+                ),
             )
+    if isinstance(traceability, Mapping):
         if not all(traceability.get(k) is True for k in ("hash_lineage_complete", "environment_complete", "run_context_complete")) or traceability.get("manifest_completeness") != 1.0:
             score_status = "provisional"
-    breakdown = {"all_three_correct": float(n3), "exactly_two_correct": float(n2), "exactly_one_correct": float(n1), "none_correct": float(counts["none_correct"])}
+    breakdown = {
+        f"{name}_f1": float(metrics["f1"]) * 100.0
+        for name, metrics in evaluator_metrics.items()
+    }
     return ScoreResult(
         tuple_key=trusted,
         score_profile=profile_id,
         score_profile_sha256=profile["_sha256"],
         evaluation_mode=evaluation_mode,
         score_status=score_status,
-        # One primary definition is used for every tool contract: the mean of
-        # the three frozen evaluators' binary detection votes.  Panel GT and
-        # fixed-universe recovery remain explicit secondary diagnostics; they
-        # are not silently substituted into the primary score.
-        pgbench_score=consensus_score,
-        pgbench_score_raw=consensus_raw,
-        consensus_score=consensus_score,
-        comparable_score=comparable_score,
-        comparable_score_raw=comparable_raw,
+        benchmark_score=me_f1,
+        benchmark_score_raw=me_f1_raw,
+        me_f1=me_f1,
+        evaluator_range=evaluator_range,
+        evaluator_sd=evaluator_sd,
         pangenome_genotyping_score=(
             round(panel_score, decimals) if panel_score is not None else None
         ),
@@ -385,17 +394,14 @@ def calculate_pgbench_score(
             round(nonref_score, decimals) if nonref_score is not None else None
         ),
         panel_coverage=panel_coverage,
-        global_end_to_end_sv_recovery_score=comparable_score,
-        consensus_counts=counts,
+        evaluator_agreement_counts=counts,
         total_evaluated=total,
         truth_eligible_count=truth_total,
-        soft_true_positive_count=soft_tp,
-        comparable_precision=effective_tp / total if total else 0.0,
-        comparable_recall=effective_tp / truth_total,
-        unanimous_correct_rate=n3 / total if total else 0.0,
-        majority_correct_rate=(n3 + n2) / total if total else 0.0,
         point_breakdown=breakdown,
-        evaluator_scores={},
-        required_f1_metrics={},
+        evaluator_scores={
+            name: round(float(metrics["f1"]) * 100.0, decimals)
+            for name, metrics in evaluator_metrics.items()
+        },
+        required_f1_metrics=evaluator_metrics,
         formal_analysis=dict(analysis) if isinstance(analysis, Mapping) else None,
     )

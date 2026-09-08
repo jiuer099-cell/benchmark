@@ -22,6 +22,14 @@ GRAPH_CLASSES = {
     "nested_or_overlapping",
     "repeat_ambiguous",
 }
+TARGET_FAMILY_ALIASES = {
+    "HG002": "target",
+    "NA24385": "target_alias",
+    "HG003": "father",
+    "NA24149": "father_alias",
+    "HG004": "mother",
+    "NA24143": "mother_alias",
+}
 
 
 class PangenomeManifestError(ValueError):
@@ -56,12 +64,6 @@ def load_graph_assets_lock(path: Path) -> dict:
         "vg_giraffe_shortread": {
             "gbz", "min", "zipcodes", "dist", "sample_list"
         },
-        "vg_legacy_xg": {"gbz", "xg", "min", "dist", "sample_list"},
-        # SVarp maps long reads to an rGFA directly.  Unlike the vg profiles,
-        # its released leave-one-out graph does not carry a separate sample
-        # list, so the source lock declaration is the auditable exclusion
-        # evidence and sample_count is intentionally unavailable.
-        "svarp_minigraph_longread": {"gfa", "variation_calls"},
     }
     if profile not in profile_assets:
         raise PangenomeManifestError("graph assets lock has unsupported profile")
@@ -79,16 +81,11 @@ def load_graph_assets_lock(path: Path) -> dict:
         raise PangenomeManifestError("graph assets lock has no reference_path")
     if not isinstance(asset_root, str) or not asset_root:
         raise PangenomeManifestError("graph assets lock has no asset_root")
-    if profile == "svarp_minigraph_longread":
-        if sample_count is not None:
-            raise PangenomeManifestError(
-                "SVarp rGFA graph assets lock must have null sample_count"
-            )
-    elif not isinstance(sample_count, int) or sample_count < 1:
+    if not isinstance(sample_count, int) or sample_count < 1:
         raise PangenomeManifestError("graph assets lock has invalid sample_count")
     if (
         not isinstance(excluded_samples, list)
-        or "HG002" not in excluded_samples
+        or not set(TARGET_FAMILY_ALIASES).issubset(excluded_samples)
         or len(excluded_samples) != len(set(excluded_samples))
     ):
         raise PangenomeManifestError(
@@ -460,8 +457,11 @@ def build_manifest(
     generated_at: str,
 ) -> dict:
     excluded = list(excluded_truth_samples)
-    if "HG002" not in excluded:
-        raise PangenomeManifestError("truth_samples_excluded must contain HG002")
+    missing_family = sorted(set(TARGET_FAMILY_ALIASES) - set(excluded))
+    if missing_family:
+        raise PangenomeManifestError(
+            "target-family exclusion is incomplete: " + ", ".join(missing_family)
+        )
     with _open_text(panel_vcf, "rt") as handle:
         record_count = sum(
             1 for line in handle if line.strip() and not line.startswith("#")
@@ -483,6 +483,14 @@ def build_manifest(
         ],
         "allele_id_namespace": namespace,
         "truth_samples_excluded": excluded,
+        "target_family_exclusion": [
+            {
+                "sample_id": sample_id,
+                "relationship_to_target": TARGET_FAMILY_ALIASES[sample_id],
+                "exclusion_reason": "family_aware_leave_one_out",
+            }
+            for sample_id in excluded
+        ],
         "panel_vcf": {
             "path": str(panel_vcf),
             "sha256": sha256_file(panel_vcf),
@@ -530,7 +538,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     generated_at = args.generated_at or datetime.now(UTC).isoformat()
     try:
-        excluded_samples = args.exclude_truth_sample or ["HG002", "NA24385"]
+        excluded_samples = args.exclude_truth_sample or list(TARGET_FAMILY_ALIASES)
         assign_stable_alleles(
             args.population_vcf,
             args.output_panel,

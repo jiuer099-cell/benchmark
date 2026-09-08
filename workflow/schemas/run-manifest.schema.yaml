@@ -132,7 +132,6 @@ properties:
         $ref: "#/$defs/sha256"
   official_score_mode:
     enum:
-      - caller_only_shared_alignment
       - end_to_end_from_reads
   alignment_kind:
     oneOf:
@@ -200,7 +199,7 @@ allOf:
   - if:
       properties:
         official_score_mode:
-          const: caller_only_shared_alignment
+          const: end_to_end_from_reads
       required: [official_score_mode]
     then:
       properties:

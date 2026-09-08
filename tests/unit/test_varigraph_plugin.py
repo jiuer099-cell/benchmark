@@ -23,7 +23,9 @@ def test_manifest_freezes_varigraph_and_paired_reads() -> None:
         ROOT / "plugins" / "varigraph" / "envs" / "environment.yaml"
     ).read_text(encoding="utf-8")
     assert "version: 1.0.8" in manifest
-    assert "reads: paired_short_fastq" in manifest
+    assert "short_fastq_r1" in manifest
+    assert "short_fastq_r2" in manifest
+    assert "candidate_output_contract: all_sites" in manifest
     assert "- varigraph=1.0.8" in environment
 
 

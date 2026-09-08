@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for calculating one tuple-bound unweighted consensus score."""
+"""CLI for calculating one tuple-bound, equal-weight three-evaluator ME-F1."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pgbench_metrics import (
 )
 from pgbench_scoring import (
     ScoreInputError,
-    calculate_pgbench_score,
+    calculate_me_f1,
     load_score_profile,
 )
 
@@ -148,7 +148,7 @@ def _validate_evaluator_context(
 
     The original run context records the profile available when the tool was
     executed, but formal evaluator outputs may later be regenerated under a
-    newer frozen profile.  ``materialize_formal_consensus_metrics`` already
+    newer frozen profile.  ``materialize_formal_metrics`` already
     requires every evaluator to carry the same profile hash.  Here we require
     that binding to be well formed instead of incorrectly equating it with the
     historical tool-execution profile.
@@ -165,15 +165,14 @@ def _validate_evaluator_context(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Calculate one tuple-bound three-evaluator consensus score."
+        description="Calculate one tuple-bound three-evaluator ME-F1 score."
     )
     parser.add_argument(
         "--metrics",
-        "--input",
         dest="metrics",
         required=True,
         type=Path,
-        help="Standard metrics document; --input is a compatibility alias",
+        help="Standard metrics document",
     )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--score-profile", required=True, type=Path)
@@ -200,7 +199,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--expected-official-score-mode",
         required=True,
-        choices=("caller_only_shared_alignment", "end_to_end_from_reads"),
+        choices=("end_to_end_from_reads",),
     )
     parser.add_argument("--expected-primary-truth-profile", required=True)
     return parser.parse_args(argv)
@@ -234,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _apply_provenance_audit(
             payload, _load_json(args.provenance_audit, "provenance audit")
         )
-        result = calculate_pgbench_score(
+        result = calculate_me_f1(
             payload,
             expected_tuple=expected_tuple,
             evaluation_mode=args.evaluation_mode,

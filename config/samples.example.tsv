@@ -1,2 +1,2 @@
-sample_id	sex	technology	bam
-HG002	male	pacbio_clr	resources/alignments/HG002.GRCh38.bam
+sample_id	sex	technology	fastq_r1	fastq_r2
+HG002	male	illumina_short_read	resources/reads/HG002.Illumina.R1.fastq.gz	resources/reads/HG002.Illumina.R2.fastq.gz

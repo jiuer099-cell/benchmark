@@ -31,7 +31,10 @@ def _score(tool: str, value: float) -> dict[str, object]:
         "score_profile_sha256": "a" * 64,
         "evaluation_mode": "synthetic_smoke",
         "score_status": "provisional",
-        "pgbench_score": value,
+        "benchmark_score": value,
+        "evaluator_scores": {"truvari": value, "aardvark": value, "vcfdist": value},
+        "evaluator_range": 0.0,
+        "evaluator_sd": 0.0,
         "point_breakdown": {"evaluator.truvari.overall_event_f1": value / 10},
     }
 

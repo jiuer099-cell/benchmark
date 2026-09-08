@@ -389,23 +389,23 @@ def build_score_payload_from_metrics(
             )
 
     aggregates = _aggregate_records(records)
-    if score_profile_id in {"pgbench_consensus_v3", "pgbench_consensus_v4"}:
+    if score_profile_id == "pgbench_me_f1_v1":
         truth_metric_id = "benchmark.truth.eligible.count"
-        consensus_metrics = {
-            "all_three_correct": "consensus.all_three_correct.count",
-            "exactly_two_correct": "consensus.exactly_two_correct.count",
-            "exactly_one_correct": "consensus.exactly_one_correct.count",
-            "none_correct": "consensus.none_correct.count",
+        agreement_metrics = {
+            "all_three_correct": "diagnostic.evaluator_agreement.all_three_correct.count",
+            "exactly_two_correct": "diagnostic.evaluator_agreement.exactly_two_correct.count",
+            "exactly_one_correct": "diagnostic.evaluator_agreement.exactly_one_correct.count",
+            "none_correct": "diagnostic.evaluator_agreement.none_correct.count",
         }
         missing = sorted(
-            ({truth_metric_id} | set(consensus_metrics.values())) - set(aggregates)
+            ({truth_metric_id} | set(agreement_metrics.values())) - set(aggregates)
         )
         if missing:
             raise MetricContractError(
                 "metrics document is missing consensus counts: " + ", ".join(missing)
             )
         consensus: dict[str, int] = {}
-        for category, metric_id in consensus_metrics.items():
+        for category, metric_id in agreement_metrics.items():
             value = _scoreable_value(aggregates[metric_id], metric_id)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MetricContractError(f"{metric_id} must be a non-negative integer")
@@ -451,13 +451,31 @@ def build_score_payload_from_metrics(
             eligibility_status = "eligible"
             infrastructure_valid = True
             reason = None
+        if not isinstance(analysis, Mapping):
+            raise MetricContractError("ME-F1 requires formal analysis")
+        evaluator_f1 = analysis.get("evaluator_gt_metrics")
+        quality_gates = analysis.get("quality_gates")
+        panel_truth_count = analysis.get("panel_addressable_truth_count")
+        if not isinstance(evaluator_f1, Mapping):
+            raise MetricContractError("formal analysis is missing evaluator_gt_metrics")
+        if not isinstance(quality_gates, Mapping):
+            raise MetricContractError("formal analysis is missing quality_gates")
+        if (
+            isinstance(panel_truth_count, bool)
+            or not isinstance(panel_truth_count, int)
+            or panel_truth_count <= 0
+        ):
+            raise MetricContractError(
+                "formal analysis panel_addressable_truth_count must be positive"
+            )
         payload = {
             "tuple": normalized_expected,
             "score_profile": score_profile_id,
             "eligibility_status": eligibility_status,
             "infrastructure_valid": infrastructure_valid,
-            "truth_eligible_count": truth_eligible_count,
-            "consensus": consensus,
+            "truth_eligible_count": panel_truth_count,
+            "evaluator_f1": deepcopy(dict(evaluator_f1)),
+            "quality_gates": deepcopy(dict(quality_gates)),
         }
         if reason is not None:
             payload["reason"] = reason

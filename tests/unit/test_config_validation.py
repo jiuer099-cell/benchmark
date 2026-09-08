@@ -29,16 +29,14 @@ def _named_config(name: str) -> dict:
     )
 
 
-def test_synthetic_config_may_explicitly_allow_missing_bam(tmp_path: Path) -> None:
+def test_synthetic_config_uses_same_paired_short_read_contract(tmp_path: Path) -> None:
     config = _example_config()
     config["development"] = {
         "synthetic_mode": True,
-        "canonical_fastq": "tests/fixtures/synthetic/reads.fastq",
         "population_vcf": "tests/fixtures/synthetic/population.vcf",
         "truth_vcf": "tests/fixtures/synthetic/truth.vcf",
         "benchmark_bed": "tests/fixtures/synthetic/benchmark.bed",
         "evaluator_fixture_dir": "tests/fixtures/synthetic/evaluators",
-        "allow_missing_bam": True,
     }
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -49,15 +47,15 @@ def test_synthetic_config_may_explicitly_allow_missing_bam(tmp_path: Path) -> No
         repo_root=ROOT,
     )
     assert validated["development"]["synthetic_mode"] is True
-    assert set(plugins) == {"kanpig"}
+    assert set(plugins) == {"pangenie"}
 
 
-def test_formal_config_rejects_missing_bam(tmp_path: Path) -> None:
+def test_formal_config_rejects_incomplete_paired_fastq(tmp_path: Path) -> None:
     config = _example_config()
-    config["sample"]["bam"] = str(tmp_path / "missing.bam")
+    config["sample"]["fastq_r2"] = None
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    with pytest.raises(ConfigValidationError, match="does not exist"):
+    with pytest.raises(ConfigValidationError, match=r"sample\.fastq_r2"):
         validate_configuration(
             config_path,
             config_schema_path=ROOT / "config" / "config.schema.yaml",
@@ -70,16 +68,10 @@ def test_mode_semantics_reject_overlapping_input_sets() -> None:
     manifest = {
         "id": "bad",
         "tasks": ["genotyping"],
-        "inputs": {"read_sequences_auxiliary": False},
         "supported_modes": {
-            "caller_only_shared_alignment": {
-                "required_inputs": ["shared_alignment"],
+            "end_to_end_from_reads": {
+                "required_inputs": ["short_fastq_r1", "short_fastq_r2", "reference"],
                 "optional_inputs": ["reference"],
-                "forbidden_inputs": [
-                    "reference",
-                    "canonical_fastq",
-                    "original_input_bam",
-                ],
                 "billable_stages": ["genotype"],
             }
         },
@@ -92,15 +84,10 @@ def test_mode_semantics_rejects_unbilled_declared_task() -> None:
     manifest = {
         "id": "bad",
         "tasks": ["genotyping"],
-        "inputs": {"read_sequences_auxiliary": False},
         "supported_modes": {
-            "caller_only_shared_alignment": {
-                "required_inputs": ["shared_alignment"],
+            "end_to_end_from_reads": {
+                "required_inputs": ["short_fastq_r1", "short_fastq_r2"],
                 "optional_inputs": [],
-                "forbidden_inputs": [
-                    "canonical_fastq",
-                    "original_input_bam",
-                ],
                 "billable_stages": ["map"],
             }
         },
@@ -125,10 +112,10 @@ def test_pangenie_requires_complete_paired_short_reads(tmp_path: Path) -> None:
 
 def test_plugin_technology_must_match_sample(tmp_path: Path) -> None:
     config = _named_config("config.pangenie.example.yaml")
-    config["sample"]["technology"] = "pacbio_clr"
+    config["sample"]["technology"] = "unsupported_technology"
     config_path = tmp_path / "technology.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    with pytest.raises(ConfigValidationError, match="does not support sample technology"):
+    with pytest.raises(ConfigValidationError, match="illumina_short_read"):
         validate_configuration(
             config_path,
             config_schema_path=ROOT / "config" / "config.schema.yaml",
@@ -154,21 +141,19 @@ def test_vg_requires_accepted_graph_profile(tmp_path: Path) -> None:
         )
 
 
-def test_novel_truth_profile_must_exist(tmp_path: Path) -> None:
+def test_unknown_catalog_field_is_rejected(tmp_path: Path) -> None:
     config = _example_config()
-    config["catalogs"]["novel_truth_profile"] = "config/missing-novel.yaml"
+    config["catalogs"]["obsolete_field"] = "config/obsolete.yaml"
     config["development"] = {
         "synthetic_mode": True,
-        "canonical_fastq": "tests/fixtures/synthetic/reads.fastq",
         "population_vcf": "tests/fixtures/synthetic/population.vcf",
         "truth_vcf": "tests/fixtures/synthetic/truth.vcf",
         "benchmark_bed": "tests/fixtures/synthetic/benchmark.bed",
         "evaluator_fixture_dir": "tests/fixtures/synthetic/evaluators",
-        "allow_missing_bam": True,
     }
     config_path = tmp_path / "missing-novel.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    with pytest.raises(ConfigValidationError, match="novel_truth_profile"):
+    with pytest.raises(ConfigValidationError, match="Additional properties"):
         validate_configuration(
             config_path,
             config_schema_path=ROOT / "config" / "config.schema.yaml",

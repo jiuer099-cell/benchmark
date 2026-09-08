@@ -1,5 +1,6 @@
 from importlib.metadata import version
 import os
+import sys
 from pathlib import Path
 
 import yaml
@@ -36,7 +37,7 @@ SYNTHETIC_MODE = config.get("development", {}).get("synthetic_mode", False)
 EVALUATION_MODE = "synthetic_smoke" if SYNTHETIC_MODE else "formal"
 SNAKEMAKE_VERSION = version("snakemake")
 # Resolve Python after Snakemake activates each rule's declared environment.
-PYTHON_EXECUTABLE = "python"
+PYTHON_EXECUTABLE = sys.executable if os.name == "nt" else "python"
 RULE_EXECUTOR = "workflow/scripts/pgbench_rule_exec.py"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
 METRICS_LIBRARY = "workflow/scripts/pgbench_metrics.py"
@@ -79,6 +80,14 @@ GRAPH_ASSET_RULE_MANIFEST = (
 CHALLENGE_RULE_MANIFEST = (
     f"{RESULTS_ROOT}/provenance/rules/build_blinded_challenge_panel/"
     f"{SAMPLE_ID}.json"
+)
+SEMANTIC_VALIDATION_JSON = RESULTS_ROOT + "/validation/evaluator-semantics.json"
+SEMANTIC_VALIDATION_RULE_MANIFEST = (
+    RESULTS_ROOT + "/provenance/rules/validate_evaluator_semantics/contract.json"
+)
+COVERAGE_MANIFEST = RESULTS_ROOT + "/coverage/coverage-manifest.json"
+COVERAGE_RULE_MANIFEST = (
+    RESULTS_ROOT + "/provenance/rules/build_coverage_datasets/coverage.json"
 )
 if SYNTHETIC_MODE:
     PRIMARY_TRUTH_VCF = config["development"]["truth_vcf"]
@@ -126,7 +135,7 @@ for registration in config["external_plugins"]:
     settings = {
         "tool_id": tool_id,
         "semantic_rule_name": f"tool__{tool_id}__execute",
-        "job_key": f"{SAMPLE_ID}.{OFFICIAL_MODE}",
+        "job_key": f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}",
         "tool_manifest": manifest_path,
         "comparison_task": tool_manifest["comparison_task"],
         "executor": "workflow/scripts/pgbench_exec.py",
@@ -162,15 +171,15 @@ for registration in config["external_plugins"]:
         ),
         "rule_manifest": semantic_rule_manifest(
             f"tool__{tool_id}__execute",
-            f"{SAMPLE_ID}.{OFFICIAL_MODE}",
+            f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}",
         ),
         "log": (
             f"{LOG_ROOT}/rules/tool__{tool_id}__execute/"
-            f"{SAMPLE_ID}.{OFFICIAL_MODE}.log"
+            f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}.log"
         ),
         "benchmark": (
             f"{BENCHMARK_ROOT}/rules/tool__{tool_id}__execute/"
-            f"{SAMPLE_ID}.{OFFICIAL_MODE}.jsonl"
+            f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}.jsonl"
         ),
         "threads": config["execution"].get("tool_threads", 1),
         "memory_mb": config["execution"].get("tool_memory_mb", 1024),
@@ -181,11 +190,6 @@ for registration in config["external_plugins"]:
         "cache_policy": config["execution"]["cache_policy"],
         "execution_purpose": (
             "development_only" if SYNTHETIC_MODE else "formal"
-        ),
-        "alignment_kind": (
-            config.get("caller_only", {}).get("alignment_kind")
-            if OFFICIAL_MODE == "caller_only_shared_alignment"
-            else None
         ),
         "inputs": {},
     }
@@ -207,38 +211,10 @@ for registration in config["external_plugins"]:
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
             f"{SAMPLE_ID}.blinded.vcf"
         ),
+        "tool_index": registration.get("tool_index"),
+        "short_fastq_r1": config["sample"]["fastq_r1"],
+        "short_fastq_r2": config["sample"]["fastq_r2"],
     }
-    if OFFICIAL_MODE == "end_to_end_from_reads":
-        canonical_fastq = (
-            config["development"]["canonical_fastq"]
-            if SYNTHETIC_MODE
-            else config["sample"]["fastq"]
-        )
-        input_candidates.update(
-            {
-                "canonical_fastq": canonical_fastq,
-                "short_fastq_r1": config["sample"].get("fastq_r1"),
-                "short_fastq_r2": config["sample"].get("fastq_r2"),
-            }
-        )
-    else:
-        shared_alignment = config["caller_only"].get("shared_bam")
-        input_candidates.update(
-            {
-                "shared_alignment": shared_alignment,
-                "shared_alignment_index": (
-                    f"{shared_alignment}.bai"
-                    if shared_alignment
-                    and config["caller_only"].get("alignment_kind") == "bam"
-                    else (
-                        f"{shared_alignment}.crai"
-                        if shared_alignment
-                        and config["caller_only"].get("alignment_kind") == "cram"
-                        else None
-                    )
-                ),
-            }
-        )
     settings["inputs"] = {
         name: path
         for name, path in input_candidates.items()
@@ -272,29 +248,6 @@ for registration in config["external_plugins"]:
 TOOL_SETTINGS_BY_ID = {
     settings["tool_id"]: settings for settings in EXTERNAL_SETTINGS
 }
-NOVEL_TRUTH_PROFILE_ID = "pgbench_minigraph_novel_truth_v2"
-NOVEL_TRUTH_VCF = (
-    f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
-    f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.sv.truth.vcf.gz"
-)
-NOVEL_TRUTH_INDEX = f"{NOVEL_TRUTH_VCF}.tbi"
-NOVEL_TRUTH_AUDIT = (
-    f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
-    f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.audit.json"
-)
-NOVEL_TRUTH_EXCLUSION_LEDGER = (
-    f"{RESULTS_ROOT}/truth/{config['truth']['primary']}/"
-    f"{NOVEL_TRUTH_PROFILE_ID}.{PANGENOME_ID}.graph-exclusion.tsv"
-)
-NOVEL_TRUTH_RULE_MANIFEST = semantic_rule_manifest(
-    "prepare_novel_truth",
-    f"{config['truth']['primary']}.{PANGENOME_ID}",
-)
-NOVEL_DISCOVERY_TOOL_IDS = {
-    settings["tool_id"]
-    for settings in EXTERNAL_SETTINGS
-    if settings["comparison_task"] == "novel_pangenome_discovery"
-}
 
 
 def tool_comparison_task(wildcards):
@@ -307,26 +260,18 @@ def tool_comparison_task(wildcards):
 
 
 def evaluation_truth_vcf(wildcards):
-    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
-        return NOVEL_TRUTH_VCF
     return PRIMARY_TRUTH_VCF
 
 
 def evaluation_truth_index(wildcards):
-    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
-        return NOVEL_TRUTH_INDEX
     return PRIMARY_TRUTH_INDEX
 
 
 def evaluation_truth_rule_manifest(wildcards):
-    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
-        return NOVEL_TRUTH_RULE_MANIFEST
     return PRIMARY_TRUTH_RULE_MANIFEST
 
 
 def evaluation_truth_profile(wildcards):
-    if tool_comparison_task(wildcards) == "novel_pangenome_discovery":
-        return NOVEL_TRUTH_PROFILE_ID
     return config["truth"]["primary"]
 
 RAW_OUTPUT_BY_TOOL = {
@@ -381,12 +326,24 @@ if EXTERNAL_SETTINGS:
         RESULTS_ROOT + "/summary/point_breakdown.tsv",
         RESULTS_ROOT + "/summary/metrics.long.tsv",
         RESULTS_ROOT + "/summary/metrics.json",
+        SEMANTIC_VALIDATION_JSON,
+        COVERAGE_MANIFEST,
         *SCORE_JSONS,
         *FINAL_SCORE_PACKAGES,
         *METRICS_JSONS,
         *[
+            f"{RESULTS_ROOT}/provenance/{settings['tool_id']}/contracts/{name}"
+            for settings in EXTERNAL_SETTINGS
+            for name in (
+                "allowed_inputs.json",
+                "parameter_manifest.json",
+                "external_resource_hashes.json",
+                "training_or_tuning_status.json",
+            )
+        ],
+        *[
             f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-            f"{settings['tool_id']}/canonical/linked.vcf"
+            f"{settings['tool_id']}/canonical/all-sites.vcf"
             for settings in EXTERNAL_SETTINGS
         ],
         *[
@@ -419,6 +376,7 @@ rule all:
 include: "workflow/rules/common.smk"
 include: "workflow/rules/pangenome.smk"
 include: "workflow/rules/panel.smk"
+include: "workflow/rules/contracts.smk"
 include: "workflow/rules/normalization.smk"
 include: "workflow/rules/evaluation.smk"
 include: "workflow/rules/provenance.smk"

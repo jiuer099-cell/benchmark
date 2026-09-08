@@ -1,5 +1,5 @@
 def pre_score_manifest_paths(wildcards):
-    tool_job = f"{SAMPLE_ID}.{OFFICIAL_MODE}"
+    tool_job = f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}"
     core_job = f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}"
     manifests = [
         VALIDATE_MANIFEST,
@@ -13,6 +13,7 @@ def pre_score_manifest_paths(wildcards):
         ),
         semantic_rule_manifest("canonicalize_vcf", core_job),
         semantic_rule_manifest("link_pangenome_alleles", core_job),
+        semantic_rule_manifest("materialize_all_sites", core_job),
         semantic_rule_manifest("fuse_evaluator_metrics", core_job),
     ]
     if not SYNTHETIC_MODE:
@@ -42,7 +43,7 @@ def pre_score_manifest_paths(wildcards):
 
 
 def expected_pre_score_jobs(wildcards):
-    tool_job = f"{SAMPLE_ID}.{OFFICIAL_MODE}"
+    tool_job = f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}"
     core_job = f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}"
     jobs = [
         "validate_config=config",
@@ -57,22 +58,13 @@ def expected_pre_score_jobs(wildcards):
         f"tool__{wildcards.tool}__execute={tool_job}",
         f"canonicalize_vcf={core_job}",
         f"link_pangenome_alleles={core_job}",
+        f"materialize_all_sites={core_job}",
         f"fuse_evaluator_metrics={core_job}",
     ]
     if not SYNTHETIC_MODE:
-        novel_truth_jobs = (
-            [
-                "prepare_novel_truth="
-                f"{config['truth']['primary']}.{PANGENOME_ID}"
-            ]
-            if tool_comparison_task(wildcards)
-            == "novel_pangenome_discovery"
-            else []
-        )
         jobs.extend(
             [
                 f"prepare_primary_truth={config['truth']['primary']}",
-                *novel_truth_jobs,
                 *[
                     f"evaluate_{evaluator}={core_job}"
                     for evaluator in FORMAL_EVALUATORS
@@ -321,7 +313,7 @@ rule finalize_score_provenance:
         score=RESULTS_ROOT + "/summary/{tool}/score.json",
         metrics=RESULTS_ROOT + "/summary/{tool}/metrics.json",
         score_rule_manifest=(
-            RESULTS_ROOT + "/provenance/rules/compute_pgbench_score/"
+            RESULTS_ROOT + "/provenance/rules/compute_me_f1/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
         audit=RESULTS_ROOT + "/provenance/{tool}/pre-score-audit.json",
@@ -369,7 +361,7 @@ rule finalize_score_provenance:
                 f"{RESULTS_ROOT}/summary/{wildcards.tool}/score.json",
                 f"{RESULTS_ROOT}/summary/{wildcards.tool}/metrics.json",
                 semantic_rule_manifest(
-                    "compute_pgbench_score",
+                    "compute_me_f1",
                     f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
                 ),
                 f"{RESULTS_ROOT}/provenance/{wildcards.tool}/pre-score-audit.json",
@@ -398,7 +390,7 @@ rule finalize_score_provenance:
                     f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
                 ),
                 semantic_rule_manifest(
-                    "compute_pgbench_score",
+                    "compute_me_f1",
                     f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
                 ),
             ],

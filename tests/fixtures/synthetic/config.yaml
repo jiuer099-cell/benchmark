@@ -1,5 +1,22 @@
 schema_version: 1
 
+benchmark_contract:
+  track: short_read_fixed_panel_genotyping
+  chromosomes: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12, chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22]
+  svtypes: [DEL, INS]
+  minimum_sv_size: 50
+  maximum_sv_size: 10000
+  biallelic_only: true
+  sequence_resolved_only: true
+  truth_absence_policy: unscorable_without_explicit_reference_confidence
+  coverage_levels: [10, 20, 30, full]
+  downsampling_seeds: [1701, 1702, 1703]
+  source_coverage_x: 30
+  target_family_exclusion: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
+  score_status: experimental
+  conclusion_scope: sample_and_configuration_specific
+  independent_samples_status: not_available
+
 project:
   id: hg002_grch38_sv_benchmark
   run_id: synthetic_smoke
@@ -7,17 +24,15 @@ project:
 sample:
   id: HG002
   sex: male
-  technology: pacbio_clr
-  library_id: synthetic_pacbio
+  technology: illumina_short_read
+  library_id: synthetic_illumina
   source_evidence_id: synthetic_reads
   coverage_x: 1.0
   read_count: 1
   read_bases: 10
   downsampling_seed: 20260716
-  bam: tests/fixtures/synthetic/missing-development-only.bam
-  fastq: null
-  fastq_r1: null
-  fastq_r2: null
+  fastq_r1: tests/fixtures/synthetic/reads.R1.fastq
+  fastq_r2: tests/fixtures/synthetic/reads.R2.fastq
 
 reference:
   id: grch38
@@ -30,7 +45,7 @@ pangenome:
   truth_leakage_policy: exclude_hg002_truth
   build_graph_assets: false
   allele_namespace: PGSV
-  excluded_samples: [HG002, NA24385]
+  excluded_samples: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
   population_vcf: null
   graph_assets:
     profile: none
@@ -49,7 +64,7 @@ truth:
 catalogs:
   truthsets: config/truthsets.yaml
   stratifications: config/stratifications.yaml
-  score_weights: config/consensus_scoring.yaml
+  score_weights: config/me_f1_scoring.yaml
   evaluator_profile: config/evaluator_profile.yaml
   metric_dictionary: config/metric_dictionary.yaml
 
@@ -66,17 +81,15 @@ execution:
 
 development:
   synthetic_mode: true
-  canonical_fastq: tests/fixtures/synthetic/reads.fastq
   population_vcf: tests/fixtures/synthetic/population.vcf
   truth_vcf: tests/fixtures/synthetic/truth.vcf
   benchmark_bed: tests/fixtures/synthetic/benchmark.bed
   evaluator_fixture_dir: tests/fixtures/synthetic/evaluators
-  allow_missing_bam: true
 
 score:
-  profile: pgbench_consensus_v4
-  final_score_name: PGBenchConsensusScore
-  produce_ranking: false
+  profile: pgbench_me_f1_v1
+  final_score_name: ME-F1
+  produce_ranking: true
 
 evaluation:
   evaluators: [truvari, aardvark, vcfdist]

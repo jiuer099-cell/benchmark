@@ -2,30 +2,33 @@ interface_version: 1
 id: vg
 name: vg Giraffe short-read pangenome SV calling
 version: "2"
-source: external
+source: builtin
 paradigm: graph_pangenome
-comparison_task: wg_discovery
+comparison_task: panel_genotyping
+
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_status: official_configuration
 
 tasks: [mapping, calling, postprocess]
 
 inputs:
-  reads: paired_short_fastq
   reference: required
-  candidates: optional
+  candidates: required
   pangenome_manifest: required
   pangenome_panel: required
   graph_assets:
     required: true
-    accepted_formats: [vg, xg_gbwt]
+    accepted_formats: [gbz, xg_gbwt]
     accepted_profiles: [vg_giraffe_shortread]
-  shared_alignment:
-    required: false
-    accepted_formats: [gam, gaf]
-  read_sequences_auxiliary: false
 
 capabilities:
   technology: [illumina_short_read]
-  svtypes: [DEL, INS, DUP, INV, CNV, BND, CPX]
+  svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
@@ -47,13 +50,8 @@ supported_modes:
       - pangenome_manifest
       - pangenome_panel
       - graph_assets
-    optional_inputs:
       - candidate_panel
-    forbidden_inputs:
-      - original_input_bam
-      - shared_alignment
-      - haplotype_fastq
-      - canonical_fastq
+    optional_inputs: []
     billable_stages:
       - map
       - call
@@ -61,7 +59,7 @@ supported_modes:
 
 outputs:
   vcf: raw/calls.vcf
-  candidate_output_contract: variant_sites
-  # vg emits detected graph sites, not a callable all-sites gVCF. Absence is
-  # therefore a no-call, not evidence for a homozygous-reference genotype.
+  candidate_output_contract: all_sites
+  # The adapter projects vg's native calls onto every frozen
+  # canonical candidate. Missing native calls remain explicit ./., never 0/0.
   absence_semantics: no_call

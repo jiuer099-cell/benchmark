@@ -95,6 +95,13 @@ def _set_runner_environment(
     reads_r2 = tmp_path / "reads.R2.fastq"
     reads_r1.write_text("@read/1\nAC\n+\n!!\n", encoding="utf-8")
     reads_r2.write_text("@read/2\nGT\n+\n!!\n", encoding="utf-8")
+    candidates = tmp_path / "candidates.vcf"
+    candidates.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t10\tCAND_1\tA\tAT\t.\tPASS\tPANGENOME_ALLELE_ID=PGSV_1\n",
+        encoding="utf-8",
+    )
     output_dir = tmp_path / "runner-output"
     monkeypatch.setenv("PGBENCH_INPUT_FASTQ_R1", str(reads_r1))
     monkeypatch.setenv("PGBENCH_INPUT_FASTQ_R2", str(reads_r2))
@@ -106,6 +113,7 @@ def _set_runner_environment(
     )
     monkeypatch.setenv("PGBENCH_SAMPLE_ID", "HG002")
     monkeypatch.setenv("PGBENCH_THREADS", "4")
+    monkeypatch.setenv("PGBENCH_CANDIDATE_VCF", str(candidates))
     if reference_path is None:
         monkeypatch.delenv("PGBENCH_GRAPH_REFERENCE_PATH", raising=False)
     else:
@@ -126,6 +134,7 @@ def test_vg_call_is_restricted_to_frozen_reference_sample(
             stdout.write_bytes(b"synthetic\n")
 
     monkeypatch.setattr(MODULE, "run", fake_run)
+    monkeypatch.setattr(MODULE, "project_all_sites", lambda *args: (1, 0, 0))
     assert MODULE.main() == 0
 
     call = next(command for command in commands if command[:2] == ["vg", "call"])

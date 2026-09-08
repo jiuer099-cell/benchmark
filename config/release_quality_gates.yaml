@@ -1,0 +1,19 @@
+schema_version: 1
+release: HG002_LOO_HPRC_GRCh38_SV_v1
+gates:
+  evaluator_semantic_validation: not_completed
+  genotype_aware_evaluator_contract: completed
+  canonical_to_native_addressability: not_completed
+  allowed_information_and_tuning: not_completed
+  family_aware_leave_one_out: not_completed
+  autosomal_simple_biallelic_del_ins_scope: completed
+  repeated_coverage_datasets: not_completed
+  difficult_region_stratification: not_completed
+  hg002_formal_benchmark: not_completed
+  independent_truth_samples: not_completed
+valid_score_requires:
+  - evaluator_semantic_validation
+  - canonical_to_native_addressability
+  - allowed_information_and_tuning
+scope_statement: HG002 results are sample-and-configuration-specific until independent truth samples are added.
+status_note: completed means verified with production assets; implemented but unexecuted code remains not_completed.

@@ -6,10 +6,17 @@ source: external
 paradigm: short_read_pangenome_genotyping
 comparison_task: panel_genotyping
 
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_status: official_configuration
+
 tasks: [prepare_assets, genotyping, postprocess]
 
 inputs:
-  reads: paired_short_fastq
   reference: required
   candidates: required
   pangenome_manifest: required
@@ -18,14 +25,10 @@ inputs:
     required: false
     accepted_formats: [other]
     accepted_profiles: []
-  shared_alignment:
-    required: false
-    accepted_formats: [bam]
-  read_sequences_auxiliary: false
 
 capabilities:
   technology: [illumina_short_read]
-  svtypes: [DEL, INS, DUP, INV, CNV, CPX]
+  svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
@@ -49,12 +52,6 @@ supported_modes:
       - pangenome_panel
       - candidate_panel
     optional_inputs: []
-    forbidden_inputs:
-      - canonical_fastq
-      - haplotype_fastq
-      - original_input_bam
-      - shared_alignment
-      - graph_assets
     billable_stages:
       - prepare_assets
       - genotype

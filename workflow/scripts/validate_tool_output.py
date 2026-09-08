@@ -275,7 +275,7 @@ def validate_tool_output(
 ) -> ToolOutputValidation:
     """Validate path provenance, creation time, VCF syntax, and all-sites coverage."""
 
-    if candidate_output_contract not in {"all_sites", "variant_sites"}:
+    if candidate_output_contract != "all_sites":
         raise ToolOutputValidationError(
             f"unsupported candidate output contract: {candidate_output_contract}"
         )
@@ -289,13 +289,11 @@ def validate_tool_output(
         )
     compression_kind, compression_validation = _compression_status(resolved)
 
-    required_candidate_ids: set[str] | None = None
-    if candidate_output_contract == "all_sites":
-        if candidate_vcf is None:
-            raise ToolOutputValidationError(
-                "all-sites validation requires the blinded candidate VCF"
-            )
-        required_candidate_ids = _candidate_ids(candidate_vcf)
+    if candidate_vcf is None:
+        raise ToolOutputValidationError(
+            "all-sites validation requires the blinded candidate VCF"
+        )
+    required_candidate_ids = _candidate_ids(candidate_vcf)
 
     record_count, represented_ids = _validate_vcf_records(
         resolved,
@@ -333,7 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--candidate-output-contract",
         required=True,
-        choices=("all_sites", "variant_sites"),
+        choices=("all_sites",),
     )
     parser.add_argument("--candidate-vcf", type=Path)
     parser.add_argument("--validation-json", type=Path)

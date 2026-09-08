@@ -1,339 +1,110 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://pgbench.local/schemas/tool.schema.yaml
-title: PGBench tool adapter manifest
+title: PGBench short-read fixed-panel adapter manifest
 type: object
 additionalProperties: false
-required:
-  - interface_version
-  - id
-  - version
-  - source
-  - paradigm
-  - comparison_task
-  - tasks
-  - inputs
-  - capabilities
-  - execution
-  - supported_modes
-  - outputs
+required: [interface_version, id, version, source, paradigm, comparison_task, information_contract, tasks, inputs, capabilities, execution, supported_modes, outputs]
 properties:
-  interface_version:
-    const: 1
-  id:
-    $ref: "#/$defs/identifier"
-  name:
-    type: string
-    minLength: 1
-  version:
-    type: string
-    minLength: 1
-  source:
-    enum: [builtin, external]
-  paradigm:
-    enum:
-      - graph_pangenome
-      - mapping_based
-      - assembly_based
-      - discovery_integration
-      - genotyping_only
-      - short_read_pangenome_genotyping
-  comparison_task:
-    enum:
-      - panel_genotyping
-      - wg_discovery
-      - novel_pangenome_discovery
+  interface_version: {const: 1}
+  id: {$ref: "#/$defs/identifier"}
+  name: {type: string, minLength: 1}
+  version: {type: string, minLength: 1}
+  source: {enum: [builtin, external]}
+  paradigm: {enum: [short_read_pangenome_genotyping, graph_pangenome, genotyping_only]}
+  comparison_task: {const: panel_genotyping}
+  information_contract:
+    type: object
+    additionalProperties: false
+    required: [allowed_inputs_manifested, target_truth_used_for_calling, target_assembly_used, target_family_genotypes_used, target_specific_external_callset, tuning_status]
+    properties:
+      allowed_inputs_manifested: {const: true}
+      target_truth_used_for_calling: {const: false}
+      target_assembly_used: {const: false}
+      target_family_genotypes_used: {const: false}
+      target_specific_external_callset: {const: false}
+      tuning_status: {enum: [official_configuration, independent_validation_frozen]}
   tasks:
     type: array
     minItems: 1
     uniqueItems: true
-    items:
-      enum:
-        - prepare_assets
-        - index
-        - mapping
-        - discovery
-        - assembly
-        - integration
-        - calling
-        - genotyping
-        - postprocess
+    items: {enum: [prepare_assets, index, mapping, calling, genotyping, postprocess]}
   inputs:
     type: object
     additionalProperties: false
-    required:
-      - reads
-      - reference
-      - candidates
-      - pangenome_manifest
-      - pangenome_panel
-      - graph_assets
-      - shared_alignment
+    required: [reference, candidates, pangenome_manifest, pangenome_panel, graph_assets]
     properties:
-      reads:
-        enum:
-          - none
-          - bam
-          - cram
-          - long_fastq
-          - short_fastq
-          - paired_short_fastq
-          - haplotype_fastq
-      reference:
-        $ref: "#/$defs/requirement"
-      candidates:
-        $ref: "#/$defs/requirement"
-      pangenome_manifest:
-        $ref: "#/$defs/requirement"
-      pangenome_panel:
-        $ref: "#/$defs/requirement"
-      graph_assets:
-        $ref: "#/$defs/formatRequirement"
-      shared_alignment:
-        $ref: "#/$defs/formatRequirement"
-      read_sequences_auxiliary:
-        type: boolean
-        default: false
+      reference: {$ref: "#/$defs/requirement"}
+      candidates: {$ref: "#/$defs/requirement"}
+      pangenome_manifest: {$ref: "#/$defs/requirement"}
+      pangenome_panel: {$ref: "#/$defs/requirement"}
+      graph_assets: {$ref: "#/$defs/graphRequirement"}
   capabilities:
     type: object
     additionalProperties: false
-    required:
-      - technology
-      - svtypes
-      - phasing
-      - novel_discovery
-      - allele_linkage_output
-      - allele_namespace
+    required: [technology, svtypes, phasing, novel_discovery, allele_linkage_output, allele_namespace]
     properties:
-      technology:
-        type: array
-        minItems: 1
-        uniqueItems: true
-        items:
-          enum:
-            - pacbio_clr
-            - pacbio_hifi
-            - ont
-            - illumina_short_read
+      technology: {const: [illumina_short_read]}
       svtypes:
         type: array
-        minItems: 1
+        minItems: 2
+        maxItems: 2
         uniqueItems: true
-        items:
-          enum: [DEL, INS, DUP, INV, CNV, BND, CPX]
-      phasing:
-        type: boolean
-      novel_discovery:
-        type: boolean
-      allele_linkage_output:
-        enum: [none, native, benchmark_inferred]
+        items: {enum: [DEL, INS]}
+        allOf:
+          - contains: {const: DEL}
+          - contains: {const: INS}
+      phasing: {type: boolean}
+      novel_discovery: {const: false}
+      allele_linkage_output: {enum: [native, benchmark_inferred]}
       allele_namespace:
         type: array
         minItems: 1
         uniqueItems: true
-        items:
-          type: string
-          minLength: 1
+        items: {type: string, minLength: 1}
   execution:
     type: object
     additionalProperties: false
-    required:
-      - trust_level
-      - sandbox_backend
+    required: [runner, environment, rule_registry, trust_level, sandbox_backend]
     properties:
-      module:
-        $ref: "#/$defs/nonEmptyPath"
-      runner:
-        $ref: "#/$defs/nonEmptyPath"
-      environment:
-        $ref: "#/$defs/nonEmptyPath"
-      container:
-        type: string
-        minLength: 1
-      rule_registry:
-        $ref: "#/$defs/nonEmptyPath"
-      trust_level:
-        enum: [untrusted, trusted_reviewed]
-      sandbox_backend:
-        enum: [none, apptainer, bwrap]
-    oneOf:
-      - required: [module]
-        not:
-          required: [runner]
-      - required: [runner]
-        not:
-          required: [module]
+      runner: {$ref: "#/$defs/nonEmptyPath"}
+      environment: {$ref: "#/$defs/nonEmptyPath"}
+      rule_registry: {$ref: "#/$defs/nonEmptyPath"}
+      trust_level: {enum: [untrusted, trusted_reviewed]}
+      sandbox_backend: {enum: [none, apptainer, bwrap]}
   parameter_contract:
     type: object
     additionalProperties: false
     required: [contract, source_release, explicit, implicit]
     properties:
-      contract:
-        const: pgbench_tool_parameters_v1
+      contract: {const: pgbench_tool_parameters_v1}
       source_release:
         type: object
         additionalProperties: false
         required: [tag, commit, source_url, archive_sha256]
         properties:
-          tag:
-            type: string
-            minLength: 1
-          commit:
-            type: string
-            pattern: "^[0-9a-f]{40}$"
-          source_url:
-            type: string
-            minLength: 1
-          archive_sha256:
-            type: string
-            pattern: "^[0-9a-f]{64}$"
-      explicit:
-        type: object
-        minProperties: 1
-        additionalProperties:
-          type: [string, number, boolean]
-      implicit:
-        type: object
-        minProperties: 1
-        additionalProperties:
-          type: [string, number, boolean, "null"]
+          tag: {type: string, minLength: 1}
+          commit: {type: string, pattern: "^[0-9a-f]{40}$"}
+          source_url: {type: string, minLength: 1}
+          archive_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+      explicit: {type: object, minProperties: 1}
+      implicit: {type: object, minProperties: 1}
   supported_modes:
     type: object
-    minProperties: 1
     additionalProperties: false
+    required: [end_to_end_from_reads]
     properties:
-      caller_only_shared_alignment:
-        $ref: "#/$defs/modeContract"
-      end_to_end_from_reads:
-        $ref: "#/$defs/modeContract"
+      end_to_end_from_reads: {$ref: "#/$defs/modeContract"}
   outputs:
     type: object
     additionalProperties: false
-    required:
-      - vcf
-      - candidate_output_contract
-      - absence_semantics
+    required: [vcf, candidate_output_contract, absence_semantics]
     properties:
       vcf:
         type: string
         minLength: 5
         pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.vcf(?:\\.gz)?$"
-      candidate_output_contract:
-        enum: [all_sites, variant_sites]
-      absence_semantics:
-        enum: [no_call, hom_ref]
-
-allOf:
-  - if:
-      properties:
-        source:
-          const: builtin
-      required: [source]
-    then:
-      properties:
-        execution:
-          required: [module]
-          properties:
-            trust_level:
-              const: trusted_reviewed
-  - if:
-      properties:
-        execution:
-          properties:
-            trust_level:
-              const: untrusted
-          required: [trust_level]
-      required: [execution]
-    then:
-      properties:
-        execution:
-          required: [runner]
-  - if:
-      properties:
-        paradigm:
-          const: genotyping_only
-      required: [paradigm]
-    then:
-      properties:
-        tasks:
-          contains:
-            const: genotyping
-        inputs:
-          properties:
-            candidates:
-              const: required
-        outputs:
-          properties:
-            candidate_output_contract:
-              const: all_sites
-            absence_semantics:
-              const: no_call
-  - if:
-      properties:
-        outputs:
-          properties:
-            candidate_output_contract:
-              const: all_sites
-          required: [candidate_output_contract]
-      required: [outputs]
-    then:
-      properties:
-        outputs:
-          properties:
-            absence_semantics:
-              const: no_call
-  - if:
-      properties:
-        supported_modes:
-          required: [caller_only_shared_alignment]
-      required: [supported_modes]
-    then:
-      properties:
-        supported_modes:
-          properties:
-            caller_only_shared_alignment:
-              properties:
-                required_inputs:
-                  contains:
-                    const: shared_alignment
-                forbidden_inputs:
-                  contains:
-                    const: original_input_bam
-  - if:
-      properties:
-        inputs:
-          properties:
-            read_sequences_auxiliary:
-              const: false
-          required: [read_sequences_auxiliary]
-        supported_modes:
-          required: [caller_only_shared_alignment]
-      required: [inputs, supported_modes]
-    then:
-      properties:
-        supported_modes:
-          properties:
-            caller_only_shared_alignment:
-              properties:
-                forbidden_inputs:
-                  contains:
-                    const: canonical_fastq
-  - if:
-      properties:
-        supported_modes:
-          required: [end_to_end_from_reads]
-      required: [supported_modes]
-    then:
-      properties:
-        supported_modes:
-          properties:
-            end_to_end_from_reads:
-              properties:
-                forbidden_inputs:
-                  allOf:
-                    - contains:
-                        const: original_input_bam
-                    - contains:
-                        const: shared_alignment
+      candidate_output_contract: {const: all_sites}
+      absence_semantics: {const: no_call}
 
 $defs:
   identifier:
@@ -341,100 +112,45 @@ $defs:
     minLength: 1
     maxLength: 128
     pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-  nonEmptyPath:
-    type: string
-    minLength: 1
-  requirement:
-    enum: [required, optional, forbidden]
-  formatRequirement:
+  nonEmptyPath: {type: string, minLength: 1}
+  requirement: {enum: [required, optional, forbidden]}
+  graphRequirement:
     type: object
     additionalProperties: false
-    required: [required, accepted_formats]
+    required: [required, accepted_formats, accepted_profiles]
     properties:
-      required:
-        type: boolean
+      required: {type: boolean}
       accepted_formats:
         type: array
-        minItems: 1
         uniqueItems: true
-        items:
-          enum:
-            - bam
-            - cram
-            - gaf
-            - gam
-            - vg
-            - xg_gbwt
-            - svjedi
-            - vcf
-            - fasta
-            - gfa
-            - other
+        items: {enum: [gbz, xg_gbwt, vcf, other]}
       accepted_profiles:
         type: array
         uniqueItems: true
-        items:
-          enum:
-            - vg_gbz_min_dist
-            - vg_giraffe_shortread
-            - vg_legacy_xg
-            - svarp_minigraph_longread
+        items: {enum: [vg_gbz_min_dist, vg_giraffe_shortread]}
   modeInput:
-    enum:
-      - canonical_fastq
-      - short_fastq_r1
-      - short_fastq_r2
-      - haplotype_fastq
-      - original_input_bam
-      - shared_alignment
-      - shared_alignment_index
-      - reference
-      - reference_index
-      - pangenome_manifest
-      - pangenome_panel
-      - candidate_panel
-      - allele_fasta
-      - graph_assets
-      - tool_index
+    enum: [short_fastq_r1, short_fastq_r2, reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel, allele_fasta, graph_assets, tool_index]
   billableStage:
-    enum:
-      - prepare_assets
-      - index
-      - map
-      - discover
-      - assemble
-      - integrate
-      - call
-      - genotype
-      - postprocess
+    enum: [prepare_assets, index, map, call, genotype, postprocess]
   modeContract:
     type: object
     additionalProperties: false
-    required:
-      - required_inputs
-      - optional_inputs
-      - forbidden_inputs
-      - billable_stages
+    required: [required_inputs, optional_inputs, billable_stages]
     properties:
       required_inputs:
         type: array
-        minItems: 1
+        minItems: 2
         uniqueItems: true
-        items:
-          $ref: "#/$defs/modeInput"
+        allOf:
+          - contains: {const: short_fastq_r1}
+          - contains: {const: short_fastq_r2}
+        items: {$ref: "#/$defs/modeInput"}
       optional_inputs:
         type: array
         uniqueItems: true
-        items:
-          $ref: "#/$defs/modeInput"
-      forbidden_inputs:
-        type: array
-        uniqueItems: true
-        items:
-          $ref: "#/$defs/modeInput"
+        items: {$ref: "#/$defs/modeInput"}
       billable_stages:
         type: array
         minItems: 1
         uniqueItems: true
-        items:
-          $ref: "#/$defs/billableStage"
+        items: {$ref: "#/$defs/billableStage"}

@@ -7,6 +7,7 @@ required:
   - schema_version
   - project
   - sample
+  - benchmark_contract
   - reference
   - pangenome
   - truth
@@ -18,6 +19,76 @@ required:
 properties:
   schema_version:
     const: 1
+  benchmark_contract:
+    type: object
+    additionalProperties: false
+    required:
+      - track
+      - chromosomes
+      - svtypes
+      - minimum_sv_size
+      - maximum_sv_size
+      - biallelic_only
+      - sequence_resolved_only
+      - truth_absence_policy
+      - coverage_levels
+      - downsampling_seeds
+      - source_coverage_x
+      - target_family_exclusion
+      - score_status
+      - conclusion_scope
+      - independent_samples_status
+    properties:
+      track:
+        const: short_read_fixed_panel_genotyping
+      chromosomes:
+        type: array
+        minItems: 22
+        maxItems: 22
+        uniqueItems: true
+        items:
+          pattern: '^chr([1-9]|1[0-9]|2[0-2])$'
+      svtypes:
+        const: [DEL, INS]
+      minimum_sv_size:
+        const: 50
+      maximum_sv_size:
+        const: 10000
+      biallelic_only:
+        const: true
+      sequence_resolved_only:
+        const: true
+      truth_absence_policy:
+        const: unscorable_without_explicit_reference_confidence
+      coverage_levels:
+        const: [10, 20, 30, full]
+      downsampling_seeds:
+        type: array
+        minItems: 3
+        uniqueItems: true
+        items: {type: integer, minimum: 0}
+      source_coverage_x:
+        type: number
+        minimum: 30
+      target_family_exclusion:
+        type: array
+        minItems: 6
+        uniqueItems: true
+        allOf:
+          - contains: {const: HG002}
+          - contains: {const: NA24385}
+          - contains: {const: HG003}
+          - contains: {const: NA24149}
+          - contains: {const: HG004}
+          - contains: {const: NA24143}
+        items:
+          $ref: "#/$defs/identifier"
+      score_status:
+        enum: [experimental, valid]
+      conclusion_scope:
+        const: sample_and_configuration_specific
+      independent_samples_status:
+        enum: [not_available, complete]
   project:
     type: object
     additionalProperties: false
@@ -40,19 +111,15 @@ properties:
       - read_count
       - read_bases
       - downsampling_seed
-      - bam
-      - fastq
+      - fastq_r1
+      - fastq_r2
     properties:
       id:
         $ref: "#/$defs/identifier"
       sex:
         enum: [male, female, unknown]
       technology:
-        enum:
-          - pacbio_clr
-          - pacbio_hifi
-          - ont
-          - illumina_short_read
+        const: illumina_short_read
       library_id:
         $ref: "#/$defs/identifier"
       source_evidence_id:
@@ -77,22 +144,10 @@ properties:
           - type: integer
             minimum: 0
           - type: "null"
-      bam:
-        oneOf:
-          - $ref: "#/$defs/nonEmptyPath"
-          - type: "null"
-      fastq:
-        oneOf:
-          - $ref: "#/$defs/nonEmptyPath"
-          - type: "null"
       fastq_r1:
-        oneOf:
-          - $ref: "#/$defs/nonEmptyPath"
-          - type: "null"
+        $ref: "#/$defs/nonEmptyPath"
       fastq_r2:
-        oneOf:
-          - $ref: "#/$defs/nonEmptyPath"
-          - type: "null"
+        $ref: "#/$defs/nonEmptyPath"
       allow_sample_name_override:
         type: boolean
         default: false
@@ -169,8 +224,6 @@ properties:
               - none
               - vg_gbz_min_dist
               - vg_giraffe_shortread
-              - vg_legacy_xg
-              - svarp_minigraph_longread
           manifest:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
@@ -230,7 +283,6 @@ properties:
       - stratifications
       - score_weights
       - evaluator_profile
-      - novel_truth_profile
       - metric_dictionary
     properties:
       truthsets:
@@ -240,8 +292,6 @@ properties:
       score_weights:
         $ref: "#/$defs/nonEmptyPath"
       evaluator_profile:
-        $ref: "#/$defs/nonEmptyPath"
-      novel_truth_profile:
         $ref: "#/$defs/nonEmptyPath"
       metric_dictionary:
         $ref: "#/$defs/nonEmptyPath"
@@ -295,20 +345,14 @@ properties:
     additionalProperties: false
     required:
       - synthetic_mode
-      - canonical_fastq
       - population_vcf
       - truth_vcf
       - benchmark_bed
       - evaluator_fixture_dir
-      - allow_missing_bam
     properties:
       synthetic_mode:
         type: boolean
         default: false
-      canonical_fastq:
-        oneOf:
-          - $ref: "#/$defs/nonEmptyPath"
-          - type: "null"
       population_vcf:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
@@ -325,38 +369,17 @@ properties:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
-      allow_missing_bam:
-        type: boolean
-        default: false
-  caller_only:
-    type: object
-    additionalProperties: false
-    required:
-      - alignment_kind
-      - alignment_group_id
-      - shared_graph_alignments
-    properties:
-      alignment_kind:
-        enum: [bam, cram, gaf, gam, other]
-      alignment_group_id:
-        $ref: "#/$defs/identifier"
-      shared_bam:
-        $ref: "#/$defs/nonEmptyPath"
-      shared_graph_alignments:
-        type: object
-        additionalProperties:
-          $ref: "#/$defs/nonEmptyPath"
   score:
     type: object
     additionalProperties: false
     required: [profile, final_score_name, produce_ranking]
     properties:
       profile:
-        const: pgbench_consensus_v4
+        const: pgbench_me_f1_v1
       final_score_name:
-        const: PGBenchConsensusScore
+        const: ME-F1
       produce_ranking:
-        const: false
+        const: true
   evaluation:
     type: object
     additionalProperties: false
@@ -451,24 +474,10 @@ properties:
           $ref: "#/$defs/identifier"
         manifest:
           $ref: "#/$defs/nonEmptyPath"
+        tool_index:
+          $ref: "#/$defs/nonEmptyPath"
 
 allOf:
-  - if:
-      properties:
-        execution:
-          properties:
-            official_score_mode:
-              const: caller_only_shared_alignment
-          required: [official_score_mode]
-      required: [execution]
-    then:
-      properties:
-        execution:
-          properties:
-            tracks:
-              contains:
-                const: caller_only_shared_alignment
-      required: [execution, caller_only]
   - if:
       properties:
         execution:
@@ -486,17 +495,6 @@ allOf:
                 const: end_to_end_from_reads
   - if:
       properties:
-        execution:
-          properties:
-            tracks:
-              contains:
-                const: caller_only_shared_alignment
-          required: [tracks]
-      required: [execution]
-    then:
-      required: [caller_only]
-  - if:
-      properties:
         development:
           properties:
             synthetic_mode:
@@ -507,8 +505,6 @@ allOf:
       properties:
         development:
           properties:
-            canonical_fastq:
-              type: "null"
             population_vcf:
               type: "null"
             truth_vcf:
@@ -517,8 +513,6 @@ allOf:
               type: "null"
             evaluator_fixture_dir:
               type: "null"
-            allow_missing_bam:
-              const: false
         pangenome:
           properties:
             population_vcf:
@@ -541,39 +535,11 @@ allOf:
       properties:
         development:
           properties:
-            canonical_fastq:
-              $ref: "#/$defs/nonEmptyPath"
             population_vcf:
               $ref: "#/$defs/nonEmptyPath"
             truth_vcf:
               $ref: "#/$defs/nonEmptyPath"
             benchmark_bed:
-              $ref: "#/$defs/nonEmptyPath"
-  - if:
-      properties:
-        caller_only:
-          properties:
-            alignment_kind:
-              const: bam
-          required: [alignment_kind]
-      required: [caller_only]
-    then:
-      properties:
-        caller_only:
-          required: [shared_bam]
-  - if:
-      properties:
-        execution:
-          properties:
-            official_score_mode:
-              const: caller_only_shared_alignment
-          required: [official_score_mode]
-      required: [execution]
-    then:
-      properties:
-        sample:
-          properties:
-            bam:
               $ref: "#/$defs/nonEmptyPath"
 
 $defs:
@@ -586,9 +552,7 @@ $defs:
     type: string
     minLength: 1
   executionMode:
-    enum:
-      - caller_only_shared_alignment
-      - end_to_end_from_reads
+    const: end_to_end_from_reads
   sha256OrNull:
     oneOf:
       - type: string

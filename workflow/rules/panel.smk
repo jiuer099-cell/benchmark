@@ -41,6 +41,14 @@ rule build_blinded_challenge_panel:
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
             f"{SAMPLE_ID}.audit.json"
         ),
+        scope=(
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
+            f"{SAMPLE_ID}.scope.tsv"
+        ),
+        challenging=(
+            f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
+            f"{SAMPLE_ID}.challenging.vcf"
+        ),
         rule_manifest=CHALLENGE_RULE_MANIFEST,
     log:
         f"{LOG_ROOT}/rules/build_blinded_challenge_panel/{SAMPLE_ID}.log",
@@ -93,6 +101,8 @@ rule build_blinded_challenge_panel:
           --output {output.vcf:q} \
           --output {output.ledger:q} \
           --output {output.audit:q} \
+          --output {output.scope:q} \
+          --output {output.challenging:q} \
           --upstream-manifest {input.pangenome_rule_manifest:q} \
           {params.truth_upstream_arguments:q} \
           --manifest-output {output.rule_manifest:q} \
@@ -105,6 +115,8 @@ rule build_blinded_challenge_panel:
             --output-vcf {output.vcf:q} \
             --hidden-ledger {output.ledger:q} \
             --audit-json {output.audit:q} \
+            --scope-ledger {output.scope:q} \
+            --challenging-vcf {output.challenging:q} \
             --seed {config[execution][random_seed]} \
           > {log:q} 2>&1
         """

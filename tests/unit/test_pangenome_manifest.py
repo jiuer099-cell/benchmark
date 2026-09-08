@@ -59,13 +59,18 @@ def test_assigns_stable_ids_and_writes_manifest(tmp_path: Path) -> None:
         panel_vcf=panel,
         allele_ledger=ledger,
         namespace="PGSV",
-        excluded_truth_samples=["HG002"],
+        excluded_truth_samples=[
+            "HG002", "NA24385", "HG003", "NA24149", "HG004", "NA24143"
+        ],
         graph_build_recipe_sha256=None,
         graph_assets_lock=None,
         generated_at="2026-07-17T00:00:00+00:00",
     )
     assert manifest["panel_vcf"]["record_count"] == 2
-    assert manifest["truth_samples_excluded"] == ["HG002"]
+    assert manifest["truth_samples_excluded"] == [
+        "HG002", "NA24385", "HG003", "NA24149", "HG004", "NA24143"
+    ]
+    assert len(manifest["target_family_exclusion"]) == 6
     assert len(manifest["panel_vcf"]["sha256"]) == 64
 
     round_trip = yaml.safe_load(yaml.safe_dump(manifest))

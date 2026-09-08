@@ -100,7 +100,7 @@ def _write_companions(
     root: Path,
     manifest: dict[str, Any],
     *,
-    run_scoped: bool = False,
+    run_scoped: bool = True,
 ) -> None:
     scope = [manifest["run_id"]] if run_scoped else []
     log = (
@@ -179,7 +179,7 @@ def _score_payload(
         "score_profile_sha256": SHA_B,
         "evaluation_mode": evaluation_mode,
         "score_status": status,
-        "pgbench_score": 78.06,
+        "benchmark_score": 78.06,
         "point_breakdown": {"traceability.environment_complete": 1.0},
         "required_f1_metrics": {
             F1_METRIC_ID: dict(required_f1_record),
@@ -199,7 +199,7 @@ def _seal_fixture(
     link_score_to_audit: bool = True,
     score_manifest_profile_sha256: str = SHA_B,
     audit_manifest_profile_sha256: str = SHA_B,
-    run_scoped_companions: bool = False,
+    run_scoped_companions: bool = True,
 ) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = root / "artifacts"
@@ -294,7 +294,7 @@ def _seal_fixture(
     score = artifacts / "score.json"
     atomic_write_json(score, score_payload)
     score_manifest = _manifest(
-        rule_name="compute_pgbench_score",
+        rule_name="compute_me_f1",
         job_key=tuple_job_key,
         attempt_id="score-1",
         inputs=[pre_score_audit, metrics],
@@ -395,7 +395,7 @@ def test_seals_when_stored_audit_contains_path_only_warning(tmp_path: Path) -> N
     audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
     assert package["sealed"] is True
     assert package["seal_status"] == "valid"
-    assert package["score"]["pgbench_score"] == 78.06
+    assert package["score"]["benchmark_score"] == 78.06
     assert package["metrics_artifact"]["path"] == str(fixture["metrics"])
     assert len(package["metrics_artifact"]["sha256"]) == 64
     assert all(package["gates"].values())
@@ -407,61 +407,9 @@ def test_seals_when_stored_audit_contains_path_only_warning(tmp_path: Path) -> N
     assert audit["metrics_artifact_hash_verified"] is True
     assert audit["metrics_provenance_ids_verified"] is True
     assert audit["required_f1_metrics_verified"] is True
-    assert "compute_pgbench_score" in fixture["outputs"]["lineage_tsv"].read_text(
+    assert "compute_me_f1" in fixture["outputs"]["lineage_tsv"].read_text(
         encoding="utf-8"
     )
-
-
-def test_reconciles_only_legacy_derived_truth_context_audit(tmp_path: Path) -> None:
-    root = tmp_path / "workspace"
-
-    def mark_legacy_truth_profile_error(audit: dict[str, Any]) -> None:
-        audit.update(
-            {
-                "status": "invalid",
-                "run_context_complete": False,
-                "core_provenance_valid": False,
-            }
-        )
-        audit["issues"].append(
-            {
-                "severity": "error",
-                "code": "run_context_mismatch",
-                "field": "truth_profile",
-                "message": (
-                    "audited manifests disagree on frozen run-context "
-                    "field truth_profile"
-                ),
-            }
-        )
-
-    fixture = _seal_fixture(
-        root,
-        score_status="provisional",
-        evaluation_mode="synthetic_smoke",
-        environment_complete=False,
-        audit_mutator=mark_legacy_truth_profile_error,
-    )
-
-    assert _run_seal(root, fixture) == 0
-
-    audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
-    assert audit["pre_score_audit_reproduced"] is False
-    assert audit["pre_score_audit_reconciled"] is True
-    assert audit["pre_score_audit_reconciliation"] == {
-        "kind": "derived_truth_profile_execution_context_correction",
-        "reconciled_fields": [
-            "core_provenance_valid",
-            "run_context_complete",
-            "status",
-        ],
-        "stored_status": "invalid",
-        "replayed_status": "provisional",
-        "superseded_error": {
-            "code": "run_context_mismatch",
-            "field": "truth_profile",
-        },
-    }
 
 
 def test_seals_score_with_run_id_scoped_companions(tmp_path: Path) -> None:
@@ -510,7 +458,7 @@ def test_seals_attested_invalid_formal_score_without_numeric_promotion(
         score.update(
             {
                 "score_status": "invalid",
-                "pgbench_score": None,
+                "benchmark_score": None,
                 "reason": reason,
                 "formal_analysis": dict(formal_analysis),
             }
@@ -530,7 +478,7 @@ def test_seals_attested_invalid_formal_score_without_numeric_promotion(
     package = json.loads(fixture["outputs"]["package"].read_text(encoding="utf-8"))
     audit = json.loads(fixture["outputs"]["audit"].read_text(encoding="utf-8"))
     assert package["seal_status"] == "invalid"
-    assert package["score"]["pgbench_score"] is None
+    assert package["score"]["benchmark_score"] is None
     assert package["score"]["reason"] == reason
     assert audit["seal_status"] == "invalid"
 
@@ -549,8 +497,8 @@ def test_rejects_invalid_score_that_promotes_diagnostic_as_numeric_score(
         score.update(
             {
                 "score_status": "invalid",
-                "pgbench_score": None,
-                "comparable_score": 3.678256645152335,
+                "benchmark_score": None,
+                "pangenome_genotyping_score": 3.678256645152335,
                 "reason": reason,
                 "formal_analysis": dict(formal_analysis),
             }
@@ -783,6 +731,7 @@ def test_rejects_score_hash_mismatch_and_missing_companion(tmp_path: Path) -> No
     score_log = (
         companion_root
         / "logs"
+        / score_manifest["run_id"]
         / "rules"
         / score_manifest["rule_name"]
         / f"{score_manifest['job_key']}.log"

@@ -1,0 +1,52 @@
+interface_version: 1
+id: paragraph
+name: Paragraph short-read graph genotyper
+version: 2.4a-63e6b709db5187dd7926a9f49ac38f5345ff35c8
+source: builtin
+paradigm: short_read_pangenome_genotyping
+comparison_task: panel_genotyping
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_status: official_configuration
+tasks: [mapping, prepare_assets, genotyping, postprocess]
+inputs:
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: false
+    accepted_formats: []
+    accepted_profiles: []
+capabilities:
+  technology: [illumina_short_read]
+  svtypes: [DEL, INS]
+  phasing: false
+  novel_discovery: false
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: trusted_reviewed
+  sandbox_backend: bwrap
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs:
+      - short_fastq_r1
+      - short_fastq_r2
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    optional_inputs: [reference_index]
+    billable_stages: [map, prepare_assets, genotype, postprocess]
+outputs:
+  vcf: raw/calls.vcf.gz
+  candidate_output_contract: all_sites
+  absence_semantics: no_call

@@ -29,17 +29,12 @@ TASK_TO_STAGE = {
     "genotyping": "genotype",
     "postprocess": "postprocess",
 }
-READ_INPUTS = {"canonical_fastq", "short_fastq_r1", "short_fastq_r2"}
 GRAPH_PROFILE_ASSETS = {
     "none": set(),
     "vg_gbz_min_dist": {"manifest", "gbz", "min", "dist", "sample_list"},
     "vg_giraffe_shortread": {
         "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
     },
-    "vg_legacy_xg": {"manifest", "gbz", "xg", "min", "dist", "sample_list"},
-    # SVarp maps long reads to an rGFA minigraph graph.  Unlike vg's GBZ
-    # profiles, no minimizer/distance index is involved.
-    "svarp_minigraph_longread": {"manifest", "gfa", "variation_calls"},
 }
 
 
@@ -70,67 +65,18 @@ def validate_json_schema(instance: Mapping[str, Any], schema_path: Path) -> None
 
 
 def _mode_semantics(tool: Mapping[str, Any]) -> None:
-    inputs = tool["inputs"]
     for mode, contract in tool["supported_modes"].items():
         required = set(contract["required_inputs"])
         optional = set(contract["optional_inputs"])
-        forbidden = set(contract["forbidden_inputs"])
-        overlaps = {
-            "required/optional": required & optional,
-            "required/forbidden": required & forbidden,
-            "optional/forbidden": optional & forbidden,
-        }
-        conflicts = {name: values for name, values in overlaps.items() if values}
-        if conflicts:
+        if required & optional:
             raise ConfigValidationError(
-                f"tool {tool['id']} mode {mode} has overlapping input sets: {conflicts}"
+                f"tool {tool['id']} mode {mode} has overlapping required/optional inputs"
             )
-        allowed = required | optional
-        if mode == "caller_only_shared_alignment":
-            if "shared_alignment" not in required:
-                raise ConfigValidationError(
-                    f"tool {tool['id']} caller-only mode requires shared_alignment"
-                )
-            if "original_input_bam" not in forbidden:
-                raise ConfigValidationError(
-                    f"tool {tool['id']} caller-only mode must forbid original_input_bam"
-                )
-            declares_paired_contract = bool(
-                {"short_fastq_r1", "short_fastq_r2"}
-                & (required | optional | forbidden)
-            )
-            if (
-                not inputs.get("read_sequences_auxiliary", False)
-                and declares_paired_contract
-                and not READ_INPUTS.issubset(forbidden)
-            ):
-                raise ConfigValidationError(
-                    f"tool {tool['id']} caller-only mode must forbid all FASTQ inputs"
-                )
-        if mode == "end_to_end_from_reads":
-            has_single = "canonical_fastq" in required
-            has_pair = {"short_fastq_r1", "short_fastq_r2"}.issubset(required)
-            has_partial_pair = bool(
-                {"short_fastq_r1", "short_fastq_r2"} & required
-            ) and not has_pair
-            if not has_single and not has_pair:
-                raise ConfigValidationError(
-                    f"tool {tool['id']} end-to-end mode requires canonical_fastq "
-                    "or the complete short_fastq_r1/short_fastq_r2 pair"
-                )
-            if has_partial_pair:
-                raise ConfigValidationError(
-                    f"tool {tool['id']} must require both paired FASTQ inputs"
-                )
-            for forbidden_input in ("original_input_bam", "shared_alignment"):
-                if forbidden_input not in forbidden:
-                    raise ConfigValidationError(
-                        f"tool {tool['id']} end-to-end mode must forbid "
-                        f"{forbidden_input}"
-                    )
-        if allowed & forbidden:
+        if mode != "end_to_end_from_reads":
+            raise ConfigValidationError(f"tool {tool['id']} declares unsupported mode {mode}")
+        if not {"short_fastq_r1", "short_fastq_r2"}.issubset(required):
             raise ConfigValidationError(
-                f"tool {tool['id']} mode {mode} exposes forbidden inputs"
+                f"tool {tool['id']} must require both paired FASTQ inputs"
             )
 
         declared_stages = set(contract["billable_stages"])
@@ -177,6 +123,19 @@ def validate_external_plugins(
                 f"ID {manifest['id']!r}"
             )
         _mode_semantics(manifest)
+        if manifest["capabilities"]["technology"] != ["illumina_short_read"]:
+            raise ConfigValidationError(
+                f"tool {plugin_id} is outside the short-read-only track"
+            )
+        if manifest["outputs"].get("candidate_output_contract") != "all_sites":
+            raise ConfigValidationError(
+                f"tool {plugin_id} must produce canonical all-sites output"
+            )
+        information = manifest.get("information_contract")
+        if not isinstance(information, Mapping):
+            raise ConfigValidationError(
+                f"tool {plugin_id} is missing its allowed-information contract"
+            )
         loaded[plugin_id] = manifest
     return loaded
 
@@ -213,7 +172,6 @@ def _validate_plugin_compatibility(
 ) -> None:
     technology = config["sample"]["technology"]
     mode = config["execution"]["official_score_mode"]
-    synthetic = bool(config.get("development", {}).get("synthetic_mode", False))
     graph_profile = config["pangenome"]["graph_assets"]["profile"]
     for plugin_id, manifest in plugins.items():
         supported_technologies = set(manifest["capabilities"]["technology"])
@@ -228,24 +186,14 @@ def _validate_plugin_compatibility(
                 f"tool {plugin_id} does not support official mode {mode}"
             )
         required = set(contract["required_inputs"])
-        if mode == "end_to_end_from_reads":
-            canonical = (
-                config["development"].get("canonical_fastq")
-                if synthetic
-                else config["sample"].get("fastq")
-            )
-            if "canonical_fastq" in required and not canonical:
+        for field, contract_name in (
+            ("fastq_r1", "short_fastq_r1"),
+            ("fastq_r2", "short_fastq_r2"),
+        ):
+            if contract_name in required and not config["sample"].get(field):
                 raise ConfigValidationError(
-                    f"tool {plugin_id} requires sample.fastq"
+                    f"tool {plugin_id} requires sample.{field}"
                 )
-            for field, contract_name in (
-                ("fastq_r1", "short_fastq_r1"),
-                ("fastq_r2", "short_fastq_r2"),
-            ):
-                if contract_name in required and not config["sample"].get(field):
-                    raise ConfigValidationError(
-                        f"tool {plugin_id} requires sample.{field}"
-                    )
         if "graph_assets" in required:
             if graph_profile == "none":
                 raise ConfigValidationError(
@@ -259,15 +207,6 @@ def _validate_plugin_compatibility(
                     f"tool {plugin_id} rejects graph profile {graph_profile}; "
                     f"accepted={sorted(accepted)}"
                 )
-        if (
-            not synthetic
-            and manifest["comparison_task"] == "novel_pangenome_discovery"
-            and graph_profile != "svarp_minigraph_longread"
-        ):
-            raise ConfigValidationError(
-                f"tool {plugin_id} novel discovery requires the frozen "
-                "svarp_minigraph_longread graph-call profile"
-            )
 
 
 def validate_configuration(
@@ -286,30 +225,12 @@ def validate_configuration(
     )
     _validate_graph_profile(config)
     _validate_plugin_compatibility(config, plugins)
-    for catalog_name in ("evaluator_profile", "novel_truth_profile"):
+    for catalog_name in ("evaluator_profile",):
         catalog_path = (repo_root / config["catalogs"][catalog_name]).resolve()
         if not catalog_path.is_file():
             raise ConfigValidationError(
                 f"{catalog_name} does not exist: {catalog_path}"
             )
-    development = config.get("development", {})
-    needs_bam = (
-        config["execution"]["official_score_mode"]
-        == "caller_only_shared_alignment"
-    )
-    bam_value = config["sample"].get("bam")
-    bam_path = Path(bam_value) if isinstance(bam_value, str) else None
-    if (
-        needs_bam
-        and (
-            not development.get("synthetic_mode", False)
-            or not development.get("allow_missing_bam", False)
-        )
-    ) and (bam_path is None or not bam_path.exists()):
-        raise ConfigValidationError(
-            f"sample BAM does not exist: {bam_path}; use synthetic_mode only "
-            "for local fixtures"
-        )
     return config, plugins
 
 

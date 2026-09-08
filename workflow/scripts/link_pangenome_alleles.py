@@ -188,7 +188,7 @@ def _candidate_alleles(call: Call, index: AlleleIndex) -> list[Allele]:
 
 
 def _allow_large_vcf_alleles() -> None:
-    """Raise csv's legacy 128 KiB field cap without assuming C-long width."""
+    """Raise csv's default 128 KiB field cap without assuming C-long width."""
 
     limit = sys.maxsize
     while True:
