@@ -41,5 +41,8 @@ truthsets:
       maximum_sv_size: 10000
       allowed_svtypes: [DEL, INS]
       reject_multiallelic_sv: true
+      # Keep the truth contract byte-for-byte aligned with the frozen
+      # evaluator universe: multiallelic SV records are outside the panel.
+      multiallelic_policy: exclude
       sequence_resolved_only: true
     required_sha256_before_execution: true
