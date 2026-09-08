@@ -284,3 +284,115 @@ rule build_pangenome_manifest:
             {params.graph_script_arguments:q} \
           > {log:q} 2>&1
         """
+
+
+if PANGENIE_PRIVATE_ENABLED:
+    PANGENIE_CONTEXT = config["pangenome"].get("pangenie_private_context")
+    if not isinstance(PANGENIE_CONTEXT, dict):
+        raise WorkflowError(
+            "PanGenie requires pangenome.pangenie_private_context in formal mode"
+        )
+
+    rule prepare_pangenie_private_panel:
+        input:
+            canonical_population=population_vcf_input,
+            canonical_scoring_panel=(
+                f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
+                f"{SAMPLE_ID}.blinded.vcf"
+            ),
+            source_graph=PANGENIE_CONTEXT["source_graph"],
+            source_haplotype_manifest=PANGENIE_CONTEXT["source_haplotype_manifest"],
+            source_phased_panel=PANGENIE_CONTEXT["source_phased_panel"],
+            source_biallelic_panel=PANGENIE_CONTEXT["source_biallelic_panel"],
+            source_biallelic_converter=PANGENIE_CONTEXT["source_biallelic_converter"],
+            provenance=PANGENIE_CONTEXT["provenance"],
+            pangenome_manifest=f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml",
+            pangenome_rule_manifest=PANGENOME_RULE_MANIFEST,
+            challenge_rule_manifest=CHALLENGE_RULE_MANIFEST,
+            context=RESULTS_ROOT + "/provenance/run-context.json",
+            context_manifest=CONTEXT_MANIFEST,
+            config=CONFIG_PATH,
+            score_profile=config["catalogs"]["score_weights"],
+            reference=config["reference"]["fasta"],
+            rule_source="workflow/rules/pangenome.smk",
+            rule_executor=RULE_EXECUTOR,
+            script="workflow/scripts/prepare_pangenie_private_panel.py",
+            environment=CORE_ENV_SPEC,
+            provenance_library="workflow/scripts/pgbench_provenance.py",
+        output:
+            panel=PANGENIE_PRIVATE_PHASED_PANEL,
+            projection=PANGENIE_PRIVATE_PROJECTION,
+            gate=PANGENIE_PRIVATE_GATE,
+            rule_manifest=PANGENIE_PRIVATE_RULE_MANIFEST,
+        log:
+            f"{LOG_ROOT}/rules/prepare_pangenie_private_panel/{SAMPLE_ID}.log",
+        benchmark:
+            f"{BENCHMARK_ROOT}/rules/prepare_pangenie_private_panel/{SAMPLE_ID}.jsonl",
+        conda:
+            "../envs/core.yaml"
+        params:
+            exclusions=cli_repeated(
+                "--exclude-sample", config["pangenome"]["excluded_samples"]
+            ),
+        shell:
+            """
+            {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
+              --rule-name prepare_pangenie_private_panel \
+              --job-key {SAMPLE_ID:q} \
+              --run-id {RUN_ID:q} \
+              --module-or-tool-id pangenie \
+              --snakefile-path {input.rule_source:q} \
+              --rule-source-path {input.rule_source:q} \
+              --script-or-wrapper-path {input.script:q} \
+              --config-snapshot {input.config:q} \
+              --score-profile {input.score_profile:q} \
+              --run-context {input.context:q} \
+              --pangenome-manifest {input.pangenome_manifest:q} \
+              --reference {input.reference:q} \
+              --truth-profile {config[truth][primary]:q} \
+              --snakemake-version {SNAKEMAKE_VERSION:q} \
+              --execution-profile local \
+              --random-seed {config[execution][random_seed]} \
+              --threads 1 \
+              --resource mem_mb=4096 \
+              --param source_cohort_id={PANGENIE_CONTEXT[source_cohort_id]:q} \
+              --input {input.canonical_population:q} \
+              --input {input.canonical_scoring_panel:q} \
+              --input {input.source_graph:q} \
+              --input {input.source_haplotype_manifest:q} \
+              --input {input.source_phased_panel:q} \
+              --input {input.source_biallelic_panel:q} \
+              --input {input.source_biallelic_converter:q} \
+              --input {input.provenance:q} \
+              --input {input.pangenome_manifest:q} \
+              --input {input.context:q} \
+              --input {input.config:q} \
+              --input {input.score_profile:q} \
+              --input {input.reference:q} \
+              --input {input.rule_source:q} \
+              --input {input.rule_executor:q} \
+              --input {input.script:q} \
+              --input {input.environment:q} \
+              --input {input.provenance_library:q} \
+              --output {output.panel:q} \
+              --output {output.projection:q} \
+              --output {output.gate:q} \
+              --upstream-manifest {input.pangenome_rule_manifest:q} \
+              --upstream-manifest {input.challenge_rule_manifest:q} \
+              --upstream-manifest {input.context_manifest:q} \
+              --manifest-output {output.rule_manifest:q} \
+              -- \
+              {PYTHON_EXECUTABLE:q} {input.script:q} \
+                --source-phased-panel {input.source_phased_panel:q} \
+                --canonical-population-source {input.canonical_population:q} \
+                --source-graph {input.source_graph:q} \
+                --source-haplotype-manifest {input.source_haplotype_manifest:q} \
+                --provenance {input.provenance:q} \
+                --canonical-scoring-panel {input.canonical_scoring_panel:q} \
+                --source-cohort-id {PANGENIE_CONTEXT[source_cohort_id]:q} \
+                {params.exclusions:q} \
+                --output-panel {output.panel:q} \
+                --output-projection {output.projection:q} \
+                --output-gate {output.gate:q} \
+              > {log:q} 2>&1
+            """

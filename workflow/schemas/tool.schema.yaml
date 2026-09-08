@@ -143,7 +143,7 @@ $defs:
         uniqueItems: true
         items: {enum: [vg_gbz_min_dist, vg_giraffe_shortread]}
   modeInput:
-    enum: [short_fastq_r1, short_fastq_r2, reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel, allele_fasta, graph_assets, tool_index]
+    enum: [short_fastq_r1, short_fastq_r2, reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel, allele_fasta, graph_assets, tool_index, pangenie_private_phased_panel, pangenie_private_biallelic_panel, pangenie_biallelic_converter, canonical_allele_projection]
   billableStage:
     enum: [prepare_assets, index, map, call, genotype, postprocess]
   modeContract:

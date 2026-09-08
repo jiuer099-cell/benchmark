@@ -84,6 +84,16 @@ CHALLENGE_RULE_MANIFEST = (
     f"{RESULTS_ROOT}/provenance/rules/build_blinded_challenge_panel/"
     f"{SAMPLE_ID}.json"
 )
+PANGENIE_PRIVATE_ENABLED = (not SYNTHETIC_MODE) and any(
+    registration["id"] == "pangenie" for registration in config["external_plugins"]
+)
+PANGENIE_PRIVATE_ROOT = f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/pangenie-native"
+PANGENIE_PRIVATE_PHASED_PANEL = f"{PANGENIE_PRIVATE_ROOT}/private.phased.vcf"
+PANGENIE_PRIVATE_PROJECTION = f"{PANGENIE_PRIVATE_ROOT}/canonical-allele-projection.tsv"
+PANGENIE_PRIVATE_GATE = f"{PANGENIE_PRIVATE_ROOT}/private-panel.gate.json"
+PANGENIE_PRIVATE_RULE_MANIFEST = (
+    f"{RESULTS_ROOT}/provenance/rules/prepare_pangenie_private_panel/{SAMPLE_ID}.json"
+)
 SEMANTIC_VALIDATION_JSON = RESULTS_ROOT + "/validation/evaluator-semantics.json"
 SEMANTIC_VALIDATION_RULE_MANIFEST = (
     RESULTS_ROOT + "/provenance/rules/validate_evaluator_semantics/contract.json"
@@ -210,6 +220,22 @@ for registration in config["external_plugins"]:
         "pangenome_panel": (
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/panel.vcf"
         ),
+        "pangenie_private_phased_panel": (
+            PANGENIE_PRIVATE_PHASED_PANEL if PANGENIE_PRIVATE_ENABLED else None
+        ),
+        "pangenie_private_biallelic_panel": (
+            config["pangenome"].get("pangenie_private_context", {})
+            .get("source_biallelic_panel")
+            if PANGENIE_PRIVATE_ENABLED and config["pangenome"].get("pangenie_private_context") else None
+        ),
+        "pangenie_biallelic_converter": (
+            config["pangenome"].get("pangenie_private_context", {})
+            .get("source_biallelic_converter")
+            if PANGENIE_PRIVATE_ENABLED and config["pangenome"].get("pangenie_private_context") else None
+        ),
+        "canonical_allele_projection": (
+            PANGENIE_PRIVATE_PROJECTION if PANGENIE_PRIVATE_ENABLED else None
+        ),
         "candidate_panel": (
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
             f"{SAMPLE_ID}.blinded.vcf"
@@ -223,6 +249,8 @@ for registration in config["external_plugins"]:
         for name, path in input_candidates.items()
         if name in allowed_inputs and path
     }
+    if tool_id == "pangenie" and PANGENIE_PRIVATE_ENABLED:
+        settings["upstream_manifests"].append(PANGENIE_PRIVATE_RULE_MANIFEST)
     graph_allowed = "graph_assets" in {
         *mode_contract.get("required_inputs", []),
         *mode_contract.get("optional_inputs", []),

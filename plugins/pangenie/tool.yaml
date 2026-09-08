@@ -58,7 +58,13 @@ supported_modes:
       - pangenome_manifest
       - pangenome_panel
       - candidate_panel
-    optional_inputs: []
+    optional_inputs:
+      # Mandatory for a formal run through config validation; optional here so
+      # the deliberately isolated synthetic fixture can still test adapter IO.
+      - pangenie_private_phased_panel
+      - pangenie_private_biallelic_panel
+      - pangenie_biallelic_converter
+      - canonical_allele_projection
     billable_stages:
       - prepare_assets
       - index

@@ -31,5 +31,9 @@ resolved_input_information:
   allele_fasta: canonical_candidate_panel
   pangenome_manifest: benchmark_panel_haplotypes
   pangenome_panel: benchmark_panel_haplotypes
+  pangenie_private_phased_panel: benchmark_panel_haplotypes
+  pangenie_private_biallelic_panel: benchmark_panel_haplotypes
+  pangenie_biallelic_converter: benchmark_panel_haplotypes
+  canonical_allele_projection: benchmark_panel_haplotypes
   graph_assets: benchmark_supplied_graph_assets
   tool_index: benchmark_supplied_tool_index

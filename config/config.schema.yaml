@@ -206,6 +206,27 @@ properties:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
+      pangenie_private_context:
+        oneOf:
+          - type: "null"
+          - type: object
+            additionalProperties: false
+            required:
+              - source_cohort_id
+              - source_graph
+              - source_haplotype_manifest
+              - source_phased_panel
+              - source_biallelic_panel
+              - source_biallelic_converter
+              - provenance
+            properties:
+              source_cohort_id: {$ref: "#/$defs/identifier"}
+              source_graph: {$ref: "#/$defs/nonEmptyPath"}
+              source_haplotype_manifest: {$ref: "#/$defs/nonEmptyPath"}
+              source_phased_panel: {$ref: "#/$defs/nonEmptyPath"}
+              source_biallelic_panel: {$ref: "#/$defs/nonEmptyPath"}
+              source_biallelic_converter: {$ref: "#/$defs/nonEmptyPath"}
+              provenance: {$ref: "#/$defs/nonEmptyPath"}
       graph_assets:
         type: object
         additionalProperties: false

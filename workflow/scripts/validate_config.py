@@ -219,6 +219,30 @@ def _validate_plugin_compatibility(
                     f"tool {plugin_id} rejects graph profile {graph_profile}; "
                     f"accepted={sorted(accepted)}"
                 )
+        if plugin_id == "pangenie" and not config.get("development", {}).get(
+            "synthetic_mode", False
+        ):
+            context = config["pangenome"].get("pangenie_private_context")
+            if not isinstance(context, Mapping):
+                raise ConfigValidationError(
+                    "formal PanGenie requires pangenome.pangenie_private_context; "
+                    "the canonical scoring panel is not a PanGenie index panel"
+                )
+            if context.get("source_cohort_id") != config["pangenome"]["population_panel"]:
+                raise ConfigValidationError(
+                    "PanGenie private context must declare the frozen population cohort"
+                )
+            required_inputs = {
+                "pangenie_private_phased_panel",
+                "pangenie_private_biallelic_panel",
+                "pangenie_biallelic_converter",
+                "canonical_allele_projection",
+            }
+            if not required_inputs.issubset(required | set(contract.get("optional_inputs", []))):
+                raise ConfigValidationError(
+                    "PanGenie formal mode must require its private phased context "
+                    "and canonical allele projection"
+                )
 
 
 def validate_configuration(

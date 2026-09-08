@@ -21,6 +21,8 @@ class InformationContractError(ValueError):
 ALLOWED_INPUT_NAMES = {
     "short_fastq_r1", "short_fastq_r2", "reference", "reference_index",
     "pangenome_manifest", "pangenome_panel", "candidate_panel", "allele_fasta",
+    "pangenie_private_phased_panel", "pangenie_private_biallelic_panel",
+    "pangenie_biallelic_converter", "canonical_allele_projection",
     "graph_assets", "tool_index",
 }
 REQUIRED_INFORMATION_FIELDS = {

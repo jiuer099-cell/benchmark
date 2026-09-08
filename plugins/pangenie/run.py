@@ -7,6 +7,7 @@ import gzip
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import TextIO
@@ -307,13 +308,30 @@ def main() -> int:
     read1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
     read2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
-    panel = Path(required("PGBENCH_PANEL_VCF"))
+    formal = os.environ.get("PGBENCH_EXECUTION_PURPOSE") == "formal"
+    private_phased_raw = os.environ.get("PGBENCH_PANGENIE_PRIVATE_PHASED_PANEL")
+    private_biallelic_raw = os.environ.get("PGBENCH_PANGENIE_PRIVATE_BIALLELIC_PANEL")
+    converter_raw = os.environ.get("PGBENCH_PANGENIE_BIALLELIC_CONVERTER")
+    projection_raw = os.environ.get("PGBENCH_CANONICAL_ALLELE_PROJECTION")
+    if formal and not all((private_phased_raw, private_biallelic_raw, converter_raw, projection_raw)):
+        raise RuntimeError(
+            "formal PanGenie requires a private phased panel, biallelic "
+            "projection resources, and a canonical allele projection"
+        )
+    private_phased_panel = Path(private_phased_raw or required("PGBENCH_PANEL_VCF"))
+    private_biallelic_panel = Path(private_biallelic_raw) if private_biallelic_raw else None
+    biallelic_converter = Path(converter_raw) if converter_raw else None
+    canonical_projection = Path(projection_raw) if projection_raw else None
     candidate = Path(required("PGBENCH_CANDIDATE_VCF"))
     output = Path(required("PGBENCH_OUTPUT_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
     threads = required("PGBENCH_THREADS")
 
     output.parent.mkdir(parents=True, exist_ok=True)
+    if canonical_projection is not None and not canonical_projection.is_file():
+        raise RuntimeError("PanGenie canonical allele projection is missing")
+    if biallelic_converter is not None and not biallelic_converter.is_file():
+        raise RuntimeError("PanGenie biallelic converter is missing")
     with tempfile.TemporaryDirectory(
         prefix="pangenie-",
         dir=required("TMPDIR"),
@@ -324,7 +342,7 @@ def main() -> int:
         # with no usable fully phased genotypes is an input-contract failure,
         # not a condition that can be repaired by consuming target reads.
         staged_panel_source = stage_uncompressed(
-            panel, temporary / "panel.source.vcf"
+            private_phased_panel, temporary / "private.phased.source.vcf"
         )
         staged_panel = temporary / "panel.vcf"
         kept_records, dropped_records = filter_pangenie_panel(
@@ -380,9 +398,19 @@ def main() -> int:
         generated = Path(f"{result_prefix}_genotyping.vcf")
         if not generated.is_file():
             raise RuntimeError(f"PanGenie did not create expected VCF: {generated}")
+        converted = generated
+        if biallelic_converter is not None and private_biallelic_panel is not None:
+            converted = temporary / "native-biallelic-genotypes.vcf"
+            with generated.open("rb") as source, converted.open("wb") as converted_output:
+                subprocess.run(
+                    [sys.executable, str(biallelic_converter), str(private_biallelic_panel)],
+                    stdin=source,
+                    stdout=converted_output,
+                    check=True,
+                )
         remapped = temporary / "candidate-genotypes.vcf"
         matched, outside, no_call = remap_to_candidate_ids(
-            generated, candidate, remapped
+            converted, candidate, remapped
         )
         print(
             "PanGenie candidate projection: "

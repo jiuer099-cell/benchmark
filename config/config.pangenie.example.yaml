@@ -49,9 +49,19 @@ pangenome:
   build_graph_assets: false
   allele_namespace: PGSV
   excluded_samples: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
-  # Must be a PanGenie-ready, fully phased, non-overlapping,
-  # sequence-resolved multi-sample VCF with HG002 removed.
+  # Site/allele source for the frozen canonical scoring universe.  This is
+  # deliberately distinct from PanGenie's native phased private context.
   population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz
+  pangenie_private_context:
+    # Produced from the same frozen, family-excluded HPRC graph/haplotypes;
+    # do not substitute a downloaded full-cohort .pgin VCF here.
+    source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
+    source_graph: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/source.gfa.gz
+    source_haplotype_manifest: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/haplotypes.manifest.yaml
+    source_phased_panel: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie.private.pgin.vcf.gz
+    source_biallelic_panel: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie.private.pgbi.vcf.gz
+    source_biallelic_converter: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/convert-to-biallelic.py
+    provenance: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie-private.provenance.yaml
   graph_assets:
     profile: none
     manifest: null
