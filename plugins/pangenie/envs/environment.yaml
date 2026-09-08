@@ -4,3 +4,7 @@ channels:
 dependencies:
   - pangenie=4.2.1
   - python=3.11
+  # The generic external executor runs inside the plugin environment.
+  # Its manifest/schema validation therefore needs these runtime libraries.
+  - jsonschema
+  - pyyaml
