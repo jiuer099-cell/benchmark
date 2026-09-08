@@ -2,7 +2,9 @@ name: pgbench-paragraph
 channels: [conda-forge, bioconda]
 dependencies:
   - python=3.11
-  - paragraph=2.4a
+  # Bioconda's released Paragraph package is 2.3; "2.4a" is not a
+  # resolvable channel version and would make a formal run fail before launch.
+  - paragraph=2.3
   - bwa=0.7.17
   - samtools=1.21
   - bcftools=1.21

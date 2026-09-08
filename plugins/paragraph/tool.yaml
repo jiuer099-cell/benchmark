@@ -1,7 +1,7 @@
 interface_version: 1
 id: paragraph
 name: Paragraph short-read graph genotyper
-version: 2.4a-63e6b709db5187dd7926a9f49ac38f5345ff35c8
+version: "2.3"
 source: builtin
 paradigm: short_read_pangenome_genotyping
 comparison_task: panel_genotyping
