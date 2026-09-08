@@ -77,6 +77,13 @@ def test_unphased_panel_records_are_filtered_without_imputation(
     MODULE.validate_pangenie_panel(filtered)
 
 
+def test_panel_with_no_complete_phased_records_is_rejected(tmp_path: Path) -> None:
+    source = write_panel(tmp_path / "source.vcf", gt="./.")
+
+    with pytest.raises(RuntimeError, match="no records with complete phased genotypes"):
+        MODULE.filter_pangenie_panel(source, tmp_path / "filtered.vcf")
+
+
 def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.vcf"
     candidate.write_text(

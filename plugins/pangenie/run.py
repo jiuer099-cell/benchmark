@@ -319,11 +319,10 @@ def main() -> int:
         dir=required("TMPDIR"),
     ) as temporary_name:
         temporary = Path(temporary_name)
-        staged_reads = concatenate_paired_reads(
-            read1,
-            read2,
-            temporary / "reads.fastq",
-        )
+        # Validate the benchmark-owned population haplotypes before expanding
+        # the (potentially hundreds-of-GB) paired-read input.  A source panel
+        # with no usable fully phased genotypes is an input-contract failure,
+        # not a condition that can be repaired by consuming target reads.
         staged_panel_source = stage_uncompressed(
             panel, temporary / "panel.source.vcf"
         )
@@ -337,8 +336,13 @@ def main() -> int:
             f"kept={kept_records} dropped_to_no_call={dropped_records}",
             flush=True,
         )
-        staged_reference = stage_uncompressed(reference, temporary / "reference.fa")
         validate_pangenie_panel(staged_panel)
+        staged_reads = concatenate_paired_reads(
+            read1,
+            read2,
+            temporary / "reads.fastq",
+        )
+        staged_reference = stage_uncompressed(reference, temporary / "reference.fa")
         index_prefix = temporary / "panel-index"
         result_prefix = temporary / "HG002"
 
