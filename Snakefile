@@ -55,6 +55,17 @@ PANGENOME_RULE_MANIFEST = (
     f"{PANGENOME_ID}.json"
 )
 GRAPH_PROFILE = config["pangenome"]["graph_assets"]["profile"]
+NATIVE_INPUT_CONTRACT = config["pangenome"].get("native_input_contract", {})
+SHARED_ALIGNMENT_CONFIG = (
+    NATIVE_INPUT_CONTRACT.get("shared_shortread_alignment")
+    if isinstance(NATIVE_INPUT_CONTRACT, dict)
+    else None
+)
+SHARED_ALIGNMENT_ENABLED = isinstance(SHARED_ALIGNMENT_CONFIG, dict)
+SHARED_ALIGNMENT_LOCK = RESULTS_ROOT + "/alignment/shared-shortread-alignment.lock.json"
+SHARED_ALIGNMENT_RULE_MANIFEST = (
+    RESULTS_ROOT + "/provenance/rules/lock_shared_shortread_alignment/HG002.json"
+)
 
 
 def selected_mode_uses_graph(registration):
@@ -84,16 +95,10 @@ CHALLENGE_RULE_MANIFEST = (
     f"{RESULTS_ROOT}/provenance/rules/build_blinded_challenge_panel/"
     f"{SAMPLE_ID}.json"
 )
-PANGENIE_PRIVATE_ENABLED = (not SYNTHETIC_MODE) and any(
-    registration["id"] == "pangenie" for registration in config["external_plugins"]
-)
-PANGENIE_PRIVATE_ROOT = f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/pangenie-native"
-PANGENIE_PRIVATE_PHASED_PANEL = f"{PANGENIE_PRIVATE_ROOT}/private.phased.vcf"
-PANGENIE_PRIVATE_PROJECTION = f"{PANGENIE_PRIVATE_ROOT}/canonical-allele-projection.tsv"
-PANGENIE_PRIVATE_GATE = f"{PANGENIE_PRIVATE_ROOT}/private-panel.gate.json"
-PANGENIE_PRIVATE_RULE_MANIFEST = (
-    f"{RESULTS_ROOT}/provenance/rules/prepare_pangenie_private_panel/{SAMPLE_ID}.json"
-)
+# Adapter-owned preparation is intentionally not a Core rule.  An adapter may
+# register immutable native assets below; Core only fingerprints and transports
+# the declared names.
+LEGACY_ADAPTER_PREPARATION_ENABLED = False
 SEMANTIC_VALIDATION_JSON = RESULTS_ROOT + "/validation/evaluator-semantics.json"
 SEMANTIC_VALIDATION_RULE_MANIFEST = (
     RESULTS_ROOT + "/provenance/rules/validate_evaluator_semantics/contract.json"
@@ -133,6 +138,7 @@ def semantic_rule_manifest(rule_name, job_key):
     return f"{RESULTS_ROOT}/provenance/rules/{rule_name}/{job_key}.json"
 
 EXTERNAL_SETTINGS = []
+INELIGIBLE_ADAPTERS = []
 for registration in config["external_plugins"]:
     tool_id = registration["id"]
     manifest_path = registration["manifest"]
@@ -142,6 +148,19 @@ for registration in config["external_plugins"]:
         raise WorkflowError(
             f"external plugin ID {tool_id!r} does not match {manifest_path}"
         )
+    if tool_manifest["capabilities"]["read_class"] != config["benchmark_contract"]["read_class"]:
+        # A registry may contain adapters for both channels.  Only adapters
+        # eligible for the selected evidence channel enter this DAG or score
+        # set; the other channel is reported as unsupported, never zero-score.
+        INELIGIBLE_ADAPTERS.append(
+            {
+                "tool_id": tool_id,
+                "status": "unsupported_for_selected_track",
+                "selected_track": config["benchmark_contract"]["track"],
+                "adapter_read_class": tool_manifest["capabilities"]["read_class"],
+            }
+        )
+        continue
     output_dir = f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{tool_id}"
     output_relative = tool_manifest["outputs"]["vcf"]
     raw_output = f"{output_dir}/{output_relative}"
@@ -204,6 +223,12 @@ for registration in config["external_plugins"]:
         "execution_purpose": (
             "development_only" if SYNTHETIC_MODE else "formal"
         ),
+        "alignment_kind": (
+            "bam"
+            if {"shared_shortread_alignment", "shared_shortread_alignment_index"}
+            .issubset(set(tool_manifest["supported_modes"][OFFICIAL_MODE]["required_inputs"]))
+            else None
+        ),
         "inputs": {},
     }
     mode_contract = tool_manifest["supported_modes"].get(OFFICIAL_MODE, {})
@@ -220,22 +245,6 @@ for registration in config["external_plugins"]:
         "pangenome_panel": (
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/panel.vcf"
         ),
-        "pangenie_private_phased_panel": (
-            PANGENIE_PRIVATE_PHASED_PANEL if PANGENIE_PRIVATE_ENABLED else None
-        ),
-        "pangenie_private_biallelic_panel": (
-            config["pangenome"].get("pangenie_private_context", {})
-            .get("source_biallelic_panel")
-            if PANGENIE_PRIVATE_ENABLED and config["pangenome"].get("pangenie_private_context") else None
-        ),
-        "pangenie_biallelic_converter": (
-            config["pangenome"].get("pangenie_private_context", {})
-            .get("source_biallelic_converter")
-            if PANGENIE_PRIVATE_ENABLED and config["pangenome"].get("pangenie_private_context") else None
-        ),
-        "canonical_allele_projection": (
-            PANGENIE_PRIVATE_PROJECTION if PANGENIE_PRIVATE_ENABLED else None
-        ),
         "candidate_panel": (
             f"{RESULTS_ROOT}/pangenome/{PANGENOME_ID}/challenge/"
             f"{SAMPLE_ID}.blinded.vcf"
@@ -243,14 +252,35 @@ for registration in config["external_plugins"]:
         "tool_index": registration.get("tool_index"),
         "short_fastq_r1": config["sample"]["fastq_r1"],
         "short_fastq_r2": config["sample"]["fastq_r2"],
+        "long_reads_fastq": config["sample"].get("fastq"),
+        "shared_shortread_alignment": (
+            config["pangenome"].get("native_input_contract", {})
+            .get("shared_shortread_alignment", {})
+            .get("bam")
+            if isinstance(config["pangenome"].get("native_input_contract", {}).get("shared_shortread_alignment"), dict)
+            else None
+        ),
+        "shared_shortread_alignment_index": (
+            config["pangenome"].get("native_input_contract", {})
+            .get("shared_shortread_alignment", {})
+            .get("bai")
+            if isinstance(config["pangenome"].get("native_input_contract", {}).get("shared_shortread_alignment"), dict)
+            else None
+        ),
     }
+    input_candidates.update(
+        {
+            f"adapter_asset.{name}": path
+            for name, path in registration.get("adapter_assets", {}).items()
+        }
+    )
     settings["inputs"] = {
         name: path
         for name, path in input_candidates.items()
         if name in allowed_inputs and path
     }
-    if tool_id == "pangenie" and PANGENIE_PRIVATE_ENABLED:
-        settings["upstream_manifests"].append(PANGENIE_PRIVATE_RULE_MANIFEST)
+    if settings["alignment_kind"] and SHARED_ALIGNMENT_ENABLED:
+        settings["upstream_manifests"].append(SHARED_ALIGNMENT_RULE_MANIFEST)
     graph_allowed = "graph_assets" in {
         *mode_contract.get("required_inputs", []),
         *mode_contract.get("optional_inputs", []),

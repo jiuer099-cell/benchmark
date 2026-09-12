@@ -88,6 +88,7 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
     expected_score_contract = {
         "id": "ME-F1",
         "version": "1.0",
+        "score_semantics_version": "1.0",
         "evaluators": ["truvari", "aardvark_gt", "vcfdist"],
         "formula": "arithmetic_mean",
         "weights": {
@@ -116,6 +117,23 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         raise ScoreInputError("unsupported ME-F1 formula")
     if primary.get("denominator") != "frozen_canonical_panel_truth":
         raise ScoreInputError("ME-F1 must use frozen canonical-panel truth")
+    required_semantics = {
+        "benchmark_core_computed_only",
+        "unified_judgement_layer_f1_only",
+        "identical_query_vcf",
+        "identical_truth_vcf",
+        "identical_benchmark_bed",
+        "identical_biallelic_del_ins_50_10000_universe",
+        "genotype_mismatch_counts_as_false_positive_and_false_negative",
+        "explicit_no_call_counts_as_false_negative_for_truth_positive",
+        "unsupported_truth_positive_canonical_candidate_counts_as_false_negative",
+        "tool_independent_unscorable_excluded_before_adapter_evaluation",
+        "deterministic_one_to_one_event_matching_required",
+        "no_silent_candidate_deletion",
+    }
+    requirements = primary.get("requirements")
+    if not isinstance(requirements, list) or set(requirements) != required_semantics:
+        raise ScoreInputError("ME-F1 score semantics contract is incomplete or mutable")
     profile["_source_path"] = str(path)
     profile["_sha256"] = _profile_sha256(path)
     profile["_score_contract_sha256"] = _contract_sha256(score_contract)

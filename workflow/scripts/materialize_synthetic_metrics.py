@@ -274,6 +274,9 @@ def materialize(
             "sample_id": expected_tuple["sample"],
             "tool_id": expected_tuple["tool"],
             "official_score_mode": expected_tuple["official_score_mode"],
+            # Synthetic fixtures exercise the SR adapter contract.  Formal
+            # materialization obtains this value from the selected channel.
+            "benchmark_track": "short_read_fixed_panel_genotyping",
             "primary_truth_profile": expected_tuple["primary_truth_profile"],
             "score_profile": score_profile["profile"]["id"],
         },

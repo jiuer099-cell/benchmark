@@ -1,4 +1,4 @@
-interface_version: 1
+interface_version: 2
 id: graphtyper2
 name: GraphTyper2 external short-read SV genotyper
 version: 2.7.7
@@ -12,6 +12,7 @@ information_inputs:
   - canonical_candidate_panel
   - benchmark_panel_haplotypes
   - benchmark_panel_af_ac
+  - benchmark_supplied_shared_alignment
 
 information_contract:
   allowed_inputs_manifested: true
@@ -35,12 +36,17 @@ inputs:
     accepted_profiles: []
 
 capabilities:
-  technology: [illumina_short_read]
+  read_class: short
+  technology: [illumina_pe]
   svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
   allele_namespace: [PGSV]
+
+native_assets:
+  uses_population_or_pangenome_information: false
+  frozen_haplotype_source_bundle: null
 
 execution:
   runner: run.py
@@ -54,6 +60,8 @@ supported_modes:
     required_inputs:
       - short_fastq_r1
       - short_fastq_r2
+      - shared_shortread_alignment
+      - shared_shortread_alignment_index
       - reference
       - reference_index
       - pangenome_manifest
@@ -61,7 +69,6 @@ supported_modes:
       - candidate_panel
     optional_inputs: []
     billable_stages:
-      - map
       - prepare_assets
       - genotype
       - postprocess

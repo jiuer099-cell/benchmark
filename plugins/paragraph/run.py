@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""PGBench adapter for Paragraph from paired FASTQ through all-sites VCF."""
+"""PGBench adapter for Paragraph from a frozen shared BAM through all-sites VCF."""
 
 from __future__ import annotations
 
-import gzip
 import os
 import subprocess
 from pathlib import Path
@@ -17,25 +16,22 @@ def required(name: str) -> str:
     return value
 
 
-def read_length(path: Path, limit: int = 1000) -> int:
-    opener = gzip.open if path.name.endswith(".gz") else open
-    lengths: list[int] = []
-    with opener(path, "rt", encoding="utf-8") as handle:
-        while len(lengths) < limit:
-            header = handle.readline()
-            if not header:
-                break
-            sequence, plus, quality = handle.readline(), handle.readline(), handle.readline()
-            if not quality or not header.startswith("@") or not plus.startswith("+"):
-                raise RuntimeError("malformed FASTQ")
-            lengths.append(len(sequence.rstrip("\r\n")))
-    if not lengths:
-        raise RuntimeError("FASTQ is empty")
-    return round(sum(lengths) / len(lengths))
-
-
 def open_text(path: Path, mode: str) -> TextIO:
+    import gzip
     return gzip.open(path, mode, encoding="utf-8") if path.name.endswith(".gz") else path.open(mode, encoding="utf-8")
+
+
+def read_length_from_bam(path: Path) -> int:
+    """Read a representative sequenced-read length without reopening FASTQ."""
+
+    result = subprocess.run(
+        ["samtools", "view", str(path)], capture_output=True, text=True, check=True
+    )
+    for line in result.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 10 and fields[9] not in {"", "*"}:
+            return len(fields[9])
+    raise RuntimeError("frozen shared BAM contains no sequenced reads")
 
 
 def _allele_id(info: str) -> str | None:
@@ -118,8 +114,8 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
 
 
 def main() -> int:
-    r1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
-    r2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
+    bam = Path(required("PGBENCH_SHARED_ALIGNMENT_BAM"))
+    bai = Path(required("PGBENCH_SHARED_ALIGNMENT_BAI"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
     candidates = Path(required("PGBENCH_CANDIDATE_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
@@ -129,21 +125,9 @@ def main() -> int:
     output_vcf.relative_to(output_dir)
     work = output_dir / "paragraph-work"
     work.mkdir(parents=True, exist_ok=True)
-    bam = work / f"{sample}.bam"
-    align = subprocess.Popen(
-        ["bwa", "mem", "-t", threads, str(reference), str(r1), str(r2)],
-        stdout=subprocess.PIPE,
-    )
-    assert align.stdout is not None
-    sort = subprocess.run(
-        ["samtools", "sort", "-@", threads, "-o", str(bam), "-"],
-        stdin=align.stdout,
-        check=True,
-    )
-    align.stdout.close()
-    if align.wait() != 0 or sort.returncode != 0:
-        raise RuntimeError("paired-read mapping failed")
-    subprocess.run(["samtools", "index", "-@", threads, str(bam)], check=True)
+    if not bai.is_file() or bai.stat().st_size == 0:
+        raise RuntimeError("Paragraph requires the frozen shared BAM index")
+    subprocess.run(["samtools", "quickcheck", "-v", str(bam)], check=True)
     coverage = subprocess.check_output(
         ["samtools", "coverage", str(bam)], text=True
     ).splitlines()
@@ -152,7 +136,7 @@ def main() -> int:
     manifest = work / "sample.tsv"
     manifest.write_text(
         "id\tpath\tread length\tdepth\n"
-        f"{sample}\t{bam}\t{read_length(r1)}\t{depth:.6f}\n",
+        f"{sample}\t{bam}\t{read_length_from_bam(bam)}\t{depth:.6f}\n",
         encoding="utf-8",
     )
     native = work / "native"

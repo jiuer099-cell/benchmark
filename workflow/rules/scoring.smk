@@ -330,6 +330,8 @@ def materializer_arguments(wildcards):
         scoring_resolved_inputs(wildcards),
         "--sample-technology",
         sample["technology"],
+        "--benchmark-track",
+        config["benchmark_contract"]["track"],
         "--library-id",
         sample["library_id"],
         "--source-evidence-id",

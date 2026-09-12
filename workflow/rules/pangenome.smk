@@ -26,6 +26,55 @@ def optional_graph_asset(name):
     return [value] if value else []
 
 
+if SHARED_ALIGNMENT_ENABLED:
+    rule lock_shared_shortread_alignment:
+        input:
+            r1=config["sample"]["fastq_r1"],
+            r2=config["sample"]["fastq_r2"],
+            reference=config["reference"]["fasta"],
+            bam=SHARED_ALIGNMENT_CONFIG["bam"],
+            bai=SHARED_ALIGNMENT_CONFIG["bai"],
+        output:
+            lock=SHARED_ALIGNMENT_LOCK,
+            rule_manifest=SHARED_ALIGNMENT_RULE_MANIFEST,
+        log:
+            f"{LOG_ROOT}/rules/lock_shared_shortread_alignment/{SAMPLE_ID}.log",
+        benchmark:
+            f"{BENCHMARK_ROOT}/rules/lock_shared_shortread_alignment/{SAMPLE_ID}.jsonl",
+        conda:
+            "../envs/core.yaml"
+        shell:
+            """
+            {PYTHON_EXECUTABLE:q} {RULE_EXECUTOR:q} \\
+              --rule-name lock_shared_shortread_alignment \\
+              --job-key {SAMPLE_ID:q} --run-id {RUN_ID:q} \\
+              --module-or-tool-id pgbench-core \\
+              --snakefile-path workflow/rules/pangenome.smk \\
+              --rule-source-path workflow/rules/pangenome.smk \\
+              --script-or-wrapper-path workflow/scripts/validate_shared_alignment.py \\
+              --config-snapshot {CONFIG_PATH:q} \\
+              --score-profile {config[catalogs][score_weights]:q} \\
+              --run-context {RESULTS_ROOT}/provenance/run-context.json \\
+              --pangenome-manifest {RESULTS_ROOT}/pangenome/{PANGENOME_ID}/manifest.yaml \\
+              --reference {input.reference:q} --truth-profile {config[truth][primary]:q} \\
+              --snakemake-version {SNAKEMAKE_VERSION:q} --execution-profile local \\
+              --random-seed {config[execution][random_seed]} --threads 1 --resource mem_mb=1024 \\
+              --input {input.r1:q} --input {input.r2:q} --input {input.reference:q} --input {input.bam:q} --input {input.bai:q} \\
+              --output {output.lock:q} --manifest-output {output.rule_manifest:q} -- \\
+              {PYTHON_EXECUTABLE:q} workflow/scripts/validate_shared_alignment.py \\
+                --fastq-r1 {input.r1:q} --fastq-r2 {input.r2:q} --reference {input.reference:q} \\
+                --bam {input.bam:q} --bai {input.bai:q} \\
+                --source-fastq-sha256 {SHARED_ALIGNMENT_CONFIG[source_fastq_sha256]:q} \\
+                --reference-sha256 {SHARED_ALIGNMENT_CONFIG[reference_sha256]:q} \\
+                --aligner {SHARED_ALIGNMENT_CONFIG[aligner]:q} \\
+                --aligner-version {SHARED_ALIGNMENT_CONFIG[aligner_version]:q} \\
+                --command-sha256 {SHARED_ALIGNMENT_CONFIG[command_sha256]:q} \\
+                --bam-sha256 {SHARED_ALIGNMENT_CONFIG[bam_sha256]:q} \\
+                --bai-sha256 {SHARED_ALIGNMENT_CONFIG[bai_sha256]:q} \\
+                --output {output.lock:q} > {log:q} 2>&1
+            """
+
+
 rule lock_graph_assets:
     input:
         validated=RESULTS_ROOT + "/provenance/config.validated.json",
@@ -286,7 +335,7 @@ rule build_pangenome_manifest:
         """
 
 
-if PANGENIE_PRIVATE_ENABLED:
+if LEGACY_ADAPTER_PREPARATION_ENABLED:
     PANGENIE_CONTEXT = config["pangenome"].get("pangenie_private_context")
     if not isinstance(PANGENIE_CONTEXT, dict):
         raise WorkflowError(

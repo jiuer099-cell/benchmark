@@ -80,8 +80,25 @@ def test_unphased_panel_records_are_filtered_without_imputation(
 def test_panel_with_no_complete_phased_records_is_rejected(tmp_path: Path) -> None:
     source = write_panel(tmp_path / "source.vcf", gt="./.")
 
-    with pytest.raises(RuntimeError, match="no records with complete phased genotypes"):
+    with pytest.raises(RuntimeError, match="official missing-allele threshold"):
         MODULE.filter_pangenie_panel(source, tmp_path / "filtered.vcf")
+
+
+def test_official_missing_haplotype_policy_allows_at_most_twenty_percent(
+    tmp_path: Path,
+) -> None:
+    panel = tmp_path / "panel.vcf"
+    panel.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+        "S1\tS2\tS3\tS4\tS5\n"
+        "chr1\t10\tv1\tA\tAT\t.\tPASS\tEND=10\tGT\t.|1\t0|1\t0|0\t0|1\t1|1\n",
+        encoding="utf-8",
+    )
+    # One of ten haplotypes is missing: accepted by official MC preprocessing.
+    MODULE.validate_pangenie_panel(panel)
+    kept, dropped = MODULE.filter_pangenie_panel(panel, tmp_path / "filtered.vcf")
+    assert (kept, dropped) == (1, 0)
 
 
 def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:

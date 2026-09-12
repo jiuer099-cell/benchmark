@@ -1,4 +1,4 @@
-interface_version: 1
+interface_version: 2
 id: example_genotyper
 name: Deterministic PGBench example genotyper
 version: 0.1.0
@@ -39,7 +39,8 @@ inputs:
       - vg_gbz_min_dist
 
 capabilities:
-  technology: [illumina_short_read]
+  read_class: short
+  technology: [illumina_pe]
   svtypes:
     - DEL
     - INS
@@ -48,6 +49,10 @@ capabilities:
   allele_linkage_output: benchmark_inferred
   allele_namespace:
     - PGSV
+
+native_assets:
+  uses_population_or_pangenome_information: false
+  frozen_haplotype_source_bundle: null
 
 execution:
   runner: run.py

@@ -1,16 +1,18 @@
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://pgbench.local/schemas/tool.schema.yaml
-title: PGBench short-read fixed-panel adapter manifest
+title: PGBench external benchmark adapter manifest
 type: object
 additionalProperties: false
-required: [interface_version, id, version, source, paradigm, comparison_task, information_inputs, information_contract, tasks, inputs, capabilities, execution, supported_modes, outputs]
+required: [interface_version, id, version, source, paradigm, comparison_task, information_inputs, information_contract, tasks, inputs, capabilities, execution, native_assets, supported_modes, outputs]
 properties:
-  interface_version: {const: 1}
+  # Adapter API v2 is deliberately tool-agnostic.  Core only understands this
+  # contract; tool-private assets are carried through adapter_asset.* inputs.
+  interface_version: {const: 2}
   id: {$ref: "#/$defs/identifier"}
   name: {type: string, minLength: 1}
   version: {type: string, minLength: 1}
-  source: {enum: [builtin, external]}
-  paradigm: {enum: [short_read_pangenome_genotyping, graph_pangenome, genotyping_only]}
+  source: {const: external}
+  paradigm: {enum: [short_read_pangenome_genotyping, long_read_pangenome_genotyping, graph_pangenome, genotyping_only]}
   comparison_task: {const: panel_genotyping}
   information_inputs:
     type: array
@@ -19,12 +21,14 @@ properties:
     items:
       enum:
         - target_short_reads
+        - target_long_reads
         - reference_grch38
         - canonical_candidate_panel
         - benchmark_panel_haplotypes
         - benchmark_panel_af_ac
         - benchmark_supplied_graph_assets
         - benchmark_supplied_tool_index
+        - benchmark_supplied_shared_alignment
   information_contract:
     type: object
     additionalProperties: false
@@ -55,9 +59,14 @@ properties:
   capabilities:
     type: object
     additionalProperties: false
-    required: [technology, svtypes, phasing, novel_discovery, allele_linkage_output, allele_namespace]
+    required: [read_class, technology, svtypes, phasing, novel_discovery, allele_linkage_output, allele_namespace]
     properties:
-      technology: {const: [illumina_short_read]}
+      read_class: {enum: [short, long]}
+      technology:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items: {enum: [illumina_pe, pacbio_hifi]}
       svtypes:
         type: array
         minItems: 2
@@ -85,6 +94,18 @@ properties:
       rule_registry: {$ref: "#/$defs/nonEmptyPath"}
       trust_level: {enum: [untrusted, trusted_reviewed]}
       sandbox_backend: {enum: [none, apptainer, bwrap]}
+  native_assets:
+    type: object
+    additionalProperties: false
+    required: [uses_population_or_pangenome_information, frozen_haplotype_source_bundle]
+    properties:
+      uses_population_or_pangenome_information: {type: boolean}
+      # A population-aware adapter must name the single frozen bundle it was
+      # derived from.  Non-population tools must leave this null.
+      frozen_haplotype_source_bundle:
+        oneOf:
+          - {type: "null"}
+          - {$ref: "#/$defs/identifier"}
   parameter_contract:
     type: object
     additionalProperties: false
@@ -141,9 +162,11 @@ $defs:
       accepted_profiles:
         type: array
         uniqueItems: true
-        items: {enum: [vg_gbz_min_dist, vg_giraffe_shortread]}
+        items: {enum: [vg_gbz_min_dist, vg_giraffe_shortread, vg_giraffe_longread]}
   modeInput:
-    enum: [short_fastq_r1, short_fastq_r2, reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel, allele_fasta, graph_assets, tool_index, pangenie_private_phased_panel, pangenie_private_biallelic_panel, pangenie_biallelic_converter, canonical_allele_projection]
+    anyOf:
+      - enum: [short_fastq_r1, short_fastq_r2, long_reads_fastq, shared_shortread_alignment, shared_shortread_alignment_index, reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel, allele_fasta, graph_assets, tool_index]
+      - pattern: '^adapter_asset\.[A-Za-z0-9_.-]+$'
   billableStage:
     enum: [prepare_assets, index, map, call, genotype, postprocess]
   modeContract:
@@ -153,11 +176,8 @@ $defs:
     properties:
       required_inputs:
         type: array
-        minItems: 2
+        minItems: 1
         uniqueItems: true
-        allOf:
-          - contains: {const: short_fastq_r1}
-          - contains: {const: short_fastq_r2}
         items: {$ref: "#/$defs/modeInput"}
       optional_inputs:
         type: array

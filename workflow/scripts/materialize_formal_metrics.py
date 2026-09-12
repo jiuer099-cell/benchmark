@@ -138,6 +138,7 @@ def comparison_track_contract(
     evaluator_profile_sha256: str,
     asset_hashes: dict[str, str | None],
     evidence: dict[str, Any] | None,
+    benchmark_track: str,
 ) -> tuple[dict[str, Any], str]:
     """Freeze the complete boundary that makes formal results comparable."""
 
@@ -193,6 +194,7 @@ def comparison_track_contract(
         "official_score_mode": official_score_mode,
         "candidate_output_contract": candidate_contract,
         "actual_technology": actual_technology,
+        "benchmark_track": benchmark_track,
         "primary_truth_profile": primary_truth_profile,
         "score_profile_sha256": sha256_file(score_profile),
         "evaluator_profile_sha256": evaluator_profile_sha256,
@@ -213,7 +215,7 @@ def comparison_track_contract(
     digest = hashlib.sha256(canonical).hexdigest()
     track = {
         "id": (
-            f"{task}.{official_score_mode}.{actual_technology}."
+            f"{benchmark_track}.{task}.{official_score_mode}.{actual_technology}."
             f"{candidate_contract}.{digest[:12]}"
         ),
         **boundaries,
@@ -1436,6 +1438,23 @@ def candidate_genotype_summary(
             if denominator > 0
             else None
         ),
+        # Public all-site diagnostics.  They deliberately do not feed ME-F1:
+        # their denominator is the pre-tool, tool-independent scorable panel.
+        "all_site_call_rate": (
+            counts["called_candidates"] / counts["genotype_scorable"]
+            if counts["genotype_scorable"] > 0
+            else None
+        ),
+        "exact_gt_accuracy": (
+            counts["genotype_correct"] / counts["genotype_scorable"]
+            if counts["genotype_scorable"] > 0
+            else None
+        ),
+        "no_call_rate": (
+            counts["no_call"] / counts["genotype_scorable"]
+            if counts["genotype_scorable"] > 0
+            else None
+        ),
         "called_only_genotype_accuracy": (
             counts["genotype_correct"] / called_denominator
             if called_denominator > 0
@@ -2173,6 +2192,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             evaluator_profile_sha256=evaluator_profile["_sha256"],
             asset_hashes=asset_hashes,
             evidence=frozen_evidence,
+            benchmark_track=args.benchmark_track,
         )
     else:
         comparison_track = None
@@ -2185,6 +2205,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "sample_id": args.sample_id,
             "tool_id": args.tool_id,
             "official_score_mode": args.official_score_mode,
+            "benchmark_track": args.benchmark_track,
             "primary_truth_profile": args.primary_truth_profile,
             "score_profile": profile_id,
         },
@@ -2337,6 +2358,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tool-manifest", type=Path)
     parser.add_argument("--resolved-inputs", type=Path)
     parser.add_argument("--sample-technology")
+    parser.add_argument("--benchmark-track", required=True,
+                        choices=["short_read_fixed_panel_genotyping", "long_read_fixed_panel_genotyping"])
     parser.add_argument("--library-id")
     parser.add_argument("--source-evidence-id")
     parser.add_argument("--coverage-x", type=float)

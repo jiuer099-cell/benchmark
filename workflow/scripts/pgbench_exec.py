@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import uuid
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -54,14 +55,13 @@ SUPPORTED_MODES = {"end_to_end_from_reads"}
 MODE_INPUTS = {
     "short_fastq_r1",
     "short_fastq_r2",
+    "shared_shortread_alignment",
+    "shared_shortread_alignment_index",
     "reference",
     "reference_index",
     "pangenome_manifest",
     "pangenome_panel",
-    "pangenie_private_phased_panel",
-    "pangenie_private_biallelic_panel",
-    "pangenie_biallelic_converter",
-    "canonical_allele_projection",
+    "long_reads_fastq",
     "candidate_panel",
     "allele_fasta",
     "graph_assets",
@@ -155,23 +155,47 @@ def validate_read_evidence(supplied_inputs: Mapping[str, Path]) -> dict[str, Any
             "read_bases": read_bases,
             "mate_names_match": True,
         }
+    long_reads = supplied_inputs.get("long_reads_fastq")
+    if long_reads is not None:
+        read_count = 0
+        read_bases = 0
+        for _, length in _fastq_records(long_reads):
+            read_count += 1
+            read_bases += length
+        if read_count == 0:
+            raise ToolContractError("long-read FASTQ evidence is empty")
+        result["long_read_fastq"] = {
+            "read_count": read_count,
+            "read_bases": read_bases,
+        }
     return result
 INPUT_ENVIRONMENT = {
     "short_fastq_r1": "PGBENCH_INPUT_FASTQ_R1",
     "short_fastq_r2": "PGBENCH_INPUT_FASTQ_R2",
+    "long_reads_fastq": "PGBENCH_INPUT_LONG_READS_FASTQ",
+    "shared_shortread_alignment": "PGBENCH_SHARED_ALIGNMENT_BAM",
+    "shared_shortread_alignment_index": "PGBENCH_SHARED_ALIGNMENT_BAI",
     "reference": "PGBENCH_REFERENCE_FASTA",
     "reference_index": "PGBENCH_REFERENCE_INDEX",
     "candidate_panel": "PGBENCH_CANDIDATE_VCF",
     "pangenome_manifest": "PGBENCH_PANGENOME_MANIFEST",
     "pangenome_panel": "PGBENCH_PANEL_VCF",
-    "pangenie_private_phased_panel": "PGBENCH_PANGENIE_PRIVATE_PHASED_PANEL",
-    "pangenie_private_biallelic_panel": "PGBENCH_PANGENIE_PRIVATE_BIALLELIC_PANEL",
-    "pangenie_biallelic_converter": "PGBENCH_PANGENIE_BIALLELIC_CONVERTER",
-    "canonical_allele_projection": "PGBENCH_CANONICAL_ALLELE_PROJECTION",
     "allele_fasta": "PGBENCH_ALLELES_FASTA",
     "graph_assets": "PGBENCH_GRAPH_DIR",
     "tool_index": "PGBENCH_INDEX_DIR",
 }
+
+
+def input_environment(name: str) -> str | None:
+    """Return a stable transport variable without encoding adapter identities."""
+
+    known = INPUT_ENVIRONMENT.get(name)
+    if known is not None:
+        return known
+    if name.startswith("adapter_asset."):
+        suffix = re.sub(r"[^A-Za-z0-9]", "_", name.removeprefix("adapter_asset."))
+        return f"PGBENCH_ADAPTER_ASSET_{suffix.upper()}"
+    return None
 BASE_PGBENCH_ENVIRONMENT = {
     "PGBENCH_RUN_ID",
     "PGBENCH_SAMPLE_ID",
@@ -183,6 +207,7 @@ BASE_PGBENCH_ENVIRONMENT = {
     "PGBENCH_CACHE_POLICY",
     "PGBENCH_ALLELE_NAMESPACE",
     "PGBENCH_RANDOM_SEED",
+    "PGBENCH_ALIGNMENT_KIND",
     "PGBENCH_GRAPH_REFERENCE_PATH",
 }
 OUTPUT_INDEX_SUFFIXES = (".tbi", ".csi", ".idx")
@@ -334,8 +359,16 @@ def _semantic_manifest_errors(manifest: Mapping[str, Any]) -> list[str]:
 
         if mode != "end_to_end_from_reads":
             errors.append(f"unsupported execution mode: {mode}")
-        if not {"short_fastq_r1", "short_fastq_r2"}.issubset(required):
-            errors.append("end_to_end_from_reads must require paired FASTQ inputs")
+        read_class = cast(Mapping[str, Any], manifest["capabilities"]).get("read_class")
+        expected_evidence = (
+            {"short_fastq_r1", "short_fastq_r2"}
+            if read_class == "short"
+            else {"long_reads_fastq"}
+        )
+        if not expected_evidence.issubset(required):
+            errors.append(
+                "end_to_end_from_reads must require evidence matching capabilities.read_class"
+            )
 
         if paradigm == "genotyping_only" and "candidate_panel" not in required:
             errors.append(
@@ -412,7 +445,9 @@ def _parse_inputs(values: Sequence[str]) -> dict[str, Path]:
             raise ToolContractError(
                 f"--input must use NAME=PATH syntax, found {value!r}"
             )
-        if name not in TRANSPORT_INPUTS:
+        if name not in TRANSPORT_INPUTS and not re.fullmatch(
+            r"adapter_asset\.[A-Za-z0-9_.-]+", name
+        ):
             raise ToolContractError(f"unknown or non-exposable input name: {name}")
         if name in parsed:
             raise ToolContractError(f"duplicate input name: {name}")
@@ -451,7 +486,7 @@ def validate_mode_inputs(
         )
 
     for transport_name, path in supplied_inputs.items():
-        contract_name = TRANSPORT_TO_CONTRACT[transport_name]
+        contract_name = TRANSPORT_TO_CONTRACT.get(transport_name, transport_name)
         if not path.exists():
             raise ToolContractError(
                 f"declared input does not exist: {transport_name}={path}"
@@ -469,6 +504,7 @@ def resolve_inputs(
     supplied_inputs: Mapping[str, Path],
     resolved_inputs_path: Path,
     run_id: str,
+    alignment_kind: str | None = None,
 ) -> tuple[ResolvedInput, ...]:
     """Resolve and atomically freeze authorized inputs with content hashes."""
 
@@ -483,14 +519,14 @@ def resolve_inputs(
         resolved.append(
             ResolvedInput(
                 name=name,
-                contract_name=TRANSPORT_TO_CONTRACT[name],
+                contract_name=TRANSPORT_TO_CONTRACT.get(name, name),
                 path=str(candidate),
                 sha256=fingerprint.sha256,
                 size_bytes=fingerprint.size,
                 mtime_ns=fingerprint.mtime_ns,
                 path_type=fingerprint.path_type,
                 read_only=True,
-                environment_variable=INPUT_ENVIRONMENT.get(name),
+                environment_variable=input_environment(name),
             )
         )
 
@@ -501,6 +537,7 @@ def resolve_inputs(
         "tool_manifest_path": str(tool_manifest_path.resolve(strict=True)),
         "tool_manifest_sha256": sha256_file(tool_manifest_path.resolve(strict=True)),
         "mode": mode,
+        "alignment_kind": alignment_kind,
         "billable_stages": list(cast(Sequence[str], mode_contract["billable_stages"])),
         "required_inputs": list(cast(Sequence[str], mode_contract["required_inputs"])),
         "optional_inputs": list(
@@ -665,8 +702,6 @@ def build_tool_environment(
 ) -> dict[str, str]:
     """Build a minimal deterministic environment with PGBENCH values scrubbed."""
 
-    del alignment_kind  # mapping is tool-owned in the only supported execution mode
-
     inherited_allowlist = {
         "PATH",
         "CONDA_PREFIX",
@@ -713,6 +748,7 @@ def build_tool_environment(
         "PGBENCH_CACHE_POLICY": cache_policy,
         "PGBENCH_ALLELE_NAMESPACE": namespaces[0],
         "PGBENCH_RANDOM_SEED": str(random_seed),
+        "PGBENCH_ALIGNMENT_KIND": alignment_kind or "",
     }
     for item in resolved_inputs:
         if item.environment_variable is not None:
@@ -1324,6 +1360,7 @@ def execute_tool(
     execution_purpose: str = "development_only",
     timeout_seconds: int = 3600,
     random_seed: int = 0,
+    alignment_kind: str | None = None,
 ) -> ToolExecutionResult:
     """Execute plugin code now and return only after validating its new VCF."""
 
@@ -1368,6 +1405,7 @@ def execute_tool(
         supplied_inputs=supplied_inputs,
         resolved_inputs_path=resolved_inputs_path,
         run_id=run_id,
+        alignment_kind=alignment_kind,
     )
 
     output_contract = cast(Mapping[str, Any], manifest["outputs"])
@@ -1417,6 +1455,7 @@ def execute_tool(
         output_vcf=attempt_output_vcf,
         threads=threads,
         memory_mb=memory_mb,
+        alignment_kind=alignment_kind,
         cache_policy=cache_policy,
         attempt_work_dir=attempt_work_dir,
         random_seed=random_seed,
@@ -1478,10 +1517,17 @@ def execute_tool(
         "tool_id": manifest["id"],
         "tool_version": manifest.get("version"),
         "mode": mode,
+        "alignment_kind": alignment_kind,
         "execution_purpose": execution_purpose,
         "trust_level": trust_level,
         "sandbox_backend": sandbox_backend,
         "isolation_status": isolation_status,
+        "isolation_contract": {
+            "network": "disabled",
+            "inputs_read_only": True,
+            "truth_visible": False,
+            "evaluator_results_visible": False,
+        },
         "formal_score_eligible": execution_purpose == "formal",
         "command": list(command),
         "tool_command": list(tool_command),
@@ -1686,6 +1732,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--random-seed", type=int, default=0)
+    parser.add_argument("--alignment-kind", choices=("bam", "cram", "gaf", "gam", "other"))
     return parser
 
 
@@ -1709,6 +1756,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             execution_purpose=args.execution_purpose,
             timeout_seconds=args.timeout_seconds,
             random_seed=args.random_seed,
+            alignment_kind=args.alignment_kind,
         )
     except (ToolContractError, ToolExecutionError) as exc:
         raise SystemExit(f"pgbench_exec: {exc}") from exc

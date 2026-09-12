@@ -1,0 +1,49 @@
+interface_version: 2
+id: example_hifi_adapter
+name: Development-only PacBio HiFi adapter fixture
+version: 0.1.0
+source: external
+paradigm: long_read_pangenome_genotyping
+comparison_task: panel_genotyping
+information_inputs: [target_long_reads, reference_grch38, canonical_candidate_panel]
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_mode: official_default
+  parameter_source: official_default
+tasks: [genotyping, postprocess]
+inputs:
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets: {required: false, accepted_formats: [], accepted_profiles: []}
+capabilities:
+  read_class: long
+  technology: [pacbio_hifi]
+  svtypes: [DEL, INS]
+  phasing: false
+  novel_discovery: false
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: untrusted
+  sandbox_backend: none
+native_assets:
+  uses_population_or_pangenome_information: false
+  frozen_haplotype_source_bundle: null
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs: [long_reads_fastq, reference, pangenome_manifest, pangenome_panel, candidate_panel]
+    optional_inputs: []
+    billable_stages: [genotype, postprocess]
+outputs:
+  vcf: raw/calls.vcf.gz
+  candidate_output_contract: all_sites
+  absence_semantics: no_call

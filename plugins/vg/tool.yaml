@@ -1,8 +1,8 @@
-interface_version: 1
+interface_version: 2
 id: vg
 name: vg Giraffe short-read pangenome SV calling
 version: "2"
-source: builtin
+source: external
 paradigm: graph_pangenome
 comparison_task: panel_genotyping
 
@@ -36,12 +36,17 @@ inputs:
     accepted_profiles: [vg_giraffe_shortread]
 
 capabilities:
-  technology: [illumina_short_read]
+  read_class: short
+  technology: [illumina_pe]
   svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
   allele_namespace: [PGSV]
+
+native_assets:
+  uses_population_or_pangenome_information: true
+  frozen_haplotype_source_bundle: HG002_LOO_HPRC_GRCh38_SV_v1
 
 execution:
   runner: run.py

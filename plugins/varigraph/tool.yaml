@@ -1,4 +1,4 @@
-interface_version: 1
+interface_version: 2
 id: varigraph
 name: Varigraph external short-read pangenome SV genotyper
 version: 1.0.8
@@ -35,12 +35,17 @@ inputs:
     accepted_profiles: []
 
 capabilities:
-  technology: [illumina_short_read]
+  read_class: short
+  technology: [illumina_pe]
   svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
   allele_namespace: [PGSV]
+
+native_assets:
+  uses_population_or_pangenome_information: true
+  frozen_haplotype_source_bundle: HG002_LOO_HPRC_GRCh38_SV_v1
 
 execution:
   runner: run.py

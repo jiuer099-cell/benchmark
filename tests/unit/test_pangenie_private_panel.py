@@ -47,13 +47,10 @@ def _context(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Path, Path, 
         {
             "contract": MODULE.CONTRACT,
             "source_cohort_id": "frozen_hprc",
-            "canonical_population_source_sha256": MODULE.sha256(canonical_source),
             "source_graph_sha256": MODULE.sha256(graph),
             "source_haplotype_manifest_sha256": MODULE.sha256(haplotypes),
+            "official_source_pgin_sha256": MODULE.sha256(private),
             "reference_build": "grch38",
-            "generation_method": MODULE.METHOD,
-            "family_exclusion_applied_before_native_panel_generation": True,
-            "excluded_samples": sorted(FAMILY),
         },
         provenance.open("w", encoding="utf-8"),
         sort_keys=True,
@@ -85,10 +82,9 @@ def test_private_panel_gate_freezes_provenance_and_projection(tmp_path: Path) ->
     canonical, graph, haplotypes, private, scoring, provenance, frozen_gbz, sample_manifest, identity = _context(tmp_path)
     MODULE.load_provenance(
         provenance,
-        canonical_source=canonical,
         source_graph=graph,
         source_haplotype_manifest=haplotypes,
-        excluded_samples=FAMILY,
+        source_phased_panel=private,
         cohort_id="frozen_hprc",
     )
     MODULE.validate_source_identity(
@@ -112,13 +108,13 @@ def test_private_panel_gate_freezes_provenance_and_projection(tmp_path: Path) ->
     assert "CAND_A\tNATIVE1\t1\tindex_addressable" in (tmp_path / "projection.tsv").read_text(encoding="utf-8")
 
 
-def test_private_panel_gate_rejects_missing_or_unphased_gt(tmp_path: Path) -> None:
+def test_private_panel_gate_rejects_phase_ambiguous_heterozygous_gt(tmp_path: Path) -> None:
     _, _, _, private, scoring, _, _, _, _ = _context(tmp_path)
     private.write_text(
         private.read_text(encoding="utf-8").replace("0|1", "0/1"),
         encoding="utf-8",
     )
-    with pytest.raises(MODULE.PrivatePanelError, match="unphased GT"):
+    with pytest.raises(MODULE.PrivatePanelError, match="phase-ambiguous heterozygous GT"):
         MODULE.prepare(
             source=private,
             scoring_panel=scoring,
@@ -127,6 +123,70 @@ def test_private_panel_gate_rejects_missing_or_unphased_gt(tmp_path: Path) -> No
             gate=tmp_path / "gate.json",
             excluded_samples=FAMILY,
         )
+
+
+def test_private_panel_canonicalizes_phase_equivalent_homozygous_slash_gt(
+    tmp_path: Path,
+) -> None:
+    _, _, _, private, scoring, _, _, _, _ = _context(tmp_path)
+    private.write_text(
+        private.read_text(encoding="utf-8").replace("0|1", "1/1"),
+        encoding="utf-8",
+    )
+    result = MODULE.prepare(
+        source=private,
+        scoring_panel=scoring,
+        output=tmp_path / "out.vcf",
+        projection=tmp_path / "projection.tsv",
+        gate=tmp_path / "gate.json",
+        excluded_samples=FAMILY,
+    )
+    assert result["N_GT_phase_equivalent_homozygous_slash"] == 1
+    assert "\tGT\t1|1\n" in (tmp_path / "out.vcf").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("genotype", "category"),
+    [
+        ("1/1", "phase_equivalent_homozygous"),
+        ("0/1", "phase_ambiguous_heterozygous"),
+        ("0/.", "partial_missing"),
+        ("0/a", "malformed"),
+        ("0/1/2", "malformed"),
+    ],
+)
+def test_slash_gt_phase_audit_categories(genotype: str, category: str) -> None:
+    assert MODULE.slash_gt_category(genotype) == category
+
+
+def test_private_panel_derives_family_excluded_retained_haplotypes(tmp_path: Path) -> None:
+    _, _, _, private, scoring, _, _, _, _ = _context(tmp_path)
+    private.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\tPANEL1\n"
+        # The first ALT loses all support after HG002 removal; the second ALT
+        # stays addressable and its GT must be remapped to the compact ALT set.
+        "chr1\t10\tNATIVE1\tA\tAT,ATT\t.\tPASS\t.\tGT\t1|2\t0|2\n"
+        # A family-only record is removed from the native index, never from
+        # the frozen scoring universe.
+        "chr1\t20\tNATIVE2\tC\tCA\t.\tPASS\t.\tGT\t0|1\t0|0\n",
+        encoding="utf-8",
+    )
+    result = MODULE.prepare(
+        source=private,
+        scoring_panel=scoring,
+        output=tmp_path / "out.vcf",
+        projection=tmp_path / "projection.tsv",
+        gate=tmp_path / "gate.json",
+        excluded_samples=FAMILY,
+    )
+    output = (tmp_path / "out.vcf").read_text(encoding="utf-8")
+    assert "\tHG002\t" not in output
+    assert "\tAT,ATT\t" not in output
+    assert "\tATT\t.\tPASS\tAC=1;AN=2;AF=0.5\tGT\t0|1" in output
+    assert "NATIVE2" not in output
+    assert result["family_samples_removed"] == 1
+    assert result["zero_support_records_removed"] == 1
 
 
 def test_exact_source_identity_must_be_verified(tmp_path: Path) -> None:

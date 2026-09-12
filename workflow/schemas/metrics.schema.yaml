@@ -21,6 +21,7 @@ properties:
       - sample_id
       - tool_id
       - official_score_mode
+      - benchmark_track
       - primary_truth_profile
       - score_profile
     properties:
@@ -32,6 +33,8 @@ properties:
         $ref: "#/$defs/identifier"
       official_score_mode:
         const: end_to_end_from_reads
+      benchmark_track:
+        enum: [short_read_fixed_panel_genotyping, long_read_fixed_panel_genotyping]
       primary_truth_profile:
         $ref: "#/$defs/identifier"
       score_profile:
@@ -539,7 +542,7 @@ $defs:
           contract:
             const: pgbench_evidence_v1
           actual_technology:
-            const: illumina_short_read
+            enum: [illumina_pe, pacbio_hifi]
           library_id:
             $ref: "#/$defs/identifier"
           source_evidence_id:
@@ -601,6 +604,7 @@ $defs:
           - official_score_mode
           - candidate_output_contract
           - actual_technology
+          - benchmark_track
           - primary_truth_profile
           - score_profile_sha256
           - evaluator_profile_sha256
@@ -624,7 +628,9 @@ $defs:
           candidate_output_contract:
             const: all_sites
           actual_technology:
-            const: illumina_short_read
+            enum: [illumina_pe, pacbio_hifi]
+          benchmark_track:
+            enum: [short_read_fixed_panel_genotyping, long_read_fixed_panel_genotyping]
           primary_truth_profile:
             $ref: "#/$defs/identifier"
           score_profile_sha256:
@@ -860,6 +866,9 @@ $defs:
               - called_candidates
               - genotype_correct
               - genotype_accuracy
+              - all_site_call_rate
+              - exact_gt_accuracy
+              - no_call_rate
               - called_only_genotype_accuracy
               - genotype_confusion_matrix
               - genotype_class_metrics
@@ -906,6 +915,24 @@ $defs:
               called_candidates: {type: integer, minimum: 0}
               genotype_correct: {type: integer, minimum: 0}
               genotype_accuracy:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              all_site_call_rate:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              exact_gt_accuracy:
+                oneOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: "null"
+              no_call_rate:
                 oneOf:
                   - type: number
                     minimum: 0

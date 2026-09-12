@@ -6,12 +6,14 @@ require_explicit_tool_declaration: true
 
 allowed:
   target_short_reads: true
+  target_long_reads: true
   reference_grch38: true
   canonical_candidate_panel: true
   benchmark_panel_haplotypes: true
   benchmark_panel_af_ac: true
   benchmark_supplied_graph_assets: true
   benchmark_supplied_tool_index: true
+  benchmark_supplied_shared_alignment: true
 
 forbidden:
   hg002_truth: true
@@ -25,15 +27,15 @@ forbidden:
 resolved_input_information:
   short_fastq_r1: target_short_reads
   short_fastq_r2: target_short_reads
+  shared_shortread_alignment: benchmark_supplied_shared_alignment
+  shared_shortread_alignment_index: benchmark_supplied_shared_alignment
   reference: reference_grch38
   reference_index: reference_grch38
   candidate_panel: canonical_candidate_panel
   allele_fasta: canonical_candidate_panel
   pangenome_manifest: benchmark_panel_haplotypes
   pangenome_panel: benchmark_panel_haplotypes
-  pangenie_private_phased_panel: benchmark_panel_haplotypes
-  pangenie_private_biallelic_panel: benchmark_panel_haplotypes
-  pangenie_biallelic_converter: benchmark_panel_haplotypes
-  canonical_allele_projection: benchmark_panel_haplotypes
+  long_reads_fastq: target_long_reads
+  adapter_asset.*: benchmark_panel_haplotypes
   graph_assets: benchmark_supplied_graph_assets
   tool_index: benchmark_supplied_tool_index

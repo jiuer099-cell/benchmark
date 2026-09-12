@@ -28,7 +28,7 @@ def _fastq(path: Path, mate: int, count: int = 40) -> None:
             handle.write(f"@read{index}/{mate}\nACGT\n+\nIIII\n")
 
 
-def test_every_adapter_uses_one_short_read_all_sites_contract() -> None:
+def test_every_adapter_uses_one_channel_specific_all_sites_contract() -> None:
     schema = _yaml(ROOT / "workflow" / "schemas" / "tool.schema.yaml")
     manifests = sorted((ROOT / "plugins").glob("*/tool.yaml"))
     assert {path.parent.name for path in manifests} == {
@@ -39,19 +39,21 @@ def test_every_adapter_uses_one_short_read_all_sites_contract() -> None:
         "paragraph",
         "varigraph",
         "vg",
+        "example_hifi_adapter",
     }
     for path in manifests:
         manifest = _yaml(path)
         jsonschema.Draft202012Validator(schema).validate(manifest)
         mode = manifest["supported_modes"]["end_to_end_from_reads"]
-        assert {
-            "short_fastq_r1",
-            "short_fastq_r2",
-            "pangenome_panel",
-            "candidate_panel",
-        }.issubset(
-            mode["required_inputs"]
+        evidence = (
+            {"short_fastq_r1", "short_fastq_r2"}
+            if manifest["capabilities"]["read_class"] == "short"
+            else {"long_reads_fastq"}
         )
+        assert evidence.issubset(mode["required_inputs"])
+        assert {"pangenome_panel", "candidate_panel"}.issubset(mode["required_inputs"])
+        assert manifest["source"] == "external"
+        assert "native_assets" in manifest
         assert manifest["outputs"] == {
             "vcf": manifest["outputs"]["vcf"],
             "candidate_output_contract": "all_sites",
@@ -63,18 +65,16 @@ def test_every_adapter_uses_one_short_read_all_sites_contract() -> None:
         assert information["target_family_genotypes_used"] is False
 
 
-def test_bundled_and_community_sets_are_explicit_and_unified() -> None:
+def test_existing_five_tools_are_external_and_unified() -> None:
     manifests = {
         path.parent.name: _yaml(path)
         for path in sorted((ROOT / "plugins").glob("*/tool.yaml"))
-        if path.parent.name != "example_genotyper"
+        if path.parent.name not in {"example_genotyper", "example_hifi_adapter"}
     }
-    assert {name for name, manifest in manifests.items() if manifest["source"] == "builtin"} == {
+    assert {name for name, manifest in manifests.items() if manifest["source"] == "external"} == {
         "pangenie",
         "vg",
         "paragraph",
-    }
-    assert {name for name, manifest in manifests.items() if manifest["source"] == "external"} == {
         "graphtyper2",
         "varigraph",
         "bayestyper",
@@ -92,6 +92,11 @@ def test_bundled_and_community_sets_are_explicit_and_unified() -> None:
     ]
     assert config["pangenome"]["id"] == "HG002_LOO_HPRC_GRCh38_SV_v1"
     assert len({config["sample"]["fastq_r1"], config["sample"]["fastq_r2"]}) == 2
+    bundle = config["pangenome"]["frozen_haplotype_source_bundle"]
+    for manifest in manifests.values():
+        native = manifest["native_assets"]
+        if native["uses_population_or_pangenome_information"]:
+            assert native["frozen_haplotype_source_bundle"] == bundle["id"]
 
 
 def test_active_tree_contains_no_removed_benchmark_tracks() -> None:
@@ -178,6 +183,8 @@ def test_main_configuration_freezes_unified_panel_and_me_f1() -> None:
     assert contract["minimum_sv_size"] == 50
     assert contract["maximum_sv_size"] == 10000
     assert contract["coverage_levels"] == [10, 20, 30, "full"]
+    assert contract["read_class"] == "short"
+    assert contract["cross_track_ranking"] is False
     assert len(contract["downsampling_seeds"]) >= 3
     assert config["score"]["profile"] == "pgbench_me_f1_v1"
     assert config["catalogs"]["score_weights"] == "config/me_f1_scoring.yaml"

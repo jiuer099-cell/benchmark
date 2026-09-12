@@ -5,6 +5,7 @@ schema_version: 4
 score:
   id: ME-F1
   version: "1.0"
+  score_semantics_version: "1.0"
   evaluators: [truvari, aardvark_gt, vcfdist]
   formula: arithmetic_mean
   weights:
@@ -39,6 +40,9 @@ primary_score:
     - identical_biallelic_del_ins_50_10000_universe
     - genotype_mismatch_counts_as_false_positive_and_false_negative
     - explicit_no_call_counts_as_false_negative_for_truth_positive
+    - unsupported_truth_positive_canonical_candidate_counts_as_false_negative
+    - tool_independent_unscorable_excluded_before_adapter_evaluation
+    - deterministic_one_to_one_event_matching_required
     - no_silent_candidate_deletion
 
 validity_gates:
@@ -64,7 +68,10 @@ published_metrics:
   - evaluator_range
   - evaluator_sd
   - call_rate
+  - all_site_call_rate
+  - exact_gt_accuracy
   - no_call_rate
+  - gt_confusion_matrix
   - explicit_no_call_count
   - missing_output_count
   - linking_failure_count

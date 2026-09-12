@@ -175,43 +175,6 @@ def run_graphtyper_shards(
         ) from failures[0]
 
 
-def align_reads(
-    reference: Path,
-    read1: Path,
-    read2: Path,
-    bam: Path,
-    sample: str,
-    threads: str,
-) -> None:
-    index_prefix = bam.parent / "grch38.bwa-mem2"
-    index_sentinel = Path(f"{index_prefix}.bwt.2bit.64")
-    if not index_sentinel.is_file():
-        run(["bwa-mem2", "index", "-p", str(index_prefix), str(reference)])
-    read_group = f"@RG\\tID:{sample}.illumina\\tSM:{sample}\\tPL:ILLUMINA"
-    mapper = subprocess.Popen(
-        [
-            "bwa-mem2", "mem", "-t", threads, "-R", read_group,
-            str(index_prefix), str(read1), str(read2),
-        ],
-        stdout=subprocess.PIPE,
-    )
-    assert mapper.stdout is not None
-    sorter = subprocess.run(
-        ["samtools", "sort", "-@", threads, "-o", str(bam), "-"],
-        stdin=mapper.stdout,
-        check=False,
-    )
-    mapper.stdout.close()
-    mapper_returncode = mapper.wait()
-    if mapper_returncode != 0 or sorter.returncode != 0:
-        raise subprocess.CalledProcessError(
-            mapper_returncode or sorter.returncode,
-            ["bwa-mem2", "mem", "|", "samtools", "sort"],
-        )
-    run(["samtools", "index", "-@", threads, str(bam)])
-    run(["samtools", "quickcheck", "-v", str(bam)])
-
-
 def generated_vcfs(root: Path) -> list[Path]:
     result = sorted(
         path for path in root.rglob("*.vcf.gz")
@@ -333,8 +296,8 @@ def project_calls(candidate: Path, generated: list[Path], output: Path, sample: 
 
 
 def main() -> int:
-    read1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
-    read2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
+    bam = Path(required("PGBENCH_SHARED_ALIGNMENT_BAM"))
+    bai = Path(required("PGBENCH_SHARED_ALIGNMENT_BAI"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
     reference_index = Path(required("PGBENCH_REFERENCE_INDEX"))
     expected_reference_index = Path(f"{reference}.fai")
@@ -350,14 +313,11 @@ def main() -> int:
     sample = required("PGBENCH_SAMPLE_ID")
     threads = required("PGBENCH_THREADS")
 
+    if not bai.is_file() or bai.stat().st_size == 0:
+        raise RuntimeError("GraphTyper2 requires the frozen shared BAM index")
+    run(["samtools", "quickcheck", "-v", str(bam)])
     work = output_dir / "work"
     work.mkdir(parents=True, exist_ok=True)
-    bam = work / f"{sample}.illumina.sorted.bam"
-    if not bam.is_file() or not Path(f"{bam}.bai").is_file():
-        align_reads(reference, read1, read2, bam, sample, threads)
-    else:
-        run(["samtools", "quickcheck", "-v", str(bam)])
-
     staged_candidate = work / "candidate.vcf.gz"
     stage_candidate(candidate, staged_candidate)
     regions = work / "regions.txt"

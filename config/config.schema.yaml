@@ -24,6 +24,8 @@ properties:
     additionalProperties: false
     required:
       - track
+      - read_class
+      - cross_track_ranking
       - chromosomes
       - svtypes
       - minimum_sv_size
@@ -40,7 +42,11 @@ properties:
       - independent_samples_status
     properties:
       track:
-        const: short_read_fixed_panel_genotyping
+        enum: [short_read_fixed_panel_genotyping, long_read_fixed_panel_genotyping]
+      read_class:
+        enum: [short, long]
+      cross_track_ranking:
+        const: false
       chromosomes:
         type: array
         minItems: 22
@@ -111,15 +117,13 @@ properties:
       - read_count
       - read_bases
       - downsampling_seed
-      - fastq_r1
-      - fastq_r2
     properties:
       id:
         $ref: "#/$defs/identifier"
       sex:
         enum: [male, female, unknown]
       technology:
-        const: illumina_short_read
+        enum: [illumina_pe, pacbio_hifi]
       library_id:
         $ref: "#/$defs/identifier"
       source_evidence_id:
@@ -147,6 +151,8 @@ properties:
       fastq_r1:
         $ref: "#/$defs/nonEmptyPath"
       fastq_r2:
+        $ref: "#/$defs/nonEmptyPath"
+      fastq:
         $ref: "#/$defs/nonEmptyPath"
       allow_sample_name_override:
         type: boolean
@@ -179,6 +185,8 @@ properties:
       - population_vcf
       - graph_assets
       - excluded_samples
+      - frozen_haplotype_source_bundle
+      - canonical_scoring_contract
     properties:
       id:
         $ref: "#/$defs/identifier"
@@ -200,6 +208,27 @@ properties:
           const: HG002
         items:
           $ref: "#/$defs/identifier"
+      frozen_haplotype_source_bundle:
+        type: object
+        additionalProperties: false
+        required: [id, source_cohort_id, release, reference, haplotype_manifest, target_family_excluded, derivation_policy, content_lock]
+        properties:
+          id: {$ref: "#/$defs/identifier"}
+          source_cohort_id: {$ref: "#/$defs/identifier"}
+          release: {type: string, minLength: 1}
+          reference: {const: grch38}
+          haplotype_manifest: {$ref: "#/$defs/nonEmptyPath"}
+          target_family_excluded: {const: true}
+          derivation_policy: {const: native_assets_must_be_derived_from_this_bundle}
+          content_lock: {$ref: "#/$defs/nonEmptyPath"}
+      canonical_scoring_contract:
+        type: object
+        additionalProperties: false
+        required: [canonical_candidate_count, tool_specific_denominator, deterministic_native_projection_required]
+        properties:
+          canonical_candidate_count: {const: 18164}
+          tool_specific_denominator: {const: forbidden}
+          deterministic_native_projection_required: {const: true}
       manifest:
         $ref: "#/$defs/nonEmptyPath"
       population_vcf:
@@ -222,6 +251,7 @@ properties:
               - source_biallelic_panel
               - source_biallelic_converter
               - provenance
+              - phase_gate
             properties:
               source_cohort_id: {$ref: "#/$defs/identifier"}
               frozen_gbz: {$ref: "#/$defs/nonEmptyPath"}
@@ -233,6 +263,62 @@ properties:
               source_biallelic_panel: {$ref: "#/$defs/nonEmptyPath"}
               source_biallelic_converter: {$ref: "#/$defs/nonEmptyPath"}
               provenance: {$ref: "#/$defs/nonEmptyPath"}
+              phase_gate:
+                type: object
+                additionalProperties: false
+                required: [homozygous_unphased, heterozygous_unphased]
+                properties:
+                  homozygous_unphased:
+                    type: object
+                    additionalProperties: false
+                    required: [phase_ambiguous, allowed_to_canonicalize]
+                    properties:
+                      phase_ambiguous: {const: false}
+                      allowed_to_canonicalize: {const: true}
+                  heterozygous_unphased:
+                    type: object
+                    additionalProperties: false
+                    required: [phase_ambiguous, allowed_to_guess, fail_if_unresolved]
+                    properties:
+                      phase_ambiguous: {const: true}
+                      allowed_to_guess: {const: false}
+                      fail_if_unresolved: {const: true}
+      native_input_contract:
+        type: object
+        additionalProperties: false
+        required: [population_context, tools, shared_shortread_alignment]
+        properties:
+          population_context:
+            type: object
+            additionalProperties: false
+            required: [source_cohort_id, target_family_excluded, allowed_derived_resources]
+            properties:
+              source_cohort_id: {$ref: "#/$defs/identifier"}
+              target_family_excluded: {const: true}
+              allowed_derived_resources:
+                type: array
+                minItems: 1
+                uniqueItems: true
+                items: {enum: [phased_haplotype_vcf, pangenie_pgin, gbz, gbwt, graph_index, tool_native_index]}
+          tools:
+            type: object
+            additionalProperties: {$ref: "#/$defs/nativeToolContract"}
+          shared_shortread_alignment:
+            oneOf:
+              - type: "null"
+              - type: object
+                additionalProperties: false
+                required: [bam, bai, source_fastq_sha256, reference_sha256, aligner, aligner_version, command_sha256, bam_sha256, bai_sha256]
+                properties:
+                  bam: {$ref: "#/$defs/nonEmptyPath"}
+                  bai: {$ref: "#/$defs/nonEmptyPath"}
+                  source_fastq_sha256: {$ref: "#/$defs/sha256"}
+                  reference_sha256: {$ref: "#/$defs/sha256"}
+                  aligner: {const: bwa-mem2}
+                  aligner_version: {type: string, minLength: 1}
+                  command_sha256: {$ref: "#/$defs/sha256"}
+                  bam_sha256: {$ref: "#/$defs/sha256"}
+                  bai_sha256: {$ref: "#/$defs/sha256"}
       graph_assets:
         type: object
         additionalProperties: false
@@ -251,6 +337,7 @@ properties:
               - none
               - vg_gbz_min_dist
               - vg_giraffe_shortread
+              - vg_giraffe_longread
           manifest:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"
@@ -530,6 +617,10 @@ properties:
           $ref: "#/$defs/nonEmptyPath"
         tool_index:
           $ref: "#/$defs/nonEmptyPath"
+        adapter_assets:
+          type: object
+          additionalProperties:
+            $ref: "#/$defs/nonEmptyPath"
 
 allOf:
   - if:
@@ -597,6 +688,15 @@ allOf:
               $ref: "#/$defs/nonEmptyPath"
 
 $defs:
+  nativeToolContract:
+    type: object
+    additionalProperties: false
+    required: [input_mode, native_context_provenance_required, family_exclusion_required, external_population_context_forbidden]
+    properties:
+      input_mode: {enum: [shared_bam, fastq_plus_native_graph, fastq_plus_phased_haplotypes]}
+      native_context_provenance_required: {type: boolean}
+      family_exclusion_required: {type: boolean}
+      external_population_context_forbidden: {type: boolean}
   identifier:
     type: string
     minLength: 1
@@ -612,6 +712,13 @@ $defs:
       - type: string
         pattern: "^[a-f0-9]{64}$"
       - type: "null"
+  sha256:
+    oneOf:
+      - type: string
+        pattern: "^[a-f0-9]{64}$"
+      # A checked execution rejects this preflight sentinel before use; keeping
+      # it schema-valid lets example manifests describe unavailable assets.
+      - const: 0
   command:
     type: array
     minItems: 1

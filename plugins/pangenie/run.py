@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import TextIO
 
 
+# `prepare-vcf-MC` removes bubbles only when more than 20% of haplotypes
+# carry a missing allele.  Mirror that official input policy; do not invent
+# genotypes or impose a stricter, benchmark-specific completeness filter.
+MAX_MISSING_HAPLOTYPE_FRACTION = 0.20
+
+
 def required(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -121,14 +127,33 @@ def validate_pangenie_panel(path: Path) -> None:
                     f"PanGenie panel line {line_number} has no GT field"
                 )
             gt_index = format_fields.index("GT")
+            missing_haplotypes = 0
+            total_haplotypes = 0
             for sample, sample_value in zip(samples, fields[9:], strict=True):
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
-                if "|" not in genotype or "." in genotype:
+                if (
+                    ("|" not in genotype and genotype != "./.")
+                    or ("/" in genotype and genotype != "./.")
+                ):
                     raise RuntimeError(
-                        f"PanGenie panel line {line_number} has unphased/missing "
-                        f"genotype for {sample}"
+                        f"PanGenie panel line {line_number} has unphased genotype "
+                        f"for {sample}"
                     )
+                alleles = [".", "."] if genotype == "./." else genotype.split("|")
+                if len(alleles) != 2 or any(
+                    allele != "." and not allele.isdigit() for allele in alleles
+                ):
+                    raise RuntimeError(
+                        f"PanGenie panel line {line_number} has invalid diploid GT"
+                    )
+                missing_haplotypes += sum(allele == "." for allele in alleles)
+                total_haplotypes += 2
+            if missing_haplotypes / total_haplotypes > MAX_MISSING_HAPLOTYPE_FRACTION:
+                raise RuntimeError(
+                    f"PanGenie panel line {line_number} exceeds official "
+                    "prepare-vcf-MC missing-haplotype threshold"
+                )
             record_count += 1
     if samples is None:
         raise RuntimeError("PanGenie panel has no #CHROM header")
@@ -137,14 +162,7 @@ def validate_pangenie_panel(path: Path) -> None:
 
 
 def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
-    """Drop records that cannot be indexed without inventing panel genotypes.
-
-    PanGenie requires every population-panel genotype to be complete and phased.
-    Population releases can contain a small number of missing or unphased calls.
-    Imputing those calls would leak an unsupported assumption into the benchmark,
-    so the formal adapter excludes the affected record from the private index and
-    later emits an explicit no-call for its blinded candidate.
-    """
+    """Apply the official MC missing-allele policy without imputation."""
 
     samples: list[str] | None = None
     kept = 0
@@ -173,21 +191,35 @@ def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
                     f"PanGenie panel line {line_number} has no GT field"
                 )
             gt_index = format_fields.index("GT")
-            usable = True
+            missing_haplotypes = 0
+            total_haplotypes = 0
             for sample_value in fields[9:]:
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
-                if "|" not in genotype or "." in genotype:
-                    usable = False
-                    break
-            if usable:
+                if (
+                    ("|" not in genotype and genotype != "./.")
+                    or ("/" in genotype and genotype != "./.")
+                ):
+                    raise RuntimeError(
+                        f"PanGenie panel line {line_number} has unphased GT"
+                    )
+                alleles = [".", "."] if genotype == "./." else genotype.split("|")
+                if len(alleles) != 2 or any(
+                    allele != "." and not allele.isdigit() for allele in alleles
+                ):
+                    raise RuntimeError(
+                        f"PanGenie panel line {line_number} has invalid diploid GT"
+                    )
+                missing_haplotypes += sum(allele == "." for allele in alleles)
+                total_haplotypes += 2
+            if missing_haplotypes / total_haplotypes <= MAX_MISSING_HAPLOTYPE_FRACTION:
                 output_handle.write(raw_line)
                 kept += 1
             else:
                 dropped += 1
     if kept == 0:
         raise RuntimeError(
-            "PanGenie panel has no records with complete phased genotypes"
+            "PanGenie panel has no records within the official missing-allele threshold"
         )
     return kept, dropped
 
@@ -309,27 +341,23 @@ def main() -> int:
     read2 = Path(required("PGBENCH_INPUT_FASTQ_R2"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
     formal = os.environ.get("PGBENCH_EXECUTION_PURPOSE") == "formal"
-    private_phased_raw = os.environ.get("PGBENCH_PANGENIE_PRIVATE_PHASED_PANEL")
-    private_biallelic_raw = os.environ.get("PGBENCH_PANGENIE_PRIVATE_BIALLELIC_PANEL")
-    converter_raw = os.environ.get("PGBENCH_PANGENIE_BIALLELIC_CONVERTER")
-    projection_raw = os.environ.get("PGBENCH_CANONICAL_ALLELE_PROJECTION")
-    if formal and not all((private_phased_raw, private_biallelic_raw, converter_raw, projection_raw)):
+    private_phased_raw = os.environ.get("PGBENCH_ADAPTER_ASSET_PRIVATE_PHASED_PANEL")
+    private_biallelic_raw = os.environ.get("PGBENCH_ADAPTER_ASSET_PRIVATE_BIALLELIC_PANEL")
+    converter_raw = os.environ.get("PGBENCH_ADAPTER_ASSET_BIALLELIC_CONVERTER")
+    if formal and not all((private_phased_raw, private_biallelic_raw, converter_raw)):
         raise RuntimeError(
             "formal PanGenie requires a private phased panel, biallelic "
-            "projection resources, and a canonical allele projection"
+            "projection resources from its declared frozen native bundle"
         )
     private_phased_panel = Path(private_phased_raw or required("PGBENCH_PANEL_VCF"))
     private_biallelic_panel = Path(private_biallelic_raw) if private_biallelic_raw else None
     biallelic_converter = Path(converter_raw) if converter_raw else None
-    canonical_projection = Path(projection_raw) if projection_raw else None
     candidate = Path(required("PGBENCH_CANDIDATE_VCF"))
     output = Path(required("PGBENCH_OUTPUT_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
     threads = required("PGBENCH_THREADS")
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    if canonical_projection is not None and not canonical_projection.is_file():
-        raise RuntimeError("PanGenie canonical allele projection is missing")
     if biallelic_converter is not None and not biallelic_converter.is_file():
         raise RuntimeError("PanGenie biallelic converter is missing")
     with tempfile.TemporaryDirectory(

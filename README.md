@@ -1,10 +1,12 @@
-# PGBench short-read pangenome SV genotyping benchmark
+# PGBench dual-channel pangenome SV genotyping benchmark
 
-PGBench compares fixed-panel structural-variant genotypers under one frozen
-contract: the same paired Illumina FASTQs, the same tool-neutral family-aware
-leave-one-out panel, the same GRCh38 reference, the same panel-addressable
-canonical-panel truth denominator, the same autosomal benchmark regions, and the same three genotype-aware
-evaluators.
+PGBench compares fixed-panel structural-variant genotypers under a frozen,
+channel-specific evidence contract: SR adapters receive the same HG002
+Illumina paired-end reads and HiFi adapters receive the same HG002 PacBio HiFi
+reads.  Both channels use the same tool-neutral family-aware leave-one-out
+panel, GRCh38 reference, frozen canonical candidate universe, tool-independent
+scoring denominator, autosomal benchmark regions, and the same three frozen
+evaluators under one unified genotype-aware judgement layer.
 
 The only primary score is:
 
@@ -23,15 +25,25 @@ the mean. Evaluator range and standard deviation are disagreement diagnostics;
 they never change the ranking score. Candidate-vote agreement and whole-truth
 recovery are diagnostics only.
 
-## Frozen main-track scope
+## Frozen channel scope
 
-- Illumina paired-end short reads only.
+- **SR channel:** HG002 Illumina paired-end reads only.
+- **HiFi channel:** HG002 PacBio HiFi reads only; CLR and ONT are not
+  accepted.
+- SR and HiFi are separate comparison tracks and receive separate rankings;
+  no cross-channel score, rank, or aggregate is generated.
 - Fixed-panel genotyping, not de novo discovery.
 - GRCh38 chromosomes chr1–chr22.
 - Biallelic, sequence-resolved, simple DEL/INS of 50–10,000 bp.
 - HG002 and known first-degree relatives excluded from panel sources.
 - HG002 truth is introduced only after the candidate panel is frozen.
 - Truth without a reliable panel allele is `UNSCORABLE`, never inferred as 0/0.
+- `UNSCORABLE` is decided before any adapter runs, only when a truth event
+  cannot be unambiguously linked to the frozen canonical panel.  It is never
+  an adapter-specific state.  `unsupported_representation`, `linking_failure`,
+  and `missing_output` remain all-sites ledger diagnostics.
+- Addressability is diagnostic only and never changes the primary-score
+  denominator.
 - Every adapter emits every canonical candidate with a genotype or a distinct
   failure/no-call status; unsupported candidates cannot disappear silently.
 
@@ -52,19 +64,57 @@ The core verifies that each query row maps to one frozen candidate allele,
 applies no extra QUAL/GQ filter, and seals the all-sites, status, panel, and
 query hashes. A tool cannot select a reserved core output path.
 
-## Tool ecosystem
+## External adapter ecosystem
 
-Bundled, reviewed reference adapters:
+Core has no tool-specific command, resource, or native-asset logic.  Every
+tool, including the five current tools, is registered through the same external
+adapter manifest and runner contract.  Adding a tool means adding an adapter
+directory and one registry entry; Core source must not change.
 
 - PanGenie — mapping-free k-mer/population-haplotype genotyping.
 - vg giraffe + vg call — whole-pangenome graph mapping/genotyping.
 - Paragraph — local SV graph realignment.
-
-Community/external adapters:
-
 - GraphTyper2
 - Varigraph
-- BayesTyper
+
+BayesTyper and future tools use the same interface.  An adapter that consumes
+population or pangenome information must declare the configured Frozen
+Haplotype Source Bundle; Core rejects native assets derived from any other
+cohort, release, reference, or family-exclusion state.
+The frozen biological source is identical; tool-native representations may
+differ.  Adapters that do not consume population haplotypes are not given a
+population prior merely for symmetry.
+
+| Tool | Adapter | Channel | Evidence | Population context | Current status |
+| --- | --- | --- | --- | --- |
+| PanGenie | external | SR | Illumina PE | frozen native context | P0 passed; production pending |
+| vg Giraffe + call | external | SR | Illumina PE | Frozen Bundle-derived graph | production pending |
+| Paragraph | external | SR | shared BAM | none | production pending |
+| GraphTyper2 | external | SR | shared BAM | none | production pending |
+| Varigraph | external | SR | Illumina PE | Frozen Bundle-derived native assets | production pending |
+
+Adapter status is explicit: `eligible`, `unsupported`, and `adapter_failure`
+are distinct.  Unsupported means that an adapter cannot run in the selected
+channel; it is never converted to ME-F1 = 0.
+
+## Production isolation and release status
+
+Formal adapters run only in a `bwrap` or Apptainer sandbox with network
+disabled, immutable declared inputs, and an adapter-private writable work
+directory.  Truth VCFs, GIAB files, and evaluator results are not adapter
+inputs and are therefore not mounted into that sandbox.  Parameters are frozen
+before the HG002 test run; truth-guided tuning and post-score parameter changes
+are forbidden.
+
+PanGenie P0 native-context validation has passed on the server.  The next
+release gate is a complete five-adapter production rerun followed by Core
+scoring.  Releases are immutable and channel-specific (`PGBench-SR-Illumina`
+and `PGBench-LR-HiFi`); changing panel, truth, BED, reference, source bundle,
+adapter API, scoring contract, or evaluator version creates a new release.
+
+Every adapter must pass the Adapter Conformance Suite before production.  The
+suite covers DEL/INS 0/0, 0/1, 1/1 and no-call cases, unsupported and ambiguous
+representations, and canonical biallelic projection.
 
 The Great Genotyper remains a future adapter until a reproducible released
 implementation and frozen interface are available. It is not represented by a
@@ -78,8 +128,9 @@ python -m snakemake -n --cores 1 --configfile tests/fixtures/synthetic/config.ya
 python -m snakemake --cores 1 --configfile tests/fixtures/synthetic/config.yaml
 ```
 
-Production runs use a tool-specific or multi-tool config whose registrations
-all point to the same sample FASTQs and canonical panel source. The workflow
+Production runs use either `config/config.unified-tools.example.yaml` for SR
+or `config/config.hifi.example.yaml` for HiFi. Their registrations point to
+channel-specific evidence and the same frozen haplotype source. The workflow
 first emits the nine shared 10x/20x/30x subsets (three frozen seeds per depth)
 and the full-depth entry. Generate the complete run matrix with:
 

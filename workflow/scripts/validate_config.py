@@ -35,6 +35,9 @@ GRAPH_PROFILE_ASSETS = {
     "vg_giraffe_shortread": {
         "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
     },
+    "vg_giraffe_longread": {
+        "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
+    },
 }
 
 
@@ -74,9 +77,21 @@ def _mode_semantics(tool: Mapping[str, Any]) -> None:
             )
         if mode != "end_to_end_from_reads":
             raise ConfigValidationError(f"tool {tool['id']} declares unsupported mode {mode}")
-        if not {"short_fastq_r1", "short_fastq_r2"}.issubset(required):
+        capabilities = tool.get("capabilities", {})
+        read_class = (
+            capabilities.get("read_class", "short")
+            if isinstance(capabilities, Mapping)
+            else "short"
+        )
+        evidence = (
+            {"short_fastq_r1", "short_fastq_r2"}
+            if read_class == "short"
+            else {"long_reads_fastq"}
+        )
+        if not evidence.issubset(required):
             raise ConfigValidationError(
-                f"tool {tool['id']} must require both paired FASTQ inputs"
+                f"tool {tool['id']} must require {sorted(evidence)} for its "
+                f"{read_class}-read channel"
             )
 
         declared_stages = set(contract["billable_stages"])
@@ -98,22 +113,11 @@ def validate_external_plugins(
     repo_root: Path,
     tool_schema_path: Path,
 ) -> dict[str, dict[str, Any]]:
-    enabled_tools = set(config["tools"]["enabled"])
-    planned_tools = set(config["tools"]["planned_tools"])
-    if enabled_tools & planned_tools:
-        raise ConfigValidationError(
-            "tools.enabled and tools.planned_tools must be disjoint"
-        )
-
     loaded: dict[str, dict[str, Any]] = {}
     for registration in config["external_plugins"]:
         plugin_id = registration["id"]
         if plugin_id in loaded:
             raise ConfigValidationError(f"duplicate external plugin ID {plugin_id}")
-        if plugin_id in enabled_tools or plugin_id in planned_tools:
-            raise ConfigValidationError(
-                f"external plugin ID conflicts with built-in tool ID {plugin_id}"
-            )
         manifest_path = (repo_root / registration["manifest"]).resolve()
         manifest = load_yaml(manifest_path)
         validate_json_schema(manifest, tool_schema_path)
@@ -123,10 +127,8 @@ def validate_external_plugins(
                 f"ID {manifest['id']!r}"
             )
         _mode_semantics(manifest)
-        if manifest["capabilities"]["technology"] != ["illumina_short_read"]:
-            raise ConfigValidationError(
-                f"tool {plugin_id} is outside the short-read-only track"
-            )
+        if manifest["source"] != "external":
+            raise ConfigValidationError(f"tool {plugin_id} must be an external adapter")
         if manifest["outputs"].get("candidate_output_contract") != "all_sites":
             raise ConfigValidationError(
                 f"tool {plugin_id} must produce canonical all-sites output"
@@ -183,8 +185,21 @@ def _validate_plugin_compatibility(
     plugins: Mapping[str, Mapping[str, Any]],
 ) -> None:
     technology = config["sample"]["technology"]
+    benchmark_track = config["benchmark_contract"]["track"]
+    track_class = config["benchmark_contract"]["read_class"]
     mode = config["execution"]["official_score_mode"]
     graph_profile = config["pangenome"]["graph_assets"]["profile"]
+    native_contract = config["pangenome"].get("native_input_contract")
+    scoring_contract = config["pangenome"]["canonical_scoring_contract"]
+    if (
+        scoring_contract.get("canonical_candidate_count") != 18164
+        or scoring_contract.get("tool_specific_denominator") != "forbidden"
+        or scoring_contract.get("deterministic_native_projection_required") is not True
+    ):
+        raise ConfigValidationError(
+            "canonical scoring contract must freeze the 18,164-candidate universe "
+            "and deterministic native projection"
+        )
     for plugin_id, manifest in plugins.items():
         supported_technologies = set(manifest["capabilities"]["technology"])
         if technology not in supported_technologies:
@@ -192,6 +207,10 @@ def _validate_plugin_compatibility(
                 f"tool {plugin_id} does not support sample technology {technology}; "
                 f"supported={sorted(supported_technologies)}"
             )
+        if manifest["capabilities"]["read_class"] != track_class:
+            # Registered adapters for the other channel are explicitly
+            # ineligible rather than counted as failed/zero-score tools.
+            continue
         contract = manifest["supported_modes"].get(mode)
         if not isinstance(contract, Mapping):
             raise ConfigValidationError(
@@ -201,6 +220,7 @@ def _validate_plugin_compatibility(
         for field, contract_name in (
             ("fastq_r1", "short_fastq_r1"),
             ("fastq_r2", "short_fastq_r2"),
+            ("fastq", "long_reads_fastq"),
         ):
             if contract_name in required and not config["sample"].get(field):
                 raise ConfigValidationError(
@@ -211,38 +231,52 @@ def _validate_plugin_compatibility(
                 raise ConfigValidationError(
                     f"tool {plugin_id} requires graph assets"
                 )
-            accepted = set(
-                manifest["inputs"]["graph_assets"].get("accepted_profiles", [])
+        if {"shared_shortread_alignment", "shared_shortread_alignment_index"}.intersection(required):
+            alignment = (
+                native_contract.get("shared_shortread_alignment")
+                if isinstance(native_contract, Mapping)
+                else None
             )
-            if accepted and graph_profile not in accepted:
+            if alignment is not None and not isinstance(alignment, Mapping):
                 raise ConfigValidationError(
-                    f"tool {plugin_id} rejects graph profile {graph_profile}; "
-                    f"accepted={sorted(accepted)}"
+                    f"tool {plugin_id} shared alignment contract must be a mapping"
                 )
-        if plugin_id == "pangenie" and not config.get("development", {}).get(
-            "synthetic_mode", False
-        ):
-            context = config["pangenome"].get("pangenie_private_context")
-            if not isinstance(context, Mapping):
+            if not {"shared_shortread_alignment", "shared_shortread_alignment_index"}.issubset(required):
                 raise ConfigValidationError(
-                    "formal PanGenie requires pangenome.pangenie_private_context; "
-                    "the canonical scoring panel is not a PanGenie index panel"
+                    f"tool {plugin_id} must require the benchmark shared BAM and BAI"
                 )
-            if context.get("source_cohort_id") != config["pangenome"]["population_panel"]:
+        native_assets = manifest["native_assets"]
+        bundle = config["pangenome"]["frozen_haplotype_source_bundle"]
+        if native_assets["uses_population_or_pangenome_information"]:
+            if native_assets["frozen_haplotype_source_bundle"] != bundle["id"]:
                 raise ConfigValidationError(
-                    "PanGenie private context must declare the frozen population cohort"
+                    f"tool {plugin_id} must derive its native assets from "
+                    "the configured Frozen Haplotype Source Bundle"
                 )
-            required_inputs = {
-                "pangenie_private_phased_panel",
-                "pangenie_private_biallelic_panel",
-                "pangenie_biallelic_converter",
-                "canonical_allele_projection",
-            }
-            if not required_inputs.issubset(required | set(contract.get("optional_inputs", []))):
-                raise ConfigValidationError(
-                    "PanGenie formal mode must require its private phased context "
-                    "and canonical allele projection"
-                )
+            if bundle["source_cohort_id"] != config["pangenome"]["population_panel"]:
+                raise ConfigValidationError("Frozen Haplotype Source Bundle cohort mismatch")
+            if bundle["target_family_excluded"] is not True:
+                raise ConfigValidationError("Frozen Haplotype Source Bundle requires family exclusion")
+        elif native_assets["frozen_haplotype_source_bundle"] is not None:
+            raise ConfigValidationError(
+                f"tool {plugin_id} declares a frozen bundle without consuming population information"
+            )
+        accepted = set(manifest["inputs"]["graph_assets"].get("accepted_profiles", []))
+        if accepted and graph_profile not in accepted:
+            raise ConfigValidationError(
+                f"tool {plugin_id} rejects graph profile {graph_profile}; "
+                f"accepted={sorted(accepted)}"
+            )
+        registered_assets = config["external_plugins"][list(plugins).index(plugin_id)].get("adapter_assets", {})
+        adapter_assets = {name for name in required if name.startswith("adapter_asset.")}
+        missing_assets = sorted(adapter_assets - set(registered_assets))
+        if missing_assets:
+            raise ConfigValidationError(
+                f"tool {plugin_id} is missing registered adapter assets: {missing_assets}"
+            )
+
+    if benchmark_track not in {"short_read_fixed_panel_genotyping", "long_read_fixed_panel_genotyping"}:
+        raise ConfigValidationError(f"unsupported benchmark track {benchmark_track}")
 
 
 def validate_configuration(

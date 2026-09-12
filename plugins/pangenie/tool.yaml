@@ -1,8 +1,8 @@
-interface_version: 1
+interface_version: 2
 id: pangenie
 name: PanGenie short-read pangenome genotyper
 version: 4.2.1
-source: builtin
+source: external
 paradigm: short_read_pangenome_genotyping
 comparison_task: panel_genotyping
 
@@ -35,12 +35,17 @@ inputs:
     accepted_profiles: []
 
 capabilities:
-  technology: [illumina_short_read]
+  read_class: short
+  technology: [illumina_pe]
   svtypes: [DEL, INS]
   phasing: false
   novel_discovery: false
   allele_linkage_output: benchmark_inferred
   allele_namespace: [PGSV]
+
+native_assets:
+  uses_population_or_pangenome_information: true
+  frozen_haplotype_source_bundle: HG002_LOO_HPRC_GRCh38_SV_v1
 
 execution:
   runner: run.py
@@ -61,10 +66,9 @@ supported_modes:
     optional_inputs:
       # Mandatory for a formal run through config validation; optional here so
       # the deliberately isolated synthetic fixture can still test adapter IO.
-      - pangenie_private_phased_panel
-      - pangenie_private_biallelic_panel
-      - pangenie_biallelic_converter
-      - canonical_allele_projection
+      - adapter_asset.private_phased_panel
+      - adapter_asset.private_biallelic_panel
+      - adapter_asset.biallelic_converter
     billable_stages:
       - prepare_assets
       - index

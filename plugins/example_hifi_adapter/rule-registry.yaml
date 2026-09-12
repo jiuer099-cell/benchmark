@@ -1,0 +1,18 @@
+schema_version: 1
+rules:
+  - id: tool__{tool}__genotype
+    description: Development-only HiFi adapter contract fixture.
+    phase: tool_execution
+    kind: plugin
+    inputs: [blinded_candidate_vcf, mode_authorized_reads_or_alignment, pangenome_manifest]
+    outputs: [raw_all_sites_vcf]
+    upstream: [tool__{tool}__preflight]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: implemented
+    source_path: plugins/example_hifi_adapter/run.py
+    environment: plugins/example_hifi_adapter/envs/environment.yaml
+    resource_class: tool_default
+    active_when: {tool: example_hifi_adapter, task: genotyping}

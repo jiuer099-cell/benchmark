@@ -129,6 +129,12 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "DiagnosticGTMacroF1": score.get("pangenome_genotyping_score"),
         "DiagnosticNonReferenceF1": score.get("non_reference_f1_score"),
         "DiagnosticPanelCoverage": score.get("panel_coverage"),
+        "AllSiteCallRate": candidate.get("all_site_call_rate"),
+        "ExactGTAccuracy": candidate.get("exact_gt_accuracy"),
+        "NoCallRate": candidate.get("no_call_rate"),
+        "GTConfusionMatrix": json.dumps(
+            candidate.get("genotype_confusion_matrix"), sort_keys=True
+        ) if candidate.get("genotype_confusion_matrix") is not None else None,
         "ME-F1_AddressableDiagnostic": (
             analysis.get("addressable_subset_diagnostic", {}).get("me_f1")
             if isinstance(analysis.get("addressable_subset_diagnostic"), Mapping)
@@ -264,7 +270,9 @@ def html(score: Mapping[str, Any]) -> str:
 <h2>All-sites / addressability diagnostics</h2>
 <p>Truth denominator：{score.get('truth_eligible_count', '')}；candidate count：{candidate.get('candidate_count', '')}；called：{addressability.get('called_count', '')}；explicit no-call：{addressability.get('explicit_no_call_count', '')}；missing output：{addressability.get('missing_output_count', '')}；linking failure：{addressability.get('linking_failure_count', '')}。</p>
 <p>Unsupported representation：{addressability.get('unsupported_representation_count', '')}；linking failure：{addressability.get('linking_failure_count', '')}；ambiguous mapping：{addressability.get('ambiguous_mapping_count', '')}；adapter conversion failure：{addressability.get('adapter_conversion_failure_count', '')}；index build failure：{addressability.get('index_build_failure_count', '')}；addressability rate：{number(addressability.get('addressability_rate'), 4)}；panel coverage：{number(score.get('panel_coverage'), 4)}。</p>
+<p>All-site Call Rate（诊断）：{number(candidate.get('all_site_call_rate'), 4)}；Exact GT Accuracy（诊断）：{number(candidate.get('exact_gt_accuracy'), 4)}；No-call Rate（诊断）：{number(candidate.get('no_call_rate'), 4)}。这些字段不参与 ME-F1。</p>
 <p>Candidate genotype macro-F1（诊断）：{number(score.get('pangenome_genotyping_score'))}；non-reference F1（诊断）：{number(score.get('non_reference_f1_score'))}。</p>
+<details><summary>GT confusion matrix（诊断）</summary><pre>{escape(json.dumps(candidate.get('genotype_confusion_matrix', {}), indent=2, sort_keys=True))}</pre></details>
 {strata_html}
 <p>Score contract：<code>{escape(str(score.get('score_contract_version')))}</code>；SHA-256：<code>{escape(str(score.get('score_contract_sha256')))}</code></p>
 </body></html>\n"""

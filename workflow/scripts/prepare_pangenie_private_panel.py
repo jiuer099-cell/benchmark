@@ -5,7 +5,10 @@ The canonical scoring panel is intentionally *not* an index input for
 PanGenie.  This rule accepts only a panel previously rebuilt from the frozen
 HPRC graph/haplotypes after family exclusion, validates its provenance and
 phased genotypes, and records the projection back to the fixed scoring
-universe.  It never imputes, phases, or removes a sample column itself.
+universe.  It never imputes, guesses phase, or removes a sample column
+itself.  The sole permitted normalization is ``a/a -> a|a``: a diploid
+homozygous slash genotype is phase-equivalent and therefore carries no
+unknown haplotype assignment.
 """
 
 from __future__ import annotations
@@ -23,8 +26,20 @@ import yaml  # type: ignore[import-untyped]
 
 
 FAMILY = {"HG002", "NA24385", "HG003", "NA24149", "HG004", "NA24143"}
-CONTRACT = "pgbench_pangenie_native_context_v1"
-METHOD = "family_excluded_hprc_graph_haplotypes"
+CONTRACT = "pgbench_pangenie_native_context_v2"
+METHOD = "deterministic_family_exclusion_from_official_pangenie_pgin"
+MAX_MISSING_HAPLOTYPE_FRACTION = 0.20
+PHASE_POLICY = {
+    "homozygous_unphased": {
+        "phase_ambiguous": False,
+        "allowed_to_canonicalize": True,
+    },
+    "heterozygous_unphased": {
+        "phase_ambiguous": True,
+        "allowed_to_guess": False,
+        "fail_if_unresolved": True,
+    },
+}
 
 
 class PrivatePanelError(ValueError):
@@ -67,10 +82,9 @@ def format_info(values: dict[str, str | bool]) -> str:
 def load_provenance(
     path: Path,
     *,
-    canonical_source: Path,
     source_graph: Path,
     source_haplotype_manifest: Path,
-    excluded_samples: set[str],
+    source_phased_panel: Path,
     cohort_id: str,
 ) -> dict[str, object]:
     try:
@@ -81,32 +95,24 @@ def load_provenance(
         raise PrivatePanelError("unsupported PanGenie native-context provenance contract")
     required = {
         "source_cohort_id",
-        "canonical_population_source_sha256",
         "source_graph_sha256",
         "source_haplotype_manifest_sha256",
+        "official_source_pgin_sha256",
         "reference_build",
-        "generation_method",
-        "family_exclusion_applied_before_native_panel_generation",
-        "excluded_samples",
     }
     missing = sorted(required - set(value))
     if missing:
         raise PrivatePanelError("native-context provenance missing: " + ", ".join(missing))
     checks = {
         "source_cohort_id": cohort_id,
-        "canonical_population_source_sha256": sha256(canonical_source),
         "source_graph_sha256": sha256(source_graph),
         "source_haplotype_manifest_sha256": sha256(source_haplotype_manifest),
+        "official_source_pgin_sha256": sha256(source_phased_panel),
         "reference_build": "grch38",
-        "generation_method": METHOD,
-        "family_exclusion_applied_before_native_panel_generation": True,
     }
     for key, expected in checks.items():
         if value.get(key) != expected:
             raise PrivatePanelError(f"native-context provenance {key} does not match frozen input")
-    declared = value.get("excluded_samples")
-    if not isinstance(declared, list) or set(declared) != excluded_samples:
-        raise PrivatePanelError("native-context provenance exclusion set differs from run")
     return value
 
 
@@ -167,6 +173,58 @@ def candidate_keys(path: Path) -> dict[tuple[str, str, str, str], str]:
     return result
 
 
+def slash_gt_category(genotype: str) -> str | None:
+    """Classify slash GTs before deciding whether their phase is recoverable."""
+
+    if "/" not in genotype:
+        return None
+    alleles = genotype.split("/")
+    if len(alleles) != 2 or any(
+        allele != "." and not allele.isdigit() for allele in alleles
+    ):
+        return "malformed"
+    if any(allele == "." for allele in alleles):
+        return "partial_missing"
+    return "phase_equivalent_homozygous" if alleles[0] == alleles[1] else "phase_ambiguous_heterozygous"
+
+
+def canonical_diploid_gt(genotype: str, *, line_number: int) -> tuple[list[str], str]:
+    """Return a deterministic diploid GT and its phase-audit category.
+
+    A slash is not automatically an unresolved phase error: ``0/0`` and
+    ``1/1`` are exactly equivalent to their phased forms.  In contrast,
+    heterozygous and partially-missing slash calls do not identify the two
+    haplotypes, so this fail-closed gate must reject them.
+    """
+
+    if genotype == "./.":
+        return [".", "."], "fully_missing"
+    if "/" in genotype:
+        alleles = genotype.split("/")
+        category = slash_gt_category(genotype)
+        if category == "malformed":
+            raise PrivatePanelError(
+                f"private panel line {line_number} has malformed slash GT"
+            )
+        if category == "partial_missing":
+            raise PrivatePanelError(
+                f"private panel line {line_number} has partial-missing slash GT"
+            )
+        if category == "phase_ambiguous_heterozygous":
+            raise PrivatePanelError(
+                f"private panel line {line_number} has phase-ambiguous heterozygous GT"
+            )
+        return alleles, "phase_equivalent_homozygous_slash"
+    if "|" not in genotype:
+        raise PrivatePanelError(f"private panel line {line_number} has invalid diploid GT")
+    alleles = genotype.split("|")
+    if len(alleles) != 2 or any(
+        allele != "." and not allele.isdigit() for allele in alleles
+    ):
+        raise PrivatePanelError(f"private panel line {line_number} has invalid diploid GT")
+    return alleles, "phased"
+
+
 def prepare(
     *,
     source: Path,
@@ -182,15 +240,29 @@ def prepare(
         {
             "N_GT_total": 0,
             "N_GT_missing": 0,
-            "N_GT_unphased": 0,
+            "N_GT_phase_equivalent_homozygous_slash": 0,
+            "N_GT_phase_ambiguous_heterozygous_slash": 0,
+            "N_GT_partial_missing_slash": 0,
+            "N_GT_malformed_slash": 0,
             "N_GT_phased": 0,
             "native_record_count": 0,
             "index_addressable": 0,
             "index_unaddressable": 0,
             "ambiguous_projection": 0,
+            "source_sample_count": 0,
+            "retained_sample_count": 0,
+            "family_samples_removed": 0,
+            "family_samples_not_present": 0,
+            "zero_support_records_removed": 0,
+            "zero_support_alleles_removed": 0,
+            "N_haplotypes_total": 0,
+            "N_haplotypes_missing": 0,
+            "max_missing_haplotype_fraction": 0.0,
         }
     )
     samples: list[str] | None = None
+    retained_indices: list[int] | None = None
+    source_sample_count = 0
     output.parent.mkdir(parents=True, exist_ok=True)
     with open_text(source, "rt") as reader, output.open("w", encoding="utf-8") as writer:
         for line_number, line in enumerate(reader, 1):
@@ -199,17 +271,28 @@ def prepare(
                 continue
             fields = line.rstrip("\n").split("\t")
             if line.startswith("#CHROM"):
-                samples = fields[9:]
+                source_samples = fields[9:]
+                retained_indices = [
+                    index for index, sample in enumerate(source_samples)
+                    if sample not in excluded_samples
+                ]
+                samples = [source_samples[index] for index in retained_indices]
                 if not samples:
                     raise PrivatePanelError("private phased panel has no sample columns")
-                leaked = sorted(excluded_samples.intersection(samples))
-                if leaked:
-                    raise PrivatePanelError("private phased panel contains family samples: " + ", ".join(leaked))
-                writer.write(line)
+                source_sample_count = len(source_samples)
+                statistics["source_sample_count"] = source_sample_count
+                statistics["retained_sample_count"] = len(samples)
+                statistics["family_samples_removed"] = source_sample_count - len(samples)
+                statistics["family_samples_not_present"] = len(excluded_samples - set(source_samples))
+                writer.write("\t".join(fields[:9] + samples) + "\n")
                 continue
             if not line.strip():
                 continue
-            if samples is None or len(fields) != 9 + len(samples):
+            if (
+                samples is None
+                or retained_indices is None
+                or len(fields) != 9 + source_sample_count
+            ):
                 raise PrivatePanelError(f"private panel line {line_number} has invalid sample columns")
             format_fields = fields[8].split(":")
             if "GT" not in format_fields:
@@ -218,33 +301,79 @@ def prepare(
             alt_count = len(fields[4].split(","))
             ac = [0] * alt_count
             an = 0
-            for sample_value in fields[9:]:
+            retained_genotypes: list[tuple[list[str], list[str]]] = []
+            for source_index in retained_indices:
+                sample_value = fields[9 + source_index]
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
                 statistics["N_GT_total"] += 1
-                if "." in genotype:
-                    statistics["N_GT_missing"] += 1
-                    raise PrivatePanelError(f"private panel line {line_number} has missing GT")
-                if "|" not in genotype or "/" in genotype:
-                    statistics["N_GT_unphased"] += 1
-                    raise PrivatePanelError(f"private panel line {line_number} has unphased GT")
-                alleles = genotype.split("|")
-                if len(alleles) != 2 or any(not allele.isdigit() for allele in alleles):
-                    raise PrivatePanelError(f"private panel line {line_number} has invalid diploid GT")
-                statistics["N_GT_phased"] += 1
+                try:
+                    alleles, phase_category = canonical_diploid_gt(
+                        genotype, line_number=line_number
+                    )
+                except PrivatePanelError as exc:
+                    slash_category = slash_gt_category(genotype)
+                    if slash_category == "partial_missing":
+                        statistics["N_GT_partial_missing_slash"] += 1
+                    elif slash_category == "phase_ambiguous_heterozygous":
+                        statistics["N_GT_phase_ambiguous_heterozygous_slash"] += 1
+                    elif slash_category == "malformed":
+                        statistics["N_GT_malformed_slash"] += 1
+                    raise exc
+                if phase_category == "phase_equivalent_homozygous_slash":
+                    statistics["N_GT_phase_equivalent_homozygous_slash"] += 1
+                elif phase_category == "phased":
+                    statistics["N_GT_phased"] += 1
                 for allele in alleles:
+                    statistics["N_haplotypes_total"] += 1
+                    if allele == ".":
+                        statistics["N_haplotypes_missing"] += 1
+                        statistics["N_GT_missing"] += 1
+                        continue
                     value = int(allele)
                     if value > alt_count:
                         raise PrivatePanelError(f"private panel line {line_number} has GT outside ALT range")
                     an += 1
                     if value:
                         ac[value - 1] += 1
+                retained_genotypes.append((values, alleles))
+            missing_fraction = sum(
+                allele == "." for _values, alleles in retained_genotypes for allele in alleles
+            ) / (2 * len(retained_genotypes))
+            statistics["max_missing_haplotype_fraction"] = max(
+                statistics["max_missing_haplotype_fraction"], missing_fraction
+            )
+            if missing_fraction > MAX_MISSING_HAPLOTYPE_FRACTION:
+                raise PrivatePanelError(
+                    f"private panel line {line_number} exceeds official "
+                    "prepare-vcf-MC missing-haplotype threshold"
+                )
+            retained_alt_indexes = [index for index, count in enumerate(ac, start=1) if count]
+            if not retained_alt_indexes:
+                statistics["zero_support_records_removed"] += 1
+                statistics["zero_support_alleles_removed"] += alt_count
+                continue
+            statistics["zero_support_alleles_removed"] += alt_count - len(retained_alt_indexes)
+            old_to_new = {old: new for new, old in enumerate(retained_alt_indexes, start=1)}
+            fields[4] = ",".join(
+                fields[4].split(",")[index - 1] for index in retained_alt_indexes
+            )
+            retained_samples: list[str] = []
+            for values, alleles in retained_genotypes:
+                values[gt_index] = "./." if alleles == [".", "."] else "|".join(
+                    "." if allele == "." else (
+                        "0" if allele == "0" else str(old_to_new[int(allele)])
+                    )
+                    for allele in alleles
+                )
+                retained_samples.append(":".join(values))
+            ac = [ac[index - 1] for index in retained_alt_indexes]
             info = parse_info(fields[7])
             info["AC"] = ",".join(map(str, ac))
             info["AN"] = str(an)
             info["AF"] = ",".join(f"{count / an:.12g}" for count in ac)
             fields[7] = format_info(info)
-            writer.write("\t".join(fields) + "\n")
+            writer.write("\t".join(fields[:9] + retained_samples) + "\n")
             for allele_index, alt in enumerate(fields[4].split(","), 1):
                 candidate = candidates.get((fields[0], fields[1], fields[3], alt))
                 if candidate is not None:
@@ -307,10 +436,10 @@ def main() -> int:
             if not path.is_file():
                 raise PrivatePanelError(f"required private-panel input is missing: {path}")
         provenance = load_provenance(
-            args.provenance, canonical_source=args.canonical_population_source,
-            source_graph=args.source_graph,
+            args.provenance, source_graph=args.source_graph,
             source_haplotype_manifest=args.source_haplotype_manifest,
-            excluded_samples=excluded, cohort_id=args.source_cohort_id,
+            source_phased_panel=args.source_phased_panel,
+            cohort_id=args.source_cohort_id,
         )
         identity = validate_source_identity(
             args.source_identity, frozen_gbz=args.frozen_gbz,
@@ -339,8 +468,13 @@ def main() -> int:
             "canonical_allele_projection_hash": sha256(args.output_projection),
             "private_panel_source_sha256": sha256(args.source_phased_panel),
             "source_cohort_id": args.source_cohort_id,
-            "family_exclusion_applied_before_native_panel_generation": provenance["family_exclusion_applied_before_native_panel_generation"],
-            "missing_rate": 0.0,
+            "family_exclusion_applied_before_native_panel_generation": True,
+            "family_exclusion_transform_version": METHOD,
+            "excluded_samples": sorted(excluded),
+            "missing_haplotype_policy": "official_prepare_vcf_mc_le_0.20",
+            "phase_gate": PHASE_POLICY,
+            "phase_equivalent_homozygous_normalization": "a/a_to_a|a_only",
+            "max_missing_haplotype_fraction": statistics["max_missing_haplotype_fraction"],
             "unphased_rate": 0.0,
         })
         args.output_gate.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

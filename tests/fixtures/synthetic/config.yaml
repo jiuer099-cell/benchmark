@@ -2,6 +2,8 @@ schema_version: 1
 
 benchmark_contract:
   track: short_read_fixed_panel_genotyping
+  read_class: short
+  cross_track_ranking: false
   chromosomes: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12, chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22]
   svtypes: [DEL, INS]
   minimum_sv_size: 50
@@ -24,7 +26,7 @@ project:
 sample:
   id: HG002
   sex: male
-  technology: illumina_short_read
+  technology: illumina_pe
   library_id: synthetic_illumina
   source_evidence_id: synthetic_reads
   coverage_x: 1.0
@@ -46,6 +48,19 @@ pangenome:
   build_graph_assets: false
   allele_namespace: PGSV
   excluded_samples: [HG002, NA24385, HG003, NA24149, HG004, NA24143]
+  frozen_haplotype_source_bundle:
+    id: synthetic_grch38_pg_v1
+    source_cohort_id: synthetic_population_sv
+    release: synthetic_smoke_v1
+    reference: grch38
+    haplotype_manifest: tests/fixtures/synthetic/population.vcf
+    target_family_excluded: true
+    derivation_policy: native_assets_must_be_derived_from_this_bundle
+    content_lock: tests/fixtures/synthetic/population.vcf
+  canonical_scoring_contract:
+    canonical_candidate_count: 18164
+    tool_specific_denominator: forbidden
+    deterministic_native_projection_required: true
   population_vcf: null
   graph_assets:
     profile: none

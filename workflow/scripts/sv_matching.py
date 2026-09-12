@@ -98,6 +98,7 @@ def load_evaluator_profile(path: Path) -> dict[str, Any]:
         raise SvMatchError("evaluator profile schema_version must be 1")
     for section in (
         "profile",
+        "semantic_validation",
         "universe",
         "sv_match",
         "semantics",
@@ -106,6 +107,32 @@ def load_evaluator_profile(path: Path) -> dict[str, Any]:
     ):
         if not isinstance(loaded.get(section), dict):
             raise SvMatchError(f"evaluator profile is missing {section}")
+    profile = loaded["profile"]
+    if profile.get("score_semantics_version") != "1.0":
+        raise SvMatchError("evaluator profile score_semantics_version must be 1.0")
+    semantic_validation = loaded["semantic_validation"]
+    expected_semantic_validation = {
+        "contract": "pgbench_genotype_evaluator_contract_v1",
+        "status": "enforced_by_runtime_artifact",
+        "suite": "tests/fixtures/evaluator_semantics/cases.yaml",
+        "required_cases": [
+            "exact_het",
+            "het_to_hom_alt_mismatch",
+            "hom_alt_to_het_mismatch",
+            "truth_alt_query_hom_ref",
+            "truth_hom_ref_query_alt",
+            "equivalent_representation",
+            "explicit_no_call",
+            "nearby_biologically_distinct",
+        ],
+        "genotype_mismatch_policy": "one_false_positive_plus_one_false_negative",
+        "no_call_policy": "false_negative_for_truth_positive",
+        "unsupported_truth_positive_policy": "false_negative",
+        "unscorable_policy": "tool_independent_pre_adapter_exclusion",
+        "summary_policy": "recompute_tp_fp_fn_from_detailed_ledger",
+    }
+    if semantic_validation != expected_semantic_validation:
+        raise SvMatchError("evaluator semantic contract is incomplete or mutable")
     universe = loaded["universe"]
     allowed_svtypes = universe.get("allowed_svtypes")
     if (

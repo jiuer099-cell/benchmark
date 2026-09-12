@@ -2,6 +2,7 @@ schema_version: 1
 
 profile:
   id: pgbench_evaluators_grch38_gt_v1
+  score_semantics_version: "1.0"
   description: Frozen, common genotype-aware evaluator contract for short-read fixed-panel SV genotyping.
 
 semantic_validation:
@@ -19,6 +20,8 @@ semantic_validation:
     - nearby_biologically_distinct
   genotype_mismatch_policy: one_false_positive_plus_one_false_negative
   no_call_policy: false_negative_for_truth_positive
+  unsupported_truth_positive_policy: false_negative
+  unscorable_policy: tool_independent_pre_adapter_exclusion
   summary_policy: recompute_tp_fp_fn_from_detailed_ledger
 
 universe:

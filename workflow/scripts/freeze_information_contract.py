@@ -19,11 +19,10 @@ class InformationContractError(ValueError):
 
 
 ALLOWED_INPUT_NAMES = {
-    "short_fastq_r1", "short_fastq_r2", "reference", "reference_index",
+    "short_fastq_r1", "short_fastq_r2", "shared_shortread_alignment",
+    "shared_shortread_alignment_index", "reference", "reference_index",
     "pangenome_manifest", "pangenome_panel", "candidate_panel", "allele_fasta",
-    "pangenie_private_phased_panel", "pangenie_private_biallelic_panel",
-    "pangenie_biallelic_converter", "canonical_allele_projection",
-    "graph_assets", "tool_index",
+    "long_reads_fastq", "graph_assets", "tool_index",
 }
 REQUIRED_INFORMATION_FIELDS = {
     "allowed_inputs_manifested", "target_truth_used_for_calling",
@@ -120,7 +119,13 @@ def freeze(
         raise InformationContractError("resolved input manifest has no inputs")
     by_name: dict[str, dict[str, Any]] = {}
     for item in inputs:
-        if not isinstance(item, dict) or item.get("name") not in ALLOWED_INPUT_NAMES:
+        if (
+            not isinstance(item, dict)
+            or (
+                item.get("name") not in ALLOWED_INPUT_NAMES
+                and not str(item.get("name", "")).startswith("adapter_asset.")
+            )
+        ):
             raise InformationContractError("resolved input is outside the allowlist")
         name = str(item["name"])
         if name in by_name:
@@ -133,12 +138,25 @@ def freeze(
             "size_bytes": item.get("size_bytes"),
             "path_type": item.get("path_type"),
         }
-    if not {"short_fastq_r1", "short_fastq_r2", "candidate_panel"}.issubset(by_name):
-        raise InformationContractError("paired FASTQ and candidate panel are mandatory")
+    read_class = tool.get("capabilities", {}).get("read_class")
+    evidence = (
+        {"short_fastq_r1", "short_fastq_r2"}
+        if read_class == "short"
+        else {"long_reads_fastq"}
+    )
+    if not evidence.union({"candidate_panel"}).issubset(by_name):
+        raise InformationContractError("channel evidence and candidate panel are mandatory")
+
+    def information_for_input(name: str) -> Any:
+        if name in resolved_mapping:
+            return resolved_mapping[name]
+        if name.startswith("adapter_asset."):
+            return resolved_mapping.get("adapter_asset.*")
+        return None
     required_information = {
-        str(resolved_mapping[name])
+        str(information_for_input(name))
         for name in by_name
-        if name in resolved_mapping
+        if information_for_input(name) is not None
     }
     missing_declarations = sorted(required_information - set(declared_information))
     if missing_declarations:
@@ -146,7 +164,9 @@ def freeze(
             "resolved inputs use undeclared information: "
             + ", ".join(missing_declarations)
         )
-    unmapped_inputs = sorted(set(by_name) - set(resolved_mapping))
+    unmapped_inputs = sorted(
+        name for name in by_name if information_for_input(name) is None
+    )
     if unmapped_inputs:
         raise InformationContractError(
             "resolved inputs have no information-policy mapping: "

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only preflight for the short-read fixed-panel benchmark."""
+"""Read-only preflight for a configured PGBench fixed-panel track."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Mapping, Sequence
@@ -75,6 +76,67 @@ def _inspect(
     }
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _inspect_frozen_bundle_lock(value: Any, repo_root: Path, *, required: bool) -> dict[str, Any]:
+    """Check that the declared lock actually seals every source input by hash."""
+
+    item = _inspect(
+        "pangenome.frozen_haplotype_source_bundle.content_lock",
+        "pangenome_bundle_lock",
+        value,
+        repo_root,
+        required=required,
+    )
+    if item["status"] != "ok":
+        return item
+    try:
+        lock_path = Path(str(item["path"]))
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        required_assets = {
+            "gfa_or_gbz", "population_vcf", "sample_roster", "haplotype_roster",
+            "family_exclusion_manifest", "reference",
+        }
+        assets = lock.get("assets") if isinstance(lock, Mapping) else None
+        software = lock.get("software") if isinstance(lock, Mapping) else None
+        if (
+            lock.get("schema_version") != 1
+            or lock.get("contract") != "pgbench_frozen_haplotype_source_bundle_v1"
+            or not isinstance(assets, Mapping)
+            or not required_assets.issubset(assets)
+            or not isinstance(software, list)
+            or not software
+        ):
+            raise ResourceCheckError("invalid bundle lock contract")
+        for name in required_assets:
+            record = assets[name]
+            if not isinstance(record, Mapping):
+                raise ResourceCheckError(f"bundle lock asset {name} is invalid")
+            raw_path, expected = record.get("path"), record.get("sha256")
+            if not isinstance(raw_path, str) or not isinstance(expected, str):
+                raise ResourceCheckError(f"bundle lock asset {name} lacks path or SHA256")
+            asset_path = Path(raw_path)
+            asset_path = asset_path if asset_path.is_absolute() else lock_path.parent / asset_path
+            if not asset_path.is_file() or _sha256(asset_path) != expected:
+                raise ResourceCheckError(f"bundle lock asset {name} is missing or hash-mismatched")
+        for tool in software:
+            if not isinstance(tool, Mapping) or not all(
+                isinstance(tool.get(field), str) and tool[field]
+                for field in ("name", "version", "sha256")
+            ):
+                raise ResourceCheckError("bundle lock software record is invalid")
+    except (OSError, ValueError, TypeError, ResourceCheckError) as exc:
+        item["status"] = "invalid"
+        item["detail"] = str(exc)
+    return item
+
+
 def _development_value(config: Mapping[str, Any], key: str, production: Any) -> Any:
     development = config.get("development", {})
     if development.get("synthetic_mode") and development.get(key) is not None:
@@ -94,6 +156,7 @@ def build_inventory(
     truth = _development_value(config, "truth_vcf", evaluation.get("truth_vcf"))
     bed = _development_value(config, "benchmark_bed", evaluation.get("benchmark_bed"))
     population = _development_value(config, "population_vcf", pangenome.get("population_vcf"))
+    frozen_bundle = pangenome.get("frozen_haplotype_source_bundle", {})
     assets = [
         _inspect("reference.fasta", "reference", reference.get("fasta"), repo_root),
         _inspect("reference.fai", "reference", reference.get("fai"), repo_root, required=not synthetic),
@@ -103,6 +166,14 @@ def build_inventory(
         _inspect("evaluation.truth_vcf", "truth", truth, repo_root),
         _inspect("evaluation.benchmark_bed", "truth", bed, repo_root),
         _inspect("pangenome.population_vcf", "pangenome", population, repo_root),
+        # The lock is mandatory for a formal run.  It is a content-addressed
+        # record of the graph/VCF/rosters/exclusion manifest and tool versions;
+        # synthetic fixtures intentionally do not need a production bundle.
+        _inspect_frozen_bundle_lock(
+            frozen_bundle.get("content_lock") if isinstance(frozen_bundle, Mapping) else None,
+            repo_root,
+            required=not synthetic,
+        ),
     ]
     if not synthetic:
         context_beds = evaluation.get("context_beds", {})

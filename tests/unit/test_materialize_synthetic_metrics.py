@@ -94,6 +94,7 @@ def test_complete_fixture_materializes_to_valid_metrics_contract() -> None:
         "sample_id": "HG002",
         "tool_id": "example_genotyper",
         "official_score_mode": "end_to_end_from_reads",
+        "benchmark_track": "short_read_fixed_panel_genotyping",
         "primary_truth_profile": "giab_hg002_grch38_v5_0q",
             "score_profile": "pgbench_me_f1_v1",
     }

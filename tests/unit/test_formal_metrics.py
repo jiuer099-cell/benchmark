@@ -12,6 +12,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from materialize_formal_metrics import (  # noqa: E402
     EVALUATORS,
+    candidate_genotype_summary,
     evaluator_genotype_f1,
     genotype_stratified_summary,
 )
@@ -89,6 +90,50 @@ def test_empty_panel_truth_denominator_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="no positive candidate"):
         evaluator_genotype_f1(ledgers, set(), canonical_panel_truth_positive=0)
+
+
+def test_all_site_gt_diagnostics_use_the_frozen_candidate_denominator(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "hidden.tsv"
+    ledger.write_text(
+        "candidate_id\tpangenome_allele_id\ttruth_gt\ttruth_label\ttruth_scorable\ttruth_event_id\n"
+        "C1\tA1\t0/1\tpositive\t1\tT1\n"
+        "C2\tA2\t1/1\tpositive\t1\tT2\n"
+        "C3\tA3\t0/0\tnegative\t1\tT3\n",
+        encoding="utf-8",
+    )
+    query = tmp_path / "query.vcf"
+    query.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        "chr1\t100\tC1\tA\tT\t.\tPASS\t.\tGT\t0/1\n"
+        "chr1\t200\tC2\tA\tT\t.\tPASS\t.\tGT\t./.\n"
+        "chr1\t300\tC3\tA\tT\t.\tPASS\t.\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "tool.yaml"
+    manifest.write_text(
+        "outputs:\n"
+        "  candidate_output_contract: all_sites\n"
+        "  absence_semantics: no_call\n",
+        encoding="utf-8",
+    )
+
+    summary = candidate_genotype_summary(
+        query_vcf=query,
+        hidden_truth_ledger=ledger,
+        tool_manifest=manifest,
+        require_phase=False,
+    )
+
+    assert summary["all_site_call_rate"] == pytest.approx(2 / 3)
+    assert summary["exact_gt_accuracy"] == pytest.approx(1 / 3)
+    assert summary["no_call_rate"] == pytest.approx(1 / 3)
+    assert summary["genotype_confusion_matrix"]["heterozygous"]["heterozygous"] == 1
+    assert summary["genotype_confusion_matrix"]["hom_alt"]["no_call"] == 1
+    # These diagnostics are intentionally separate from event-level ME-F1.
+    assert "me_f1" not in summary
 
 
 def test_context_and_af_strata_publish_three_identical_gt_contracts(

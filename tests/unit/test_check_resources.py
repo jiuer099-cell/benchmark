@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import hashlib
+import json
 from pathlib import Path
 
 import yaml
@@ -29,6 +31,32 @@ def _config(root: Path) -> dict:
     bed = _touch(root, "truth/benchmark.bed", b"chr1\t0\t1\n")
     population = _touch(root, "pangenome/population.vcf.gz", b"vcf")
     _touch(root, "pangenome/population.vcf.gz.tbi", b"tbi")
+    bundle_assets = []
+    for name in (
+        "gfa_or_gbz", "population_vcf", "sample_roster", "haplotype_roster",
+        "family_exclusion_manifest", "reference",
+    ):
+        relative = f"pangenome/bundle/{name}"
+        _touch(root, relative, name.encode("utf-8"))
+        # Lock paths are resolved from the lock's parent directory.
+        bundle_assets.append((name, f"bundle/{name}"))
+    bundle_lock_data = {
+        "schema_version": 1,
+        "contract": "pgbench_frozen_haplotype_source_bundle_v1",
+        "assets": {
+            name: {
+                "path": relative,
+                "sha256": hashlib.sha256(name.encode("utf-8")).hexdigest(),
+            }
+            for name, relative in bundle_assets
+        },
+        "software": [{"name": "vg", "version": "1.55.0", "sha256": "a" * 64}],
+    }
+    bundle_lock = _touch(
+        root,
+        "pangenome/frozen-haplotype-source.lock.json",
+        (json.dumps(bundle_lock_data) + "\n").encode("utf-8"),
+    )
     return {
         "execution": {"tracks": [TRACK]},
         "sample": {"fastq_r1": r1, "fastq_r2": r2},
@@ -36,6 +64,7 @@ def _config(root: Path) -> dict:
         "evaluation": {"truth_vcf": truth, "benchmark_bed": bed},
         "pangenome": {
             "population_vcf": population,
+            "frozen_haplotype_source_bundle": {"content_lock": bundle_lock},
             "build_graph_assets": False,
             "graph_assets": {"profile": "none"},
         },
@@ -55,6 +84,7 @@ def test_short_read_inventory_is_ready(tmp_path: Path) -> None:
     assert assets["sample.fastq_r1"]["status"] == "ok"
     assert assets["sample.fastq_r2"]["status"] == "ok"
     assert assets["evaluation.truth_vcf_tbi"]["status"] == "ok"
+    assert assets["pangenome.frozen_haplotype_source_bundle.content_lock"]["status"] == "ok"
 
 
 def test_missing_mate_fails_preflight(tmp_path: Path) -> None:
