@@ -265,6 +265,6 @@ $defs:
       id:
         $ref: "#/$defs/identifier"
       format:
-        enum: [vg, xg_gbwt, svjedi, gaf, gam, other]
+        $ref: "#/$defs/identifier"
       sha256:
         $ref: "#/$defs/sha256"

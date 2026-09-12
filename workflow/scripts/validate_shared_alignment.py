@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed lock for the one BAM shared by Paragraph and GraphTyper2."""
+"""Fail-closed lock for the one BAM shared by alignment-consuming adapters."""
 
 from __future__ import annotations
 

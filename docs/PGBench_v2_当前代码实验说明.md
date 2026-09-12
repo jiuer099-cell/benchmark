@@ -126,9 +126,11 @@ workflow/scripts/pgbench_exec.py
 理解具体工具语义。PanGenie 的 phased panel、biallelic panel 和 converter
 目前即通过这种机制传递。
 
-关键边界由 `tests/unit/test_adapter_boundary.py` 自动检查：核心 Snakefile、
-generic external module、config validator 和 executor 中出现当前五工具的具体
-身份即失败。该门禁防止“接入第六工具时修改 Core”的回归。
+关键边界由 `tests/unit/test_adapter_boundary.py` 自动检查：完整的核心
+Snakefile、所有 Core rules/modules/scripts/schemas 和 rule registry 中出现任一
+已注册工具的具体身份或工具专用文件名即失败。图资产 profile 也不再由
+Core 枚举，而是由 adapter manifest 声明接受范围。该门禁防止“接入
+第六工具时修改 Core”的回归。
 
 ### 4.2 当前工具表
 

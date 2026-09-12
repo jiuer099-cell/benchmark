@@ -19,3 +19,6 @@ to SAM reading. The adapter therefore distributes the frozen, non-overlapping
 single-thread GraphTyper2 processes. Each process writes to its own shard
 directory; the adapter then performs one deterministic candidate-ID projection.
 The aggregate worker count remains bounded by the benchmark resource contract.
+
+The narrowly scoped immutable-output recovery utility is adapter-owned as
+`recover_projection.py`; it is not part of Core orchestration or scoring.

@@ -63,7 +63,7 @@ pangenome:
     population_context:
       source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
       target_family_excluded: true
-      allowed_derived_resources: [phased_haplotype_vcf, pangenie_pgin, gbz, gbwt, graph_index, tool_native_index]
+      allowed_derived_resources: [phased_haplotype_vcf, phased_haplotype_index, gbz, gbwt, graph_index, tool_native_index]
     tools: {}
     shared_shortread_alignment: null
   population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz

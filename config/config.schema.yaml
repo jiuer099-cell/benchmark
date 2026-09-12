@@ -235,54 +235,6 @@ properties:
         oneOf:
           - $ref: "#/$defs/nonEmptyPath"
           - type: "null"
-      pangenie_private_context:
-        oneOf:
-          - type: "null"
-          - type: object
-            additionalProperties: false
-            required:
-              - source_cohort_id
-              - frozen_gbz
-              - frozen_sample_manifest
-              - source_identity
-              - source_graph
-              - source_haplotype_manifest
-              - source_phased_panel
-              - source_biallelic_panel
-              - source_biallelic_converter
-              - provenance
-              - phase_gate
-            properties:
-              source_cohort_id: {$ref: "#/$defs/identifier"}
-              frozen_gbz: {$ref: "#/$defs/nonEmptyPath"}
-              frozen_sample_manifest: {$ref: "#/$defs/nonEmptyPath"}
-              source_identity: {$ref: "#/$defs/nonEmptyPath"}
-              source_graph: {$ref: "#/$defs/nonEmptyPath"}
-              source_haplotype_manifest: {$ref: "#/$defs/nonEmptyPath"}
-              source_phased_panel: {$ref: "#/$defs/nonEmptyPath"}
-              source_biallelic_panel: {$ref: "#/$defs/nonEmptyPath"}
-              source_biallelic_converter: {$ref: "#/$defs/nonEmptyPath"}
-              provenance: {$ref: "#/$defs/nonEmptyPath"}
-              phase_gate:
-                type: object
-                additionalProperties: false
-                required: [homozygous_unphased, heterozygous_unphased]
-                properties:
-                  homozygous_unphased:
-                    type: object
-                    additionalProperties: false
-                    required: [phase_ambiguous, allowed_to_canonicalize]
-                    properties:
-                      phase_ambiguous: {const: false}
-                      allowed_to_canonicalize: {const: true}
-                  heterozygous_unphased:
-                    type: object
-                    additionalProperties: false
-                    required: [phase_ambiguous, allowed_to_guess, fail_if_unresolved]
-                    properties:
-                      phase_ambiguous: {const: true}
-                      allowed_to_guess: {const: false}
-                      fail_if_unresolved: {const: true}
       native_input_contract:
         type: object
         additionalProperties: false
@@ -299,7 +251,7 @@ properties:
                 type: array
                 minItems: 1
                 uniqueItems: true
-                items: {enum: [phased_haplotype_vcf, pangenie_pgin, gbz, gbwt, graph_index, tool_native_index]}
+                items: {$ref: "#/$defs/identifier"}
           tools:
             type: object
             additionalProperties: {$ref: "#/$defs/nativeToolContract"}
@@ -333,11 +285,7 @@ properties:
           - reference_path
         properties:
           profile:
-            enum:
-              - none
-              - vg_gbz_min_dist
-              - vg_giraffe_shortread
-              - vg_giraffe_longread
+            $ref: "#/$defs/identifier"
           manifest:
             oneOf:
               - $ref: "#/$defs/nonEmptyPath"

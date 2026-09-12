@@ -95,10 +95,6 @@ CHALLENGE_RULE_MANIFEST = (
     f"{RESULTS_ROOT}/provenance/rules/build_blinded_challenge_panel/"
     f"{SAMPLE_ID}.json"
 )
-# Adapter-owned preparation is intentionally not a Core rule.  An adapter may
-# register immutable native assets below; Core only fingerprints and transports
-# the declared names.
-LEGACY_ADAPTER_PREPARATION_ENABLED = False
 SEMANTIC_VALIDATION_JSON = RESULTS_ROOT + "/validation/evaluator-semantics.json"
 SEMANTIC_VALIDATION_RULE_MANIFEST = (
     RESULTS_ROOT + "/provenance/rules/validate_evaluator_semantics/contract.json"

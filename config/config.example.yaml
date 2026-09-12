@@ -67,7 +67,7 @@ pangenome:
     population_context:
       source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
       target_family_excluded: true
-      allowed_derived_resources: [phased_haplotype_vcf, pangenie_pgin, gbz, gbwt, graph_index, tool_native_index]
+      allowed_derived_resources: [phased_haplotype_vcf, phased_haplotype_index, gbz, gbwt, graph_index, tool_native_index]
     tools:
       pangenie: {input_mode: fastq_plus_phased_haplotypes, native_context_provenance_required: true, family_exclusion_required: true, external_population_context_forbidden: true}
       vg: {input_mode: fastq_plus_native_graph, native_context_provenance_required: true, family_exclusion_required: true, external_population_context_forbidden: true}

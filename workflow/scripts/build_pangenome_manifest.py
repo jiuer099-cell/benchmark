@@ -59,20 +59,14 @@ def load_graph_assets_lock(path: Path) -> dict:
     if lock.get("schema_version") != 1:
         raise PangenomeManifestError("unsupported graph assets lock schema_version")
     profile = lock.get("profile")
-    profile_assets = {
-        "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
-        "vg_giraffe_shortread": {
-            "gbz", "min", "zipcodes", "dist", "sample_list"
-        },
-    }
-    if profile not in profile_assets:
+    if not isinstance(profile, str) or not profile or profile == "none":
         raise PangenomeManifestError("graph assets lock has unsupported profile")
     assets = lock.get("assets")
-    required_assets = profile_assets[profile]
-    if not isinstance(assets, dict) or set(assets) != required_assets:
+    if not isinstance(assets, dict) or not assets:
         raise PangenomeManifestError(
             f"graph assets lock for {profile} has an invalid asset set"
         )
+    required_assets = set(assets)
     reference_path = lock.get("reference_path")
     asset_root = lock.get("asset_root")
     sample_count = lock.get("sample_count")
@@ -81,8 +75,12 @@ def load_graph_assets_lock(path: Path) -> dict:
         raise PangenomeManifestError("graph assets lock has no reference_path")
     if not isinstance(asset_root, str) or not asset_root:
         raise PangenomeManifestError("graph assets lock has no asset_root")
-    if not isinstance(sample_count, int) or sample_count < 1:
+    if sample_count is not None and (
+        not isinstance(sample_count, int) or sample_count < 1
+    ):
         raise PangenomeManifestError("graph assets lock has invalid sample_count")
+    if "sample_list" in required_assets and sample_count is None:
+        raise PangenomeManifestError("graph assets lock is missing sample_count")
     if (
         not isinstance(excluded_samples, list)
         or not set(TARGET_FAMILY_ALIASES).issubset(excluded_samples)

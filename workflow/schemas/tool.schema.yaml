@@ -158,11 +158,11 @@ $defs:
       accepted_formats:
         type: array
         uniqueItems: true
-        items: {enum: [gbz, xg_gbwt, vcf, other]}
+        items: {$ref: "#/$defs/identifier"}
       accepted_profiles:
         type: array
         uniqueItems: true
-        items: {enum: [vg_gbz_min_dist, vg_giraffe_shortread, vg_giraffe_longread]}
+        items: {$ref: "#/$defs/identifier"}
   modeInput:
     anyOf:
       - enum: [short_fastq_r1, short_fastq_r2, long_reads_fastq, shared_shortread_alignment, shared_shortread_alignment_index, reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel, allele_fasta, graph_assets, tool_index]

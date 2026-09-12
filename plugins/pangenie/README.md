@@ -13,6 +13,10 @@ uncompressed k-mer stream.
 
 Formal attempts run without network access in the configured `bwrap` sandbox.
 
+Native-panel provenance/phase gating and the conservative partial-missing
+normalizer are adapter-owned helpers in this directory. Core contains no
+PanGenie preparation rule, schema key, command, or helper script.
+
 The population VCF must be PanGenie-ready: fully phased from chromosome start
 to end, multi-sample, non-overlapping/multi-allelic where necessary, and
 sequence-resolved. HG002/NA24385 must not be a panel sample.

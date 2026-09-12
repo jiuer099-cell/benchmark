@@ -8,7 +8,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "workflow" / "scripts" / "prepare_pangenie_private_panel.py"
+SCRIPT = ROOT / "plugins" / "pangenie" / "prepare_private_panel.py"
 SPEC = importlib.util.spec_from_file_location("pangenie_private", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)

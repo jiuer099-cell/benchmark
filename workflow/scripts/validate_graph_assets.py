@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a vg graph asset bundle and write a content-addressed lock file."""
+"""Validate a graph asset bundle and write a content-addressed lock file."""
 
 from __future__ import annotations
 
@@ -11,24 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
-
-
-ASSET_FILENAMES = {
-    "gbz": "graph.gbz",
-    "xg": "graph.xg",
-    "min": "graph.min",
-    "zipcodes": "graph.shortread.zipcodes",
-    "dist": "graph.dist",
-    "sample_list": "samples.txt",
-    "gfa": "graph.gfa.gz",
-    "variation_calls": "graph.variation.calls.bed.gz",
-}
-PROFILE_ASSETS = {
-    "vg_gbz_min_dist": {"gbz", "min", "dist", "sample_list"},
-    "vg_giraffe_shortread": {
-        "gbz", "min", "zipcodes", "dist", "sample_list"
-    },
-}
 
 
 class GraphAssetError(ValueError):
@@ -179,7 +161,7 @@ def lock_graph_assets(
     zipcodes: Path | None = None,
     gfa: Path | None = None,
     variation_calls: Path | None = None,
-    profile: str = "vg_giraffe_shortread",
+    profile: str = "standard_graph_bundle",
     excluded_samples: tuple[str, ...] = ("HG002", "NA24385"),
 ) -> dict[str, Any]:
     """Validate one conventional graph directory and return its lock payload."""
@@ -187,8 +169,8 @@ def lock_graph_assets(
     if not reference_path.strip() or "\n" in reference_path or "\r" in reference_path:
         raise GraphAssetError("reference_path must be a non-empty single-line value")
 
-    if profile not in PROFILE_ASSETS:
-        raise GraphAssetError(f"unsupported graph asset profile: {profile}")
+    if not profile.strip() or profile == "none":
+        raise GraphAssetError("graph asset profile must be a non-none identifier")
     supplied_paths = {
         "gbz": gbz,
         "xg": xg,
@@ -199,16 +181,13 @@ def lock_graph_assets(
         "gfa": gfa,
         "variation_calls": variation_calls,
     }
-    missing = sorted(
-        name for name in PROFILE_ASSETS[profile] if supplied_paths.get(name) is None
-    )
-    if missing:
-        raise GraphAssetError(f"graph profile {profile} is missing assets: {missing}")
     paths = {
         name: path
         for name, path in supplied_paths.items()
-        if name in PROFILE_ASSETS[profile] and path is not None
+        if path is not None
     }
+    if not paths:
+        raise GraphAssetError(f"graph profile {profile} declares no assets")
     _validate_regular_file(source_manifest, "source manifest")
     source = _load_manifest(source_manifest)
 
@@ -228,16 +207,6 @@ def lock_graph_assets(
         )
 
     for name, path in paths.items():
-        expected_name = (
-            "graph.shortread.withzip.min"
-            if profile == "vg_giraffe_shortread" and name == "min"
-            else ASSET_FILENAMES[name]
-        )
-        if path.name != expected_name:
-            raise GraphAssetError(
-                f"{name} must use conventional filename {expected_name!r}, "
-                f"found {path.name!r}"
-            )
         _validate_regular_file(path, name)
 
     if not excluded_samples or len(set(excluded_samples)) != len(excluded_samples):
@@ -269,7 +238,7 @@ def lock_graph_assets(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate a conventional vg graph bundle and write its lock."
+        description="Validate a conventional graph bundle and write its lock."
     )
     parser.add_argument("--source-manifest", required=True, type=Path)
     parser.add_argument("--gbz", type=Path)
@@ -284,7 +253,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         required=True,
-        choices=sorted(PROFILE_ASSETS),
     )
     parser.add_argument(
         "--exclude-sample",

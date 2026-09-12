@@ -68,7 +68,7 @@ pangenome:
     population_context:
       source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
       target_family_excluded: true
-      allowed_derived_resources: [phased_haplotype_vcf, pangenie_pgin, gbz, gbwt, graph_index, tool_native_index]
+      allowed_derived_resources: [phased_haplotype_vcf, phased_haplotype_index, gbz, gbwt, graph_index, tool_native_index]
     tools:
       pangenie: {input_mode: fastq_plus_phased_haplotypes, native_context_provenance_required: true, family_exclusion_required: true, external_population_context_forbidden: true}
       vg: {input_mode: fastq_plus_native_graph, native_context_provenance_required: true, family_exclusion_required: true, external_population_context_forbidden: true}
@@ -76,31 +76,9 @@ pangenome:
       graphtyper2: {input_mode: shared_bam, native_context_provenance_required: false, family_exclusion_required: false, external_population_context_forbidden: true}
       varigraph: {input_mode: fastq_plus_native_graph, native_context_provenance_required: true, family_exclusion_required: true, external_population_context_forbidden: true}
     shared_shortread_alignment: null
-  # Site/allele source for the frozen canonical scoring universe.  This is
-  # deliberately distinct from PanGenie's native phased private context.
+  # Site/allele source for the frozen canonical scoring universe. Native
+  # adapter assets are declared only in external_plugins[].assets below.
   population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz
-  pangenie_private_context:
-    # Produced from the same frozen, family-excluded HPRC graph/haplotypes;
-    # do not substitute a downloaded full-cohort .pgin VCF here.
-    source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
-    frozen_gbz: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/graph.gbz
-    frozen_sample_manifest: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/samples.txt
-    source_identity: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/source-identity.yaml
-    source_graph: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/source.gfa.gz
-    source_haplotype_manifest: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/haplotypes.manifest.yaml
-    source_phased_panel: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie.private.pgin.vcf.gz
-    source_biallelic_panel: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie.private.pgbi.vcf.gz
-    source_biallelic_converter: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/convert-to-biallelic.py
-    provenance: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/native/pangenie-private.provenance.yaml
-    # This is information-equivalent normalization, never phase inference.
-    phase_gate:
-      homozygous_unphased:
-        phase_ambiguous: false
-        allowed_to_canonicalize: true
-      heterozygous_unphased:
-        phase_ambiguous: true
-        allowed_to_guess: false
-        fail_if_unresolved: true
   graph_assets:
     profile: none
     manifest: null

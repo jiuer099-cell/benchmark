@@ -15,15 +15,6 @@ import yaml  # type: ignore[import-untyped]
 
 
 TRACK = "end_to_end_from_reads"
-GRAPH_PROFILE_ASSETS = {
-    "none": (),
-    "vg_gbz_min_dist": ("manifest", "gbz", "min", "dist", "sample_list"),
-    "vg_giraffe_shortread": (
-        "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
-    ),
-}
-
-
 class ResourceCheckError(ValueError):
     """Raised when the preflight configuration cannot be interpreted."""
 
@@ -194,8 +185,17 @@ def build_inventory(
         assets.append(_inspect("pangenome.population_vcf_tbi", "pangenome", population + ".tbi", repo_root))
     graph = pangenome.get("graph_assets", {})
     profile = graph.get("profile", "none")
-    for name in GRAPH_PROFILE_ASSETS.get(str(profile), ()):
-        assets.append(_inspect(f"pangenome.graph_assets.{name}", "graph", graph.get(name), repo_root))
+    if profile != "none":
+        for name, value in sorted(graph.items()):
+            if name not in {"profile", "reference_path"} and value:
+                assets.append(
+                    _inspect(
+                        f"pangenome.graph_assets.{name}",
+                        "graph",
+                        value,
+                        repo_root,
+                    )
+                )
     missing = [item["id"] for item in assets if item["required"] and item["status"] != "ok"]
     return {
         "schema_version": 2,

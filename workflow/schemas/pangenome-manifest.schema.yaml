@@ -81,9 +81,7 @@ properties:
           asset_root:
             $ref: "#/$defs/nonEmptyPath"
           profile:
-            enum:
-              - vg_gbz_min_dist
-              - vg_giraffe_shortread
+            $ref: "#/$defs/identifier"
           reference_path:
             type: string
             minLength: 1
@@ -109,21 +107,13 @@ properties:
             $ref: "#/$defs/sizedAsset"
           gfa:
             $ref: "#/$defs/sizedAsset"
+          variation_calls:
+            $ref: "#/$defs/sizedAsset"
           sample_count:
             oneOf:
               - type: integer
                 minimum: 1
               - type: "null"
-        allOf:
-          - oneOf:
-              - properties:
-                  profile:
-                    const: vg_gbz_min_dist
-                required: [gbz, min, dist, sample_list]
-              - properties:
-                  profile:
-                    const: vg_giraffe_shortread
-                required: [gbz, min, zipcodes, dist, sample_list]
   graph_build_recipe_sha256:
     oneOf:
       - $ref: "#/$defs/sha256"

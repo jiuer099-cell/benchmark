@@ -110,14 +110,12 @@ def test_pangenie_requires_complete_paired_short_reads(tmp_path: Path) -> None:
         )
 
 
-def test_pangenie_phase_gate_forbids_heterozygous_phase_guessing(tmp_path: Path) -> None:
+def test_core_schema_rejects_tool_specific_pangenome_configuration(tmp_path: Path) -> None:
     config = _named_config("config.pangenie.example.yaml")
-    config["pangenome"]["pangenie_private_context"]["phase_gate"][
-        "heterozygous_unphased"
-    ]["allowed_to_guess"] = True
-    config_path = tmp_path / "invalid-phase-gate.yaml"
+    config["pangenome"]["pangenie_private_context"] = {}
+    config_path = tmp_path / "tool-specific-core-config.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    with pytest.raises(ConfigValidationError, match="pangenie_private_context"):
+    with pytest.raises(ConfigValidationError, match="Additional properties"):
         validate_configuration(
             config_path,
             config_schema_path=ROOT / "config" / "config.schema.yaml",

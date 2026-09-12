@@ -29,16 +29,7 @@ TASK_TO_STAGE = {
     "genotyping": "genotype",
     "postprocess": "postprocess",
 }
-GRAPH_PROFILE_ASSETS = {
-    "none": set(),
-    "vg_gbz_min_dist": {"manifest", "gbz", "min", "dist", "sample_list"},
-    "vg_giraffe_shortread": {
-        "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
-    },
-    "vg_giraffe_longread": {
-        "manifest", "gbz", "min", "zipcodes", "dist", "sample_list"
-    },
-}
+GRAPH_METADATA_FIELDS = {"profile", "reference_path"}
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -158,8 +149,6 @@ def _validate_graph_profile(config: Mapping[str, Any]) -> None:
     pangenome = config["pangenome"]
     graph = pangenome["graph_assets"]
     profile = graph["profile"]
-    if profile not in GRAPH_PROFILE_ASSETS:
-        raise ConfigValidationError(f"unsupported graph asset profile {profile!r}")
     enabled = bool(pangenome["build_graph_assets"])
     if enabled and profile == "none":
         raise ConfigValidationError(
@@ -169,14 +158,18 @@ def _validate_graph_profile(config: Mapping[str, Any]) -> None:
         raise ConfigValidationError(
             "build_graph_assets=false requires graph_assets.profile=none"
         )
-    missing = sorted(
-        name
-        for name in GRAPH_PROFILE_ASSETS[profile]
-        if not isinstance(graph.get(name), str) or not graph[name]
-    )
-    if missing:
+    configured_assets = {
+        name: value
+        for name, value in graph.items()
+        if name not in GRAPH_METADATA_FIELDS and isinstance(value, str) and value
+    }
+    if enabled and "manifest" not in configured_assets:
         raise ConfigValidationError(
-            f"graph profile {profile} is missing required assets: {missing}"
+            f"graph profile {profile} requires a source manifest"
+        )
+    if enabled and set(configured_assets) == {"manifest"}:
+        raise ConfigValidationError(
+            f"graph profile {profile} declares no graph assets"
         )
 
 
