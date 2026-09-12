@@ -149,6 +149,7 @@ def build_challenge_panel(
     benchmark_bed: Path | None = None,
     scope_ledger: Path | None = None,
     challenging_vcf: Path | None = None,
+    expected_candidate_count: int | None = None,
 ) -> dict[str, int | str]:
     profile_path = evaluator_profile or (
         Path(__file__).resolve().parents[2] / "config" / "evaluator_profile.yaml"
@@ -456,6 +457,14 @@ def build_challenge_panel(
         raise ChallengePanelError("panel contains no candidates")
     if counts["truth_positive_count"] == 0:
         raise ChallengePanelError("challenge panel has no truth-positive candidate")
+    if (
+        expected_candidate_count is not None
+        and counts["candidate_count"] != expected_candidate_count
+    ):
+        raise ChallengePanelError(
+            "canonical scoring universe size mismatch: "
+            f"expected {expected_candidate_count}, got {counts['candidate_count']}"
+        )
 
     audit: dict[str, int | str] = {
         **counts,
@@ -468,6 +477,7 @@ def build_challenge_panel(
         "excluded_counts_are_mutually_exclusive": 1,
         "scope_ledger_complete": int(scope_ledger is not None),
         "challenging_track_emitted": int(challenging_vcf is not None),
+        "expected_candidate_count": expected_candidate_count,
     }
     temporary = audit_json.with_name(f".{audit_json.name}.tmp")
     temporary.write_text(
@@ -491,6 +501,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scope-ledger", required=True, type=Path)
     parser.add_argument("--challenging-vcf", required=True, type=Path)
     parser.add_argument("--seed", required=True)
+    parser.add_argument("--expected-candidate-count", type=int)
     parser.add_argument(
         "--evaluator-profile",
         type=Path,
@@ -513,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
             evaluator_profile=args.evaluator_profile,
             scope_ledger=args.scope_ledger,
             challenging_vcf=args.challenging_vcf,
+            expected_candidate_count=args.expected_candidate_count,
         )
     except (OSError, ChallengePanelError, SvMatchError) as exc:
         print(f"build_challenge_panel: {exc}", file=sys.stderr)

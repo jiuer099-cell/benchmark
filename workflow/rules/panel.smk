@@ -61,6 +61,12 @@ rule build_blinded_challenge_panel:
             []
             if SYNTHETIC_MODE
             else ["--upstream-manifest", PRIMARY_TRUTH_RULE_MANIFEST]
+        ),
+        expected_candidate_count_argument=(
+            ""
+            if SYNTHETIC_MODE
+            else "--expected-candidate-count "
+            + str(config["pangenome"]["canonical_scoring_contract"]["canonical_candidate_count"])
         )
     shell:
         """
@@ -118,5 +124,6 @@ rule build_blinded_challenge_panel:
             --scope-ledger {output.scope:q} \
             --challenging-vcf {output.challenging:q} \
             --seed {config[execution][random_seed]} \
+            {params.expected_candidate_count_argument} \
           > {log:q} 2>&1
         """

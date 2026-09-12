@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPTS = Path(__file__).resolve().parents[2] / "workflow" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -112,6 +114,36 @@ def test_candidate_ids_are_seed_deterministic(tmp_path: Path) -> None:
         )
         outputs.append(output.read_text())
     assert outputs[0] == outputs[1]
+
+
+def test_formal_candidate_universe_size_is_enforced(tmp_path: Path) -> None:
+    population = tmp_path / "population.vcf"
+    population.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        + _del("chr1", 20, "a", 60),
+        encoding="utf-8",
+    )
+    panel = tmp_path / "panel.vcf"
+    assign_stable_alleles(population, panel, tmp_path / "alleles.tsv", namespace="PGSV")
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        + _del("chr1", 20, "truth", 60).rstrip("\n") + "\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(Exception, match="canonical scoring universe size mismatch"):
+        build_challenge_panel(
+            panel_vcf=panel,
+            truth_vcf=truth,
+            output_vcf=tmp_path / "challenge.vcf",
+            hidden_ledger=tmp_path / "hidden.tsv",
+            audit_json=tmp_path / "audit.json",
+            seed="fixed",
+            expected_candidate_count=18164,
+        )
 
 
 def test_multisample_panel_columns_are_removed_from_blinded_vcf(
