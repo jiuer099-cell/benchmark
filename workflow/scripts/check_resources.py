@@ -91,7 +91,7 @@ def _inspect_frozen_bundle_lock(value: Any, repo_root: Path, *, required: bool) 
         lock_path = Path(str(item["path"]))
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
         required_assets = {
-            "gfa_or_gbz", "population_vcf", "sample_roster", "haplotype_roster",
+            "gfa", "gbz", "population_vcf", "sample_roster", "haplotype_roster",
             "family_exclusion_manifest", "reference",
         }
         assets = lock.get("assets") if isinstance(lock, Mapping) else None
@@ -105,8 +105,9 @@ def _inspect_frozen_bundle_lock(value: Any, repo_root: Path, *, required: bool) 
             or not software
         ):
             raise ResourceCheckError("invalid bundle lock contract")
-        for name in required_assets:
-            record = assets[name]
+        for name, record in assets.items():
+            if not isinstance(name, str) or not name:
+                raise ResourceCheckError("bundle lock contains an invalid asset name")
             if not isinstance(record, Mapping):
                 raise ResourceCheckError(f"bundle lock asset {name} is invalid")
             raw_path, expected = record.get("path"), record.get("sha256")

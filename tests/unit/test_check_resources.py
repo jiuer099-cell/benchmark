@@ -33,7 +33,7 @@ def _config(root: Path) -> dict:
     _touch(root, "pangenome/population.vcf.gz.tbi", b"tbi")
     bundle_assets = []
     for name in (
-        "gfa_or_gbz", "population_vcf", "sample_roster", "haplotype_roster",
+        "gfa", "gbz", "population_vcf", "sample_roster", "haplotype_roster",
         "family_exclusion_manifest", "reference",
     ):
         relative = f"pangenome/bundle/{name}"
@@ -114,6 +114,30 @@ def test_synthetic_smoke_does_not_require_reference_indexes(tmp_path: Path) -> N
     report = build_inventory(config, repo_root=tmp_path)
     assert report["status"] == "ready"
     assert _by_id(report)["reference.fai"]["required"] is False
+
+
+def test_frozen_bundle_verifies_every_declared_native_asset(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    lock_path = tmp_path / config["pangenome"]["frozen_haplotype_source_bundle"][
+        "content_lock"
+    ]
+    native_panel = tmp_path / "pangenome" / "bundle" / "native-panel.vcf.gz"
+    native_panel.write_bytes(b"frozen native panel")
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["assets"]["native_phased_panel"] = {
+        "path": "bundle/native-panel.vcf.gz",
+        "sha256": hashlib.sha256(b"frozen native panel").hexdigest(),
+    }
+    lock_path.write_text(json.dumps(lock) + "\n", encoding="utf-8")
+    native_panel.write_bytes(b"tampered native panel")
+
+    report = build_inventory(config, repo_root=tmp_path)
+
+    bundle = _by_id(report)[
+        "pangenome.frozen_haplotype_source_bundle.content_lock"
+    ]
+    assert bundle["status"] == "invalid"
+    assert "native_phased_panel" in bundle["detail"]
 
 
 def test_cli_is_read_only_and_reports_missing_assets(tmp_path: Path, capsys) -> None:

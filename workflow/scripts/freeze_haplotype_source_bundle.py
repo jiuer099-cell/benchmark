@@ -50,7 +50,8 @@ def freeze(*, bundle_id: str, release: str, reference: str, excluded_samples: li
     if len(names) != len(set(names)):
         raise ValueError("bundle assets must have unique names")
     required = {
-        "gfa_or_gbz",
+        "gfa",
+        "gbz",
         "population_vcf",
         "sample_roster",
         "haplotype_roster",

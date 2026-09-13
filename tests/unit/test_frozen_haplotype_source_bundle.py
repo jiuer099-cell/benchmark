@@ -15,7 +15,8 @@ from freeze_haplotype_source_bundle import freeze, parse_software  # noqa: E402
 
 def test_bundle_lock_seals_required_assets_and_build_software(tmp_path: Path) -> None:
     names = (
-        "gfa_or_gbz",
+        "gfa",
+        "gbz",
         "population_vcf",
         "sample_roster",
         "haplotype_roster",
@@ -56,7 +57,7 @@ def test_bundle_lock_rejects_missing_asset_or_unaddressed_software(tmp_path: Pat
             release="release_v1",
             reference="grch38",
             excluded_samples=[],
-            assets=[("gfa_or_gbz", asset)],
+            assets=[("gfa", asset)],
             software=[],
         )
     with pytest.raises(ValueError, match="NAME=VERSION=SHA256"):
