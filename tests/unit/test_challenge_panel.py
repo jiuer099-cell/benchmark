@@ -146,6 +146,42 @@ def test_formal_candidate_universe_size_is_enforced(tmp_path: Path) -> None:
         )
 
 
+def test_formal_universe_is_deterministically_frozen_from_eligible_source(
+    tmp_path: Path,
+) -> None:
+    panel = tmp_path / "panel.vcf"
+    panel.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        + _del("chr1", 20, "p1", 60, ";PANGENOME_ALLELE_ID=PGSV_1")
+        + _ins("chr1", 180, "p2", 60, ";PANGENOME_ALLELE_ID=PGSV_2"),
+        encoding="utf-8",
+    )
+    truth = tmp_path / "truth.vcf"
+    truth.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+        + _del("chr1", 20, "truth", 60).rstrip("\n") + "\tGT\t0/1\n",
+        encoding="utf-8",
+    )
+    audit = tmp_path / "audit.json"
+    summary = build_challenge_panel(
+        panel_vcf=panel,
+        truth_vcf=truth,
+        output_vcf=tmp_path / "challenge.vcf",
+        hidden_ledger=tmp_path / "hidden.tsv",
+        audit_json=audit,
+        seed="fixed",
+        expected_candidate_count=1,
+    )
+    assert summary["candidate_count"] == 1
+    assert summary["eligible_source_candidate_count"] == 2
+    assert summary["excluded_frozen_canonical_selection_count"] == 1
+    assert json.loads(audit.read_text())["canonical_selection_method"] == (
+        "sha256_ranked_frozen_allele_id_prefix_v1"
+    )
+
+
 def test_multisample_panel_columns_are_removed_from_blinded_vcf(
     tmp_path: Path,
 ) -> None:
