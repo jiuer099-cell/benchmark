@@ -130,9 +130,19 @@ python -m snakemake --cores 1 --configfile tests/fixtures/synthetic/config.yaml
 
 Production runs use either `config/config.unified-tools.example.yaml` for SR
 or `config/config.hifi.example.yaml` for HiFi. Their registrations point to
-channel-specific evidence and the same frozen haplotype source. The workflow
-first emits the nine shared 10x/20x/30x subsets (three frozen seeds per depth)
-and the full-depth entry. Generate the complete run matrix with:
+channel-specific evidence and the same frozen haplotype source. A normal
+full-depth production call consumes the frozen track FASTQs directly; it does
+not wait for coverage subsets. Coverage subsets are an optional, shared
+preparation step for a later coverage-matrix campaign. Build them once for a
+track, then reuse the resulting manifest for every eligible adapter:
+
+```text
+snakemake --cores 2 --configfile config/production.yaml \
+  results/<base-run>/coverage/coverage-manifest.json
+```
+
+The manifest contains the nine 10x/20x/30x subsets (three frozen seeds per
+depth) and the full-depth entry. Generate the complete run matrix with:
 
 ```text
 python workflow/scripts/run_coverage_matrix.py \

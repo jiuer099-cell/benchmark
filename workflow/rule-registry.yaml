@@ -141,7 +141,10 @@ rules:
     kind: tool_template
     inputs: [short_fastq_r1, short_fastq_r2, blinded_panel_vcf]
     outputs: [raw_tool_vcf, resolved_inputs_json]
-    upstream: [build_blinded_challenge_panel, build_coverage_datasets]
+    # Full-depth formal calls consume the frozen track FASTQs directly.
+    # Coverage subsets are prepared separately and then reused by an explicit
+    # coverage-matrix campaign; they are not a dependency of every tool call.
+    upstream: [build_blinded_challenge_panel]
     audit_scope: pre_score
     manifest_required: true
     log_required: true

@@ -384,7 +384,6 @@ if EXTERNAL_SETTINGS:
         RESULTS_ROOT + "/summary/metrics.long.tsv",
         RESULTS_ROOT + "/summary/metrics.json",
         SEMANTIC_VALIDATION_JSON,
-        COVERAGE_MANIFEST,
         *SCORE_JSONS,
         *FINAL_SCORE_PACKAGES,
         *METRICS_JSONS,
