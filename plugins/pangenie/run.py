@@ -13,12 +13,6 @@ from pathlib import Path
 from typing import TextIO
 
 
-# `prepare-vcf-MC` removes bubbles only when more than 20% of haplotypes
-# carry a missing allele.  Mirror that official input policy; do not invent
-# genotypes or impose a stricter, benchmark-specific completeness filter.
-MAX_MISSING_HAPLOTYPE_FRACTION = 0.20
-
-
 def required(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -127,33 +121,34 @@ def validate_pangenie_panel(path: Path) -> None:
                     f"PanGenie panel line {line_number} has no GT field"
                 )
             gt_index = format_fields.index("GT")
-            missing_haplotypes = 0
-            total_haplotypes = 0
             for sample, sample_value in zip(samples, fields[9:], strict=True):
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
+                if genotype == "./.":
+                    raise RuntimeError(
+                        f"PanGenie panel line {line_number} has a missing genotype "
+                        f"for {sample}"
+                    )
                 if (
-                    ("|" not in genotype and genotype != "./.")
-                    or ("/" in genotype and genotype != "./.")
+                    "|" not in genotype
+                    or "/" in genotype
                 ):
                     raise RuntimeError(
                         f"PanGenie panel line {line_number} has unphased genotype "
                         f"for {sample}"
                     )
-                alleles = [".", "."] if genotype == "./." else genotype.split("|")
+                alleles = genotype.split("|")
                 if len(alleles) != 2 or any(
                     allele != "." and not allele.isdigit() for allele in alleles
                 ):
                     raise RuntimeError(
                         f"PanGenie panel line {line_number} has invalid diploid GT"
                     )
-                missing_haplotypes += sum(allele == "." for allele in alleles)
-                total_haplotypes += 2
-            if missing_haplotypes / total_haplotypes > MAX_MISSING_HAPLOTYPE_FRACTION:
-                raise RuntimeError(
-                    f"PanGenie panel line {line_number} exceeds official "
-                    "prepare-vcf-MC missing-haplotype threshold"
-                )
+                if "." in alleles:
+                    raise RuntimeError(
+                        f"PanGenie panel line {line_number} has a missing genotype "
+                        f"for {sample}"
+                    )
             record_count += 1
     if samples is None:
         raise RuntimeError("PanGenie panel has no #CHROM header")
@@ -162,7 +157,15 @@ def validate_pangenie_panel(path: Path) -> None:
 
 
 def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
-    """Apply the official MC missing-allele policy without imputation."""
+    """Keep only native records that PanGenie can index without imputation.
+
+    PanGenie 4.2.1 rejects a panel record with even one missing haplotype.
+    Therefore a partially or fully missing GT excludes that *record* from the
+    private index.  This is intentionally stricter than merely counting
+    missing haplotypes: the adapter never invents an allele or a phase.  The
+    later candidate projection represents excluded scoring candidates as
+    explicit no-calls.
+    """
 
     samples: list[str] | None = None
     kept = 0
@@ -191,35 +194,37 @@ def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
                     f"PanGenie panel line {line_number} has no GT field"
                 )
             gt_index = format_fields.index("GT")
-            missing_haplotypes = 0
-            total_haplotypes = 0
+            indexable = True
             for sample_value in fields[9:]:
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
+                if genotype == "./.":
+                    indexable = False
+                    continue
                 if (
-                    ("|" not in genotype and genotype != "./.")
-                    or ("/" in genotype and genotype != "./.")
+                    "|" not in genotype
+                    or "/" in genotype
                 ):
                     raise RuntimeError(
                         f"PanGenie panel line {line_number} has unphased GT"
                     )
-                alleles = [".", "."] if genotype == "./." else genotype.split("|")
+                alleles = genotype.split("|")
                 if len(alleles) != 2 or any(
                     allele != "." and not allele.isdigit() for allele in alleles
                 ):
                     raise RuntimeError(
                         f"PanGenie panel line {line_number} has invalid diploid GT"
                     )
-                missing_haplotypes += sum(allele == "." for allele in alleles)
-                total_haplotypes += 2
-            if missing_haplotypes / total_haplotypes <= MAX_MISSING_HAPLOTYPE_FRACTION:
+                if "." in alleles:
+                    indexable = False
+            if indexable:
                 output_handle.write(raw_line)
                 kept += 1
             else:
                 dropped += 1
     if kept == 0:
         raise RuntimeError(
-            "PanGenie panel has no records within the official missing-allele threshold"
+            "PanGenie panel has no fully phased, non-missing records"
         )
     return kept, dropped
 
