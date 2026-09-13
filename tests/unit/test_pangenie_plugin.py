@@ -80,7 +80,7 @@ def test_unphased_panel_records_are_filtered_without_imputation(
 def test_panel_with_no_complete_phased_records_is_rejected(tmp_path: Path) -> None:
     source = write_panel(tmp_path / "source.vcf", gt="./.")
 
-    with pytest.raises(RuntimeError, match="fully phased, non-missing"):
+    with pytest.raises(RuntimeError, match="official missing-allele threshold"):
         MODULE.filter_pangenie_panel(source, tmp_path / "filtered.vcf")
 
 
@@ -96,11 +96,15 @@ def test_partial_missing_panel_record_is_excluded_without_imputation(
             "chr1\t20\tv2\tA\tAG\t.\tPASS\tEND=20\tGT\t0|1\t0|1\t0|0\t0|1\t1|1\n",
         encoding="utf-8",
     )
-    # A missing haplotype is not phase-resolved enough for PanGenie-index.
-    with pytest.raises(RuntimeError, match="missing genotype"):
+    # A partially missing GT is not a valid PanGenie-index input as-is.
+    with pytest.raises(RuntimeError, match="partially missing genotype"):
         MODULE.validate_pangenie_panel(panel)
-    kept, dropped = MODULE.filter_pangenie_panel(panel, tmp_path / "filtered.vcf")
-    assert (kept, dropped) == (1, 1)
+    filtered = tmp_path / "filtered.vcf"
+    kept, dropped = MODULE.filter_pangenie_panel(panel, filtered)
+    assert (kept, dropped) == (2, 0)
+    assert ".|1" not in filtered.read_text(encoding="utf-8")
+    assert "./." in filtered.read_text(encoding="utf-8")
+    MODULE.validate_pangenie_panel(filtered)
 
 
 def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:

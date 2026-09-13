@@ -14,8 +14,9 @@ uncompressed k-mer stream.
 Formal attempts run without network access in the configured `bwrap` sandbox.
 
 Native-panel provenance/phase gating is adapter-owned in this directory. A
-record with a missing or unphased panel GT is excluded from the private native
-index rather than being normalized or imputed. Core contains no
+partial-missing panel GT is conservatively downgraded to a full no-call, never
+imputed; records above PanGenie's official missing-haplotype threshold are
+excluded from the private native index. Core contains no
 PanGenie preparation rule, schema key, command, or helper script.
 
 The population VCF must be PanGenie-ready: fully phased from chromosome start

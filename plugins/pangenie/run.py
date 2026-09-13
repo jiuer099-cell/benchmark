@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import TextIO
 
 
+# This is the threshold used by PanGenie's official MC preprocessing.  The
+# adapter preserves it after conservatively converting a partially missing GT
+# into a fully missing one; it never fills in an unknown allele or phase.
+MAX_MISSING_HAPLOTYPE_FRACTION = 0.20
+
+
 def required(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -121,14 +127,15 @@ def validate_pangenie_panel(path: Path) -> None:
                     f"PanGenie panel line {line_number} has no GT field"
                 )
             gt_index = format_fields.index("GT")
+            missing_haplotypes = 0
+            total_haplotypes = 0
             for sample, sample_value in zip(samples, fields[9:], strict=True):
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
                 if genotype == "./.":
-                    raise RuntimeError(
-                        f"PanGenie panel line {line_number} has a missing genotype "
-                        f"for {sample}"
-                    )
+                    missing_haplotypes += 2
+                    total_haplotypes += 2
+                    continue
                 if (
                     "|" not in genotype
                     or "/" in genotype
@@ -146,9 +153,14 @@ def validate_pangenie_panel(path: Path) -> None:
                     )
                 if "." in alleles:
                     raise RuntimeError(
-                        f"PanGenie panel line {line_number} has a missing genotype "
-                        f"for {sample}"
-                    )
+                        f"PanGenie panel line {line_number} has a partially missing "
+                        f"genotype for {sample}; expected ./.")
+                total_haplotypes += 2
+            if missing_haplotypes / total_haplotypes > MAX_MISSING_HAPLOTYPE_FRACTION:
+                raise RuntimeError(
+                    f"PanGenie panel line {line_number} exceeds official "
+                    "prepare-vcf-MC missing-haplotype threshold"
+                )
             record_count += 1
     if samples is None:
         raise RuntimeError("PanGenie panel has no #CHROM header")
@@ -159,12 +171,12 @@ def validate_pangenie_panel(path: Path) -> None:
 def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
     """Keep only native records that PanGenie can index without imputation.
 
-    PanGenie 4.2.1 rejects a panel record with even one missing haplotype.
-    Therefore a partially or fully missing GT excludes that *record* from the
-    private index.  This is intentionally stricter than merely counting
-    missing haplotypes: the adapter never invents an allele or a phase.  The
-    later candidate projection represents excluded scoring candidates as
-    explicit no-calls.
+    PanGenie 4.2.1 rejects a *partially* missing GT such as ``.|1``.  The
+    adapter degrades it to ``./.`` (and preserves existing ``./.``) so the
+    unknown haplotype is never guessed.  It then applies PanGenie's official
+    MC <=20% missing-haplotype threshold to decide whether a record remains in
+    the private index.  Excluded candidate records later become explicit
+    no-calls in the common scoring universe.
     """
 
     samples: list[str] | None = None
@@ -194,12 +206,14 @@ def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
                     f"PanGenie panel line {line_number} has no GT field"
                 )
             gt_index = format_fields.index("GT")
-            indexable = True
-            for sample_value in fields[9:]:
+            missing_haplotypes = 0
+            total_haplotypes = 0
+            for sample_index, sample_value in enumerate(fields[9:], start=9):
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
                 if genotype == "./.":
-                    indexable = False
+                    missing_haplotypes += 2
+                    total_haplotypes += 2
                     continue
                 if (
                     "|" not in genotype
@@ -216,15 +230,20 @@ def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
                         f"PanGenie panel line {line_number} has invalid diploid GT"
                     )
                 if "." in alleles:
-                    indexable = False
-            if indexable:
-                output_handle.write(raw_line)
+                    # Drop information rather than infer either the missing
+                    # allele or the phase of the observed allele.
+                    values[gt_index] = "./."
+                    fields[sample_index] = ":".join(values)
+                    missing_haplotypes += 2
+                total_haplotypes += 2
+            if missing_haplotypes / total_haplotypes <= MAX_MISSING_HAPLOTYPE_FRACTION:
+                output_handle.write("\t".join(fields) + "\n")
                 kept += 1
             else:
                 dropped += 1
     if kept == 0:
         raise RuntimeError(
-            "PanGenie panel has no fully phased, non-missing records"
+            "PanGenie panel has no records within the official missing-allele threshold"
         )
     return kept, dropped
 
