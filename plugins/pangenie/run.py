@@ -15,7 +15,8 @@ from typing import TextIO
 
 # This is the threshold used by PanGenie's official MC preprocessing.  The
 # adapter preserves it after conservatively converting a partially missing GT
-# into a fully missing one; it never fills in an unknown allele or phase.
+# into PanGenie's native fully-missing spelling (``.|.``); it never fills in
+# an unknown allele or phase.
 MAX_MISSING_HAPLOTYPE_FRACTION = 0.20
 
 
@@ -132,7 +133,7 @@ def validate_pangenie_panel(path: Path) -> None:
             for sample, sample_value in zip(samples, fields[9:], strict=True):
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
-                if genotype == "./.":
+                if genotype == ".|.":
                     missing_haplotypes += 2
                     total_haplotypes += 2
                     continue
@@ -154,7 +155,7 @@ def validate_pangenie_panel(path: Path) -> None:
                 if "." in alleles:
                     raise RuntimeError(
                         f"PanGenie panel line {line_number} has a partially missing "
-                        f"genotype for {sample}; expected ./.")
+                        f"genotype for {sample}; expected .|.")
                 total_haplotypes += 2
             if missing_haplotypes / total_haplotypes > MAX_MISSING_HAPLOTYPE_FRACTION:
                 raise RuntimeError(
@@ -171,12 +172,13 @@ def validate_pangenie_panel(path: Path) -> None:
 def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
     """Keep only native records that PanGenie can index without imputation.
 
-    PanGenie 4.2.1 rejects a *partially* missing GT such as ``.|1``.  The
-    adapter degrades it to ``./.`` (and preserves existing ``./.``) so the
-    unknown haplotype is never guessed.  It then applies PanGenie's official
-    MC <=20% missing-haplotype threshold to decide whether a record remains in
-    the private index.  Excluded candidate records later become explicit
-    no-calls in the common scoring universe.
+    PanGenie 4.2.1 rejects every slash-delimited GT, including ``./.``; its
+    native fully-missing spelling is ``.|.``.  The adapter degrades ``./.``
+    and a partially missing GT such as ``.|1`` to ``.|.`` so the unknown
+    haplotype is never guessed.  It then applies PanGenie's official MC <=20%
+    missing-haplotype threshold to decide whether a record remains in the
+    private index.  Excluded candidate records later become explicit no-calls
+    in the common scoring universe.
     """
 
     samples: list[str] | None = None
@@ -212,6 +214,8 @@ def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
                 values = sample_value.split(":")
                 genotype = values[gt_index] if gt_index < len(values) else ""
                 if genotype == "./.":
+                    values[gt_index] = ".|."
+                    fields[sample_index] = ":".join(values)
                     missing_haplotypes += 2
                     total_haplotypes += 2
                     continue
@@ -232,7 +236,7 @@ def filter_pangenie_panel(source: Path, destination: Path) -> tuple[int, int]:
                 if "." in alleles:
                     # Drop information rather than infer either the missing
                     # allele or the phase of the observed allele.
-                    values[gt_index] = "./."
+                    values[gt_index] = ".|."
                     fields[sample_index] = ":".join(values)
                     missing_haplotypes += 2
                 total_haplotypes += 2

@@ -103,7 +103,27 @@ def test_partial_missing_panel_record_is_excluded_without_imputation(
     kept, dropped = MODULE.filter_pangenie_panel(panel, filtered)
     assert (kept, dropped) == (2, 0)
     assert ".|1" not in filtered.read_text(encoding="utf-8")
-    assert "./." in filtered.read_text(encoding="utf-8")
+    assert ".|." in filtered.read_text(encoding="utf-8")
+    MODULE.validate_pangenie_panel(filtered)
+
+
+def test_slash_missing_is_rewritten_to_pangenie_native_missing(tmp_path: Path) -> None:
+    panel = tmp_path / "panel.vcf"
+    panel.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+        "S1\tS2\tS3\tS4\tS5\n"
+        "chr1\t10\tv1\tA\tAT\t.\tPASS\tEND=10\tGT\t./.\t0|1\t0|0\t0|1\t1|1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="unphased genotype"):
+        MODULE.validate_pangenie_panel(panel)
+    filtered = tmp_path / "filtered.vcf"
+    assert MODULE.filter_pangenie_panel(panel, filtered) == (1, 0)
+    contents = filtered.read_text(encoding="utf-8")
+    assert "./." not in contents
+    assert ".|." in contents
     MODULE.validate_pangenie_panel(filtered)
 
 
