@@ -183,7 +183,10 @@ def _input_validation_cache_root(resolved_inputs_path: Path) -> Path:
     """Locate the Core-owned cache shared by every adapter in one run."""
 
     for ancestor in resolved_inputs_path.resolve().parents:
-        if ancestor.parent.name == "results":
+        # Local runs commonly live below ``results/<run_id>``.  Production
+        # installations may bind that directory to ``runs/<run_id>``; both
+        # layouts identify the run root rather than an adapter output path.
+        if ancestor.parent.name in {"results", "runs"}:
             return ancestor / "core" / "input-validation"
     # Unit tests and standalone invocation have no conventional results tree.
     return resolved_inputs_path.parent / ".pgbench-core-input-validation"

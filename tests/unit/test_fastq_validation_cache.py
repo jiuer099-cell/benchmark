@@ -70,3 +70,10 @@ def test_core_fastq_validation_cache_is_shared_and_content_bound(
     second = json.loads(resolved.read_text(encoding="utf-8"))
     assert second["read_validation"]["cache_status"] == "reused"
     assert second["read_validation"]["dataset_id"] == dataset_id
+
+
+def test_production_runs_layout_uses_the_shared_run_cache(tmp_path: Path) -> None:
+    resolved = tmp_path / "runs" / "run-a" / "HG002" / "tool" / "meta" / "inputs.json"
+    assert MODULE._input_validation_cache_root(resolved) == (
+        tmp_path / "runs" / "run-a" / "core" / "input-validation"
+    )
