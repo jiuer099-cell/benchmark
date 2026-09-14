@@ -127,12 +127,12 @@ def test_slash_missing_is_rewritten_to_pangenie_native_missing(tmp_path: Path) -
     MODULE.validate_pangenie_panel(filtered)
 
 
-def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:
+def test_output_ids_are_remapped_to_opaque_blinded_candidates(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.vcf"
     candidate.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
-        "chr1\t10\tCAND_alpha\tA\tAT\t.\tPASS\t"
+        "chr1\t10\tPGSV_alpha\tA\tAT\t.\tPASS\t"
         "PANGENOME_ALLELE_ID=PGSV_alpha\tGT\t./.\n",
         encoding="utf-8",
     )
@@ -151,7 +151,7 @@ def test_output_ids_are_remapped_to_blinded_candidates(tmp_path: Path) -> None:
         for line in output.read_text(encoding="utf-8").splitlines()
         if line and not line.startswith("#")
     ]
-    assert records[0][2] == "CAND_alpha"
+    assert records[0][2] == "PGSV_alpha"
     assert records[0][9] == "0/1"
 
 

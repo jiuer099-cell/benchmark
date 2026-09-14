@@ -286,7 +286,12 @@ def remap_to_candidate_ids(
             if not line.strip() or line.startswith("#"):
                 continue
             fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8 or not fields[2].startswith("CAND_"):
+            # Candidate identifiers belong to the Core-owned canonical scoring
+            # universe.  An external adapter must treat them as opaque: older
+            # development panels used ``CAND_*`` while the frozen release uses
+            # stable ``PGSV_*`` identifiers.  Require a real ID, but never
+            # couple this adapter to either spelling.
+            if len(fields) < 8 or fields[2] in {"", "."}:
                 raise RuntimeError(
                     f"candidate VCF line {line_number} has an invalid record"
                 )
