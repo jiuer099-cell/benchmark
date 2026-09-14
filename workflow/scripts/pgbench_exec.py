@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import shutil
@@ -31,6 +32,7 @@ try:
     from pgbench_provenance import (
         atomic_write_json,
         fingerprint_path,
+        PathFingerprint,
         sha256_file,
     )
     from validate_tool_output import (
@@ -42,6 +44,7 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
     from .pgbench_provenance import (
         atomic_write_json,
         fingerprint_path,
+        PathFingerprint,
         sha256_file,
     )
     from .validate_tool_output import (
@@ -69,6 +72,8 @@ MODE_INPUTS = {
 }
 TRANSPORT_INPUTS = MODE_INPUTS
 TRANSPORT_TO_CONTRACT = {name: name for name in MODE_INPUTS}
+FASTQ_VALIDATOR_VERSION = "pgbench_fastq_validator_v2"
+INPUT_DATASET_MANIFEST_VERSION = "pgbench_input_dataset_manifest_v1"
 
 
 def _fastq_records(path: Path) -> Iterator[tuple[str, int]]:
@@ -128,7 +133,10 @@ def validate_read_evidence(supplied_inputs: Mapping[str, Path]) -> dict[str, Any
         raise ToolContractError(
             "short-read evidence must supply both short_fastq_r1 and short_fastq_r2"
         )
-    result: dict[str, Any] = {"contract": "pgbench_fastq_validation_v1"}
+    result: dict[str, Any] = {
+        "contract": "pgbench_fastq_validation_v2",
+        "validator_version": FASTQ_VALIDATOR_VERSION,
+    }
     if r1 is not None and r2 is not None:
         read_count = 0
         read_bases = 0
@@ -169,6 +177,161 @@ def validate_read_evidence(supplied_inputs: Mapping[str, Path]) -> dict[str, Any
             "read_bases": read_bases,
         }
     return result
+
+
+def _input_validation_cache_root(resolved_inputs_path: Path) -> Path:
+    """Locate the Core-owned cache shared by every adapter in one run."""
+
+    for ancestor in resolved_inputs_path.resolve().parents:
+        if ancestor.parent.name == "results":
+            return ancestor / "core" / "input-validation"
+    # Unit tests and standalone invocation have no conventional results tree.
+    return resolved_inputs_path.parent / ".pgbench-core-input-validation"
+
+
+def _cache_locator_path(cache_root: Path, path: Path) -> Path:
+    key = hashlib.sha256(str(path).encode("utf-8")).hexdigest()
+    return cache_root / "locators" / f"{key}.json"
+
+
+def _read_json_mapping(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _fastq_stat(path: Path) -> tuple[int, int]:
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise ToolContractError(f"cannot stat FASTQ {path}: {exc}") from exc
+    if not path.is_file():
+        raise ToolContractError(f"FASTQ input is not a regular file: {path}")
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _cache_reuse(
+    supplied_inputs: Mapping[str, Path], cache_root: Path
+) -> tuple[dict[str, Any], dict[str, PathFingerprint]] | None:
+    """Reuse only a versioned validation entry whose file identities still match."""
+
+    fastq_names = sorted(
+        name
+        for name in ("short_fastq_r1", "short_fastq_r2", "long_reads_fastq")
+        if name in supplied_inputs
+    )
+    if not fastq_names:
+        return ({"contract": "pgbench_fastq_validation_v2", "validator_version": FASTQ_VALIDATOR_VERSION}, {})
+    locators: dict[str, dict[str, Any]] = {}
+    for name in fastq_names:
+        path = supplied_inputs[name].expanduser().resolve(strict=True)
+        locator = _read_json_mapping(_cache_locator_path(cache_root, path))
+        if locator is None or locator.get("validator_version") != FASTQ_VALIDATOR_VERSION:
+            return None
+        if (locator.get("file_size"), locator.get("mtime_ns")) != _fastq_stat(path):
+            return None
+        if not isinstance(locator.get("dataset_id"), str):
+            return None
+        locators[name] = locator
+    dataset_ids = {locator["dataset_id"] for locator in locators.values()}
+    if len(dataset_ids) != 1:
+        return None
+    dataset_id = dataset_ids.pop()
+    entry = _read_json_mapping(cache_root / "entries" / f"{dataset_id}.json")
+    if entry is None or entry.get("validator_version") != FASTQ_VALIDATOR_VERSION:
+        return None
+    files = entry.get("files")
+    validation = entry.get("validation")
+    if not isinstance(files, dict) or not isinstance(validation, dict):
+        return None
+    fingerprints: dict[str, PathFingerprint] = {}
+    for name in fastq_names:
+        item = files.get(name)
+        locator = locators[name]
+        if not isinstance(item, dict) or item.get("file_sha256") != locator.get("file_sha256"):
+            return None
+        sha256 = item.get("file_sha256")
+        if not isinstance(sha256, str) or len(sha256) != 64:
+            return None
+        size, mtime_ns = _fastq_stat(supplied_inputs[name])
+        fingerprints[name] = PathFingerprint(
+            path_type="file", sha256=sha256, size=size, mtime_ns=mtime_ns
+        )
+    return {**validation, "dataset_id": dataset_id}, fingerprints
+
+
+def _validated_fastq_inputs(
+    supplied_inputs: Mapping[str, Path], cache_root: Path
+) -> tuple[dict[str, Any], dict[str, PathFingerprint]]:
+    """Validate evidence once in Core and publish an immutable content entry.
+
+    Size and mtime only decide whether cached SHA256 may be reused.  The
+    published entry, dataset identity, and adapter provenance are all bound to
+    the content SHA256 values and validator version.
+    """
+
+    cached = _cache_reuse(supplied_inputs, cache_root)
+    if cached is not None:
+        validation, fingerprints = cached
+        return {**validation, "cache_status": "reused"}, fingerprints
+
+    names = sorted(
+        name
+        for name in ("short_fastq_r1", "short_fastq_r2", "long_reads_fastq")
+        if name in supplied_inputs
+    )
+    if not names:
+        return validate_read_evidence(supplied_inputs), {}
+    fingerprints = {
+        name: fingerprint_path(supplied_inputs[name].expanduser().resolve(strict=True))
+        for name in names
+    }
+    validation = validate_read_evidence(supplied_inputs)
+    dataset_material = {
+        "dataset_manifest_version": INPUT_DATASET_MANIFEST_VERSION,
+        "files": {name: fingerprints[name].sha256 for name in names},
+    }
+    dataset_id = hashlib.sha256(
+        json.dumps(dataset_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    file_records = {
+        name: {
+            "file_sha256": fingerprint.sha256,
+            "file_size": fingerprint.size,
+            "mtime_ns": fingerprint.mtime_ns,
+            "gzip_integrity": supplied_inputs[name].suffix.casefold() == ".gz",
+        }
+        for name, fingerprint in fingerprints.items()
+    }
+    entry = {
+        "schema_version": 1,
+        "validator_version": FASTQ_VALIDATOR_VERSION,
+        "dataset_manifest_version": INPUT_DATASET_MANIFEST_VERSION,
+        "dataset_id": dataset_id,
+        "files": file_records,
+        "validation": validation,
+    }
+    entry_path = cache_root / "entries" / f"{dataset_id}.json"
+    entry_path.parent.mkdir(parents=True, exist_ok=True)
+    if not entry_path.exists():
+        atomic_write_json(entry_path, entry)
+    for name, fingerprint in fingerprints.items():
+        locator_path = _cache_locator_path(cache_root, supplied_inputs[name].resolve(strict=True))
+        locator_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            locator_path,
+            {
+                "schema_version": 1,
+                "validator_version": FASTQ_VALIDATOR_VERSION,
+                "dataset_id": dataset_id,
+                "file_sha256": fingerprint.sha256,
+                "file_size": fingerprint.size,
+                "mtime_ns": fingerprint.mtime_ns,
+            },
+        )
+    return {**validation, "dataset_id": dataset_id, "cache_status": "validated"}, fingerprints
 INPUT_ENVIRONMENT = {
     "short_fastq_r1": "PGBENCH_INPUT_FASTQ_R1",
     "short_fastq_r2": "PGBENCH_INPUT_FASTQ_R2",
@@ -512,10 +675,14 @@ def resolve_inputs(
         Mapping[str, Any],
         cast(Mapping[str, Any], manifest["supported_modes"])[mode],
     )
+    read_validation, cached_fastq_fingerprints = _validated_fastq_inputs(
+        supplied_inputs,
+        _input_validation_cache_root(resolved_inputs_path),
+    )
     resolved: list[ResolvedInput] = []
     for name in sorted(supplied_inputs):
         candidate = supplied_inputs[name].expanduser().resolve(strict=True)
-        fingerprint = fingerprint_path(candidate)
+        fingerprint = cached_fastq_fingerprints.get(name) or fingerprint_path(candidate)
         resolved.append(
             ResolvedInput(
                 name=name,
@@ -544,7 +711,7 @@ def resolve_inputs(
             cast(Sequence[str], mode_contract.get("optional_inputs", []))
         ),
         "inputs": [item.to_dict() for item in resolved],
-        "read_validation": validate_read_evidence(supplied_inputs),
+        "read_validation": read_validation,
     }
     atomic_write_json(resolved_inputs_path, payload)
     return tuple(resolved)
