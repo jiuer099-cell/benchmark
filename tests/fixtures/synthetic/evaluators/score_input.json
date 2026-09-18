@@ -30,7 +30,6 @@
     "tuning_frozen": true,
     "panel_provenance_complete": true,
     "context_stratification_complete": true,
-    "population_af_stratification_complete": true,
     "all_evaluator_evidence_complete": true,
     "family_aware_loo_complete": true,
     "statistical_uncertainty_complete": true

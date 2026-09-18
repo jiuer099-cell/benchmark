@@ -8,7 +8,6 @@ can never affect the primary score.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 from collections.abc import Mapping
@@ -17,6 +16,21 @@ from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
+
+try:
+    from pgbench_score_contract import (
+        ME_F1_SCORE_CONTRACT,
+        ME_F1_SCORE_CONTRACT_SHA256,
+        canonical_contract_sha256,
+        contract_differences,
+    )
+except ModuleNotFoundError:  # pragma: no cover - package-style invocation
+    from .pgbench_score_contract import (
+        ME_F1_SCORE_CONTRACT,
+        ME_F1_SCORE_CONTRACT_SHA256,
+        canonical_contract_sha256,
+        contract_differences,
+    )
 
 
 class ScoreInputError(ValueError):
@@ -31,6 +45,16 @@ SCORE_TUPLE_FIELDS = frozenset(
 )
 EVALUATORS = ("truvari", "aardvark", "vcfdist")
 EVALUATOR_FIELDS = frozenset({"tp", "fp", "fn", "precision", "recall", "f1"})
+# Primary-score validity gates.  A failure here means the number itself is not
+# trustworthy, so ME-F1 must not be published.
+#
+# ``population_af_stratification_complete`` deliberately does NOT belong here.
+# The frozen contract states ``stratification_affects_primary_score: false``:
+# stratifications (coverage, SVTYPE, length, AF, difficult region) explain why
+# a score differs, they never decide whether it is published.  Treating an
+# unstratified AF bucket as a validity gate would have made AF stratification
+# decide the primary score, contradicting the frozen fairness rule.  AF
+# completeness is reported through the ``diagnostics`` block instead.
 QUALITY_GATE_FIELDS = frozenset(
     {
         "evaluator_semantic_contract_valid",
@@ -40,12 +64,18 @@ QUALITY_GATE_FIELDS = frozenset(
         "tuning_frozen",
         "panel_provenance_complete",
         "context_stratification_complete",
-        "population_af_stratification_complete",
         "all_evaluator_evidence_complete",
         "family_aware_loo_complete",
         "statistical_uncertainty_complete",
     }
 )
+# Diagnostic completeness.  Diagnostics may report "partial" and must be
+# explicitly declared as not affecting the primary score.
+DIAGNOSTIC_SECTIONS = frozenset({"population_af"})
+POPULATION_AF_DIAGNOSTIC_FIELDS = frozenset(
+    {"status", "unknown_candidates", "affects_primary_score"}
+)
+DIAGNOSTIC_STATUSES = frozenset({"complete", "partial"})
 SCORE_PAYLOAD_FIELDS = frozenset(
     {
         "tuple",
@@ -70,13 +100,6 @@ def _profile_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _contract_sha256(value: Mapping[str, Any]) -> str:
-    canonical = json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
-
-
 def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any]:
     try:
         profile = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -85,26 +108,20 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
     if not isinstance(profile, dict) or profile.get("schema_version") != 4:
         raise ScoreInputError("ME-F1 profile schema_version must be 4")
     score_contract = profile.get("score")
-    expected_score_contract = {
-        "id": "ME-F1",
-        "version": "1.0",
-        "score_semantics_version": "1.0",
-        "evaluators": ["truvari", "aardvark_gt", "vcfdist"],
-        "formula": "arithmetic_mean",
-        "weights": {
-            "truvari": 0.3333333333333333,
-            "aardvark_gt": 0.3333333333333333,
-            "vcfdist": 0.3333333333333333,
-        },
-        "require_all_evaluators": True,
-        "renormalize_missing_weights": False,
-        "primary_score": {
-            "expression": "(truvari_f1 + aardvark_gt_f1 + vcfdist_f1) / 3"
-        },
-        "stratification_affects_primary_score": False,
-    }
-    if score_contract != expected_score_contract:
-        raise ScoreInputError("ME-F1 score contract is not the frozen v1.0 contract")
+    # The frozen contract has exactly one definition, in pgbench_score_contract.
+    # This module validates the profile against it instead of restating it, so
+    # scoring and finalization can never disagree about what "frozen" means.
+    expected_score_contract = ME_F1_SCORE_CONTRACT
+    differences = contract_differences(score_contract, expected_score_contract)
+    if differences:
+        raise ScoreInputError(
+            "ME-F1 score contract is not the frozen v1.0 contract: "
+            + ", ".join(differences)
+        )
+    if canonical_contract_sha256(score_contract) != ME_F1_SCORE_CONTRACT_SHA256:
+        raise ScoreInputError(
+            "ME-F1 score contract digest does not match the canonical contract"
+        )
     meta = profile.get("profile")
     if not isinstance(meta, dict) or meta.get("id") != "pgbench_me_f1_v1":
         raise ScoreInputError("unsupported ME-F1 profile id")
@@ -136,7 +153,7 @@ def load_score_profile(path: Path = DEFAULT_SCORE_PROFILE_PATH) -> dict[str, Any
         raise ScoreInputError("ME-F1 score semantics contract is incomplete or mutable")
     profile["_source_path"] = str(path)
     profile["_sha256"] = _profile_sha256(path)
-    profile["_score_contract_sha256"] = _contract_sha256(score_contract)
+    profile["_score_contract_sha256"] = ME_F1_SCORE_CONTRACT_SHA256
     return profile
 
 
@@ -167,6 +184,10 @@ class ScoreResult:
     evaluator_scores: Mapping[str, float] | None = None
     required_f1_metrics: Mapping[str, Mapping[str, Any]] | None = None
     formal_analysis: Mapping[str, Any] | None = None
+    # Diagnostic completeness (for example population-AF stratification).
+    # Published for transparency, structurally barred from influencing
+    # ``score_status`` / ``benchmark_score``.
+    diagnostics: Mapping[str, Any] | None = None
     reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -272,6 +293,61 @@ def _validated_quality_gates(value: Any) -> dict[str, bool]:
     return {field: bool(value[field]) for field in QUALITY_GATE_FIELDS}
 
 
+def _validated_population_af_diagnostic(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ScoreInputError("diagnostics.population_af must be a mapping")
+    _exact_fields(
+        value, POPULATION_AF_DIAGNOSTIC_FIELDS, "diagnostics.population_af"
+    )
+    status = value["status"]
+    if status not in DIAGNOSTIC_STATUSES:
+        raise ScoreInputError(
+            "diagnostics.population_af.status must be complete or partial"
+        )
+    unknown = value["unknown_candidates"]
+    if isinstance(unknown, bool) or not isinstance(unknown, int) or unknown < 0:
+        raise ScoreInputError(
+            "diagnostics.population_af.unknown_candidates must be a "
+            "non-negative integer"
+        )
+    # Fail closed on any attempt to let a diagnostic decide the primary score.
+    # The frozen contract fixes stratification_affects_primary_score to false.
+    if value["affects_primary_score"] is not False:
+        raise ScoreInputError(
+            "diagnostics.population_af.affects_primary_score must be false: "
+            "stratification may never decide the primary score"
+        )
+    if (status == "complete") != (unknown == 0):
+        raise ScoreInputError(
+            "diagnostics.population_af.status must be partial exactly when "
+            "unstratified candidates remain"
+        )
+    return {
+        "status": str(status),
+        "unknown_candidates": unknown,
+        "affects_primary_score": False,
+    }
+
+
+def _validated_diagnostics(
+    analysis: Any,
+) -> dict[str, Any] | None:
+    """Validate the diagnostic-completeness block carried in analysis."""
+
+    if not isinstance(analysis, Mapping) or "diagnostics" not in analysis:
+        return None
+    diagnostics = analysis["diagnostics"]
+    if not isinstance(diagnostics, Mapping):
+        raise ScoreInputError("analysis.diagnostics must be a mapping")
+    _exact_fields(diagnostics, DIAGNOSTIC_SECTIONS, "analysis.diagnostics")
+    validated: dict[str, Any] = {}
+    if "population_af" in diagnostics:
+        validated["population_af"] = _validated_population_af_diagnostic(
+            diagnostics["population_af"]
+        )
+    return validated or None
+
+
 def calculate_me_f1(
     payload: Mapping[str, Any], *, expected_tuple: Mapping[str, str],
     evaluation_mode: str, score_profile_path: Path | None = None,
@@ -294,6 +370,9 @@ def calculate_me_f1(
         raise ScoreInputError("unsupported evaluation mode")
     status = payload.get("eligibility_status")
     analysis = payload.get("analysis")
+    # Validated for every outcome so that a diagnostic can never be silently
+    # promoted into a validity signal, and can never be malformed either.
+    diagnostics = _validated_diagnostics(analysis)
     if status in NON_SCORABLE_STATUSES:
         return ScoreResult(
             tuple_key=trusted,
@@ -316,6 +395,7 @@ def calculate_me_f1(
             truth_eligible_count=0,
             point_breakdown={},
             formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
+            diagnostics=diagnostics,
             reason=str(payload.get("reason") or status),
         )
     if status != "eligible" or payload.get("infrastructure_valid") is not True:
@@ -428,6 +508,7 @@ def calculate_me_f1(
                 },
                 required_f1_metrics=evaluator_metrics,
                 formal_analysis=(dict(analysis) if isinstance(analysis, Mapping) else None),
+                diagnostics=diagnostics,
                 reason=(
                     "quality gates failed: " + ", ".join(gate_failures)
                     if gate_failures
@@ -471,4 +552,5 @@ def calculate_me_f1(
         },
         required_f1_metrics=evaluator_metrics,
         formal_analysis=dict(analysis) if isinstance(analysis, Mapping) else None,
+        diagnostics=diagnostics,
     )

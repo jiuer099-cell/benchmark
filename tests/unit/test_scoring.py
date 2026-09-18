@@ -46,7 +46,6 @@ def _payload() -> dict:
             "tuning_frozen": True,
             "panel_provenance_complete": True,
             "context_stratification_complete": True,
-            "population_af_stratification_complete": True,
             "all_evaluator_evidence_complete": True,
             "family_aware_loo_complete": True,
             "statistical_uncertainty_complete": True,
@@ -114,6 +113,81 @@ def test_failed_quality_gate_suppresses_primary_score() -> None:
     assert result.score_status == "invalid"
     assert result.me_f1 is None
     assert "evaluator_semantic_contract_valid" in result.reason
+
+
+def test_partial_population_af_never_suppresses_the_primary_score() -> None:
+    """AF stratification is a diagnostic, not a primary-validity gate.
+
+    The frozen contract sets ``stratification_affects_primary_score: false``,
+    so an unstratified AF bucket may explain the score but must never decide
+    whether it is published.
+    """
+
+    payload = _payload()
+    payload["analysis"]["diagnostics"] = {
+        "population_af": {
+            "status": "partial",
+            "unknown_candidates": 137,
+            "affects_primary_score": False,
+        }
+    }
+    result = _calculate(payload)
+    assert result.score_status == "valid"
+    assert result.me_f1 is not None
+    assert result.diagnostics == {
+        "population_af": {
+            "status": "partial",
+            "unknown_candidates": 137,
+            "affects_primary_score": False,
+        }
+    }
+
+
+def test_complete_population_af_diagnostic_is_reported_as_complete() -> None:
+    payload = _payload()
+    payload["analysis"]["diagnostics"] = {
+        "population_af": {
+            "status": "complete",
+            "unknown_candidates": 0,
+            "affects_primary_score": False,
+        }
+    }
+    result = _calculate(payload)
+    assert result.score_status == "valid"
+    assert result.diagnostics["population_af"]["status"] == "complete"
+
+
+def test_population_af_cannot_be_declared_as_affecting_the_primary_score() -> None:
+    payload = _payload()
+    payload["analysis"]["diagnostics"] = {
+        "population_af": {
+            "status": "partial",
+            "unknown_candidates": 1,
+            "affects_primary_score": True,
+        }
+    }
+    with pytest.raises(ScoreInputError, match="may never decide the primary score"):
+        _calculate(payload)
+
+
+def test_population_af_status_must_match_the_unknown_candidate_count() -> None:
+    payload = _payload()
+    payload["analysis"]["diagnostics"] = {
+        "population_af": {
+            "status": "complete",
+            "unknown_candidates": 5,
+            "affects_primary_score": False,
+        }
+    }
+    with pytest.raises(ScoreInputError, match="partial exactly when"):
+        _calculate(payload)
+
+
+def test_population_af_is_not_a_quality_gate_any_more() -> None:
+    payload = _payload()
+    payload["quality_gates"]["population_af_stratification_complete"] = False
+    with pytest.raises(ScoreInputError, match="quality_gates has invalid fields"):
+        _calculate(payload)
 
 
 def test_zero_callset_is_valid_zero_f1_not_missing_data() -> None:

@@ -113,31 +113,16 @@ METRICS_TUPLE_FIELDS = (
 OFFICIAL_SCORE_MODES = {"end_to_end_from_reads"}
 EVALUATION_MODES = {"formal", "synthetic_smoke"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-FROZEN_SCORE_CONTRACT = {
-    "id": "ME-F1",
-    "version": "1.0",
-    "evaluators": ["truvari", "aardvark_gt", "vcfdist"],
-    "formula": "arithmetic_mean",
-    "weights": {
-        "truvari": 0.3333333333333333,
-        "aardvark_gt": 0.3333333333333333,
-        "vcfdist": 0.3333333333333333,
-    },
-    "require_all_evaluators": True,
-    "renormalize_missing_weights": False,
-    "primary_score": {
-        "expression": "(truvari_f1 + aardvark_gt_f1 + vcfdist_f1) / 3"
-    },
-    "stratification_affects_primary_score": False,
-}
-FROZEN_SCORE_CONTRACT_SHA256 = sha256_bytes(
-    json.dumps(
-        FROZEN_SCORE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-)
+# The frozen score contract has exactly one definition, in
+# pgbench_score_contract.  This module previously kept a private copy that had
+# drifted (it was missing ``score_semantics_version``), so the digest it
+# expected could never equal the digest scoring published, and sealing failed
+# with a spurious "does not match the frozen ME-F1 v1.0 contract".  The fix is
+# to consume the canonical contract, never to edit the contract itself.
+try:
+    from pgbench_score_contract import ME_F1_SCORE_CONTRACT_SHA256
+except ModuleNotFoundError:  # pragma: no cover - package-style invocation
+    from .pgbench_score_contract import ME_F1_SCORE_CONTRACT_SHA256
 AUDIT_REPLAY_FIELDS = (
     "status",
     "audited_job_count",
@@ -262,7 +247,7 @@ def _validate_score(
         )
     if score.get("score_contract_version") != "1.0":
         raise FinalScoreSealError("score_contract_version must be 1.0")
-    if score.get("score_contract_sha256") != FROZEN_SCORE_CONTRACT_SHA256:
+    if score.get("score_contract_sha256") != ME_F1_SCORE_CONTRACT_SHA256:
         raise FinalScoreSealError(
             "score_contract_sha256 does not match the frozen ME-F1 v1.0 contract"
         )

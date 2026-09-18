@@ -332,6 +332,7 @@ rule finalize_score_provenance:
         core_env="workflow/envs/core.yaml",
         script="workflow/scripts/finalize_score_provenance.py",
         provenance_library=PROVENANCE_LIBRARY,
+        score_contract_library=SCORE_CONTRACT_LIBRARY,
     output:
         package=RESULTS_ROOT + "/summary/{tool}/score-package.json",
         lineage_json=RESULTS_ROOT + "/provenance/{tool}/rule-lineage.json",
@@ -380,6 +381,7 @@ rule finalize_score_provenance:
                 "workflow/envs/core.yaml",
                 "workflow/scripts/finalize_score_provenance.py",
                 PROVENANCE_LIBRARY,
+                SCORE_CONTRACT_LIBRARY,
             ],
         ),
         upstream_args=lambda wildcards: cli_repeated(

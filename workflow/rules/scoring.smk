@@ -418,6 +418,7 @@ rule fuse_evaluator_metrics:
         provenance_library=PROVENANCE_LIBRARY,
         metrics_library=METRICS_LIBRARY,
         scoring_library=SCORING_LIBRARY,
+        score_contract_library=SCORE_CONTRACT_LIBRARY,
     output:
         metrics=RESULTS_ROOT + "/summary/{tool}/metrics.json",
         rule_manifest=(
@@ -507,6 +508,7 @@ rule fuse_evaluator_metrics:
           --input {input.provenance_library:q} \
           --input {input.metrics_library:q} \
           --input {input.scoring_library:q} \
+          --input {input.score_contract_library:q} \
           --output {output.metrics:q} \
           {params.dynamic_upstream_args:q} \
           --manifest-output {output.rule_manifest:q} \
@@ -540,6 +542,7 @@ rule compute_me_f1:
         provenance_library=PROVENANCE_LIBRARY,
         metrics_library=METRICS_LIBRARY,
         scoring_library=SCORING_LIBRARY,
+        score_contract_library=SCORE_CONTRACT_LIBRARY,
     output:
         score=RESULTS_ROOT + "/summary/{tool}/score.json",
         rule_manifest=(
@@ -598,6 +601,7 @@ rule compute_me_f1:
           --input {input.provenance_library:q} \
           --input {input.metrics_library:q} \
           --input {input.scoring_library:q} \
+          --input {input.score_contract_library:q} \
           --output {output.score:q} \
           --upstream-manifest {input.metrics_rule_manifest:q} \
           --upstream-manifest {input.audit_rule_manifest:q} \

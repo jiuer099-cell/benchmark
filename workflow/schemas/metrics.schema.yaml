@@ -301,7 +301,6 @@ $defs:
           - tuning_frozen
           - panel_provenance_complete
           - context_stratification_complete
-          - population_af_stratification_complete
           - all_evaluator_evidence_complete
           - family_aware_loo_complete
           - statistical_uncertainty_complete
@@ -313,7 +312,6 @@ $defs:
           tuning_frozen: {const: true}
           panel_provenance_complete: {const: true}
           context_stratification_complete: {const: true}
-          population_af_stratification_complete: {const: true}
           all_evaluator_evidence_complete: {const: true}
           family_aware_loo_complete: {const: true}
           statistical_uncertainty_complete: {const: true}
@@ -343,6 +341,7 @@ $defs:
       - evaluator_native_metrics
       - evaluator_gt_metrics
       - quality_gates
+      - diagnostics
       - asset_hashes
       - evidence_profile
       - comparison_track
@@ -443,7 +442,6 @@ $defs:
           - tuning_frozen
           - panel_provenance_complete
           - context_stratification_complete
-          - population_af_stratification_complete
           - all_evaluator_evidence_complete
           - family_aware_loo_complete
           - statistical_uncertainty_complete
@@ -455,10 +453,30 @@ $defs:
           tuning_frozen: {type: boolean}
           panel_provenance_complete: {type: boolean}
           context_stratification_complete: {type: boolean}
-          population_af_stratification_complete: {type: boolean}
           all_evaluator_evidence_complete: {type: boolean}
           family_aware_loo_complete: {type: boolean}
           statistical_uncertainty_complete: {type: boolean}
+      diagnostics:
+        description: >-
+          Diagnostic completeness only.  Stratifications explain why a score
+          differs and must never decide whether the primary score is
+          published, so these values are barred from the validity gates.
+        type: object
+        additionalProperties: false
+        required: [population_af]
+        properties:
+          population_af:
+            type: object
+            additionalProperties: false
+            required: [status, unknown_candidates, affects_primary_score]
+            properties:
+              status:
+                enum: [complete, partial]
+              unknown_candidates:
+                type: integer
+                minimum: 0
+              affects_primary_score:
+                const: false
       asset_hashes:
         type: object
         additionalProperties: false

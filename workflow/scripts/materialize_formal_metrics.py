@@ -2032,6 +2032,24 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
         if isinstance(pangenome_contract, dict)
         else {}
     )
+    # ``population_af_stratification_complete`` is deliberately NOT a validity
+    # gate.  The frozen contract sets ``stratification_affects_primary_score:
+    # false``, so AF completeness may never decide whether ME-F1 is published:
+    # it is an explanatory diagnostic.  Reporting it as a gate made an
+    # unstratified AF bucket invalidate an otherwise complete score, which is
+    # exactly the post-hoc coupling the frozen fairness rule forbids.
+    population_af_unknown = int(
+        genotype_strata["population_af"]
+        .get("unknown", {})
+        .get("canonical_candidate_count", 0)
+    )
+    diagnostics = {
+        "population_af": {
+            "status": "complete" if population_af_unknown == 0 else "partial",
+            "unknown_candidates": population_af_unknown,
+            "affects_primary_score": False,
+        }
+    }
     quality_gates = {
         "all_evaluator_evidence_complete": bool(
             set(ledgers) == set(EVALUATORS)
@@ -2108,12 +2126,6 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             set(context_beds) == set(REQUIRED_CONTEXT_STRATA)
             and set(genotype_strata["genome_context"])
             == set(REQUIRED_CONTEXT_STRATA)
-        ),
-        "population_af_stratification_complete": bool(
-            genotype_strata["population_af"].get("unknown", {}).get(
-                "canonical_candidate_count", 0
-            )
-            == 0
         ),
         "family_aware_loo_complete": bool(
             isinstance(pangenome_contract, dict)
@@ -2220,6 +2232,7 @@ def materialize(args: argparse.Namespace) -> dict[str, Any]:
             "evaluator_native_metrics": evaluator_native_metrics,
             "evaluator_gt_metrics": evaluator_gt_metrics,
             "quality_gates": quality_gates,
+            "diagnostics": diagnostics,
             "asset_hashes": asset_hashes,
             "evidence_profile": frozen_evidence,
             "comparison_track": comparison_track,
