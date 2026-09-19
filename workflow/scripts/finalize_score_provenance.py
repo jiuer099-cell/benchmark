@@ -605,6 +605,20 @@ def _locate_and_validate_metrics(
     return metrics_path, produced_hash
 
 
+def _summarize_for_message(value: Any, *, limit: int = 200) -> str:
+    """Render one replay field compactly enough to live in an error message."""
+
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return repr(value)
+    try:
+        rendered = json.dumps(value, sort_keys=True, default=str)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        rendered = repr(value)
+    if len(rendered) > limit:
+        rendered = rendered[: limit - 3] + "..."
+    return rendered
+
+
 def _pre_score_manifest_ids(pre_score_audit: Mapping[str, Any]) -> set[str]:
     lineage = pre_score_audit.get("lineage")
     if not isinstance(lineage, Mapping):
@@ -676,9 +690,17 @@ def _replay_pre_score_audit(
         if pre_score_audit.get(field) != replay.get(field)
     ]
     if mismatches:
+        # Carry the stored and replayed values for every differing field.  The
+        # bare field-name list is what made an earlier failure of this gate
+        # expensive to act on: "audited_job_count" alone does not say whether
+        # the audit under-counted its jobs or the replay over-counted them.
         raise FinalScoreSealError(
             "pre-score audit does not reproduce from supplied manifests: "
-            + ", ".join(mismatches)
+            + ", ".join(
+                f"{field} (stored={_summarize_for_message(pre_score_audit.get(field))}"
+                f" replayed={_summarize_for_message(replay.get(field))})"
+                for field in mismatches
+            )
         )
     if not replay["core_provenance_valid"] or not replay["hash_lineage_complete"]:
         raise FinalScoreSealError("pre-score core/hash provenance gate failed")

@@ -780,3 +780,27 @@ def test_transaction_rolls_back_outputs_in_different_directories(
     ]
     assert not list(tmp_path.rglob("*.stage"))
     assert not list(tmp_path.rglob("*.backup"))
+
+
+def test_replay_summary_reports_scalars_verbatim() -> None:
+    """The replay-mismatch message must name the stored and replayed values.
+
+    Reporting only the differing field names made the
+    "pre-score audit does not reproduce from supplied manifests" failure
+    expensive to act on: a bare ``audited_job_count`` does not say which side
+    was wrong.
+    """
+
+    assert finalizer._summarize_for_message(13) == "13"
+    assert finalizer._summarize_for_message(1.0) == "1.0"
+    assert finalizer._summarize_for_message("valid") == "'valid'"
+    assert finalizer._summarize_for_message(None) == "None"
+    assert finalizer._summarize_for_message(True) == "True"
+
+
+def test_replay_summary_truncates_structures() -> None:
+    rendered = finalizer._summarize_for_message({"nodes": ["x" * 400]})
+
+    assert rendered.endswith("...")
+    assert len(rendered) <= 200
+    assert rendered.startswith('{"nodes": ["xxx')

@@ -83,6 +83,18 @@ def expected_pre_score_jobs(wildcards):
                     f"evaluate_{evaluator}={core_job}"
                     for evaluator in FORMAL_EVALUATORS
                 ],
+                # These three are audited because pre_score_manifest_paths loads
+                # them (fuse_evaluator_metrics consumes them as inputs).  The
+                # expected-job list must cover exactly the same manifests: it is
+                # the denominator of manifest_completeness, and sealing replays
+                # the audit with the lineage node set as its expected jobs.  A
+                # manifest list that is wider than the expected-job list makes
+                # the replay's audited_job_count and
+                # valid_manifest_log_benchmark_count disagree with the stored
+                # audit, and the seal is then rejected as non-reproducible.
+                "validate_evaluator_semantics=contract",
+                f"freeze_information_contract={wildcards.tool}",
+                f"materialize_evaluation_query={core_job}",
             ]
         )
     return jobs
