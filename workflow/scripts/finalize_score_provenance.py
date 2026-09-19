@@ -107,9 +107,14 @@ METRICS_TUPLE_FIELDS = (
     "sample_id",
     "tool_id",
     "official_score_mode",
+    "benchmark_track",
     "primary_truth_profile",
     "score_profile",
 )
+BENCHMARK_TRACKS = {
+    "short_read_fixed_panel_genotyping",
+    "long_read_fixed_panel_genotyping",
+}
 OFFICIAL_SCORE_MODES = {"end_to_end_from_reads"}
 EVALUATION_MODES = {"formal", "synthetic_smoke"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -384,7 +389,7 @@ def _validate_metrics_tuple(
         METRICS_TUPLE_FIELDS
     ):
         raise FinalScoreSealError(
-            "metrics tuple must contain exactly the six normative fields"
+            "metrics tuple must contain exactly the seven normative fields"
         )
     expected = {
         "run_id": tuple_key["run_id"],
@@ -399,6 +404,28 @@ def _validate_metrics_tuple(
             raise FinalScoreSealError(
                 f"metrics tuple {field} does not match the sealed score"
             )
+    # ``benchmark_track`` is the seventh metric tuple field and has no
+    # counterpart in the sealed score tuple key, which only carries the five
+    # cross-artifact identifiers.  It is anchored instead to the frozen
+    # comparison track in the same metrics document, so the tuple can never
+    # disagree with the track that defines comparability.
+    analysis = metrics.get("analysis")
+    comparison_track = (
+        analysis.get("comparison_track") if isinstance(analysis, Mapping) else None
+    )
+    if not isinstance(comparison_track, Mapping):
+        raise FinalScoreSealError(
+            "formal metrics document has no frozen comparison track"
+        )
+    comparison_track_name = comparison_track.get("benchmark_track")
+    if comparison_track_name not in BENCHMARK_TRACKS:
+        raise FinalScoreSealError(
+            "metrics comparison track has an unsupported benchmark_track"
+        )
+    if metrics_tuple.get("benchmark_track") != comparison_track_name:
+        raise FinalScoreSealError(
+            "metrics tuple benchmark_track does not match the comparison track"
+        )
 
 
 def _validate_metrics_records(

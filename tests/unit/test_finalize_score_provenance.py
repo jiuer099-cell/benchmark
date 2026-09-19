@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "workflow" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -23,6 +24,11 @@ from pgbench_provenance import (  # noqa: E402
 SHA_A = sha256_bytes(b"a")
 SHA_B = sha256_bytes(b"b")
 F1_METRIC_ID = "truvari.event.overall.f1"
+# The frozen metrics contract carries ``benchmark_track`` in the metric tuple
+# and repeats it inside the formal comparison track, so every fixture has to
+# publish both copies exactly as the real formal metrics artefact does.
+BENCHMARK_TRACK = "short_read_fixed_panel_genotyping"
+COMPARISON_TRACK = {"benchmark_track": BENCHMARK_TRACK}
 
 
 def _manifest(
@@ -154,10 +160,12 @@ def _metrics_payload(record: dict[str, Any]) -> dict[str, Any]:
             "sample_id": "HG002",
             "tool_id": "example_genotyper",
             "official_score_mode": "end_to_end_from_reads",
+            "benchmark_track": BENCHMARK_TRACK,
             "primary_truth_profile": "giab_hg002_grch38_v5_0q",
             "score_profile": "pgbench_v1",
         },
         "records": [record],
+        "analysis": {"comparison_track": dict(COMPARISON_TRACK)},
     }
 
 
@@ -455,6 +463,10 @@ def test_seals_attested_invalid_formal_score_without_numeric_promotion(
         "formal_score_reason": reason,
         "diagnostic_recovery_score": 3.678256645152335,
     }
+    attested_analysis = {
+        **formal_analysis,
+        "comparison_track": dict(COMPARISON_TRACK),
+    }
 
     def invalidate_score(score: dict[str, Any]) -> None:
         score.update(
@@ -462,7 +474,7 @@ def test_seals_attested_invalid_formal_score_without_numeric_promotion(
                 "score_status": "invalid",
                 "benchmark_score": None,
                 "reason": reason,
-                "formal_analysis": dict(formal_analysis),
+                "formal_analysis": dict(attested_analysis),
             }
         )
 
@@ -471,7 +483,7 @@ def test_seals_attested_invalid_formal_score_without_numeric_promotion(
         score_status="invalid",
         score_mutator=invalidate_score,
         metrics_mutator=lambda metrics: metrics.update(
-            {"analysis": dict(formal_analysis)}
+            {"analysis": dict(attested_analysis)}
         ),
     )
 
@@ -494,6 +506,10 @@ def test_rejects_invalid_score_that_promotes_diagnostic_as_numeric_score(
         "formal_score_status": "invalid_evaluator_mapping",
         "formal_score_reason": reason,
     }
+    attested_analysis = {
+        **formal_analysis,
+        "comparison_track": dict(COMPARISON_TRACK),
+    }
 
     def invalidate_score(score: dict[str, Any]) -> None:
         score.update(
@@ -502,7 +518,7 @@ def test_rejects_invalid_score_that_promotes_diagnostic_as_numeric_score(
                 "benchmark_score": None,
                 "pangenome_genotyping_score": 3.678256645152335,
                 "reason": reason,
-                "formal_analysis": dict(formal_analysis),
+                "formal_analysis": dict(attested_analysis),
             }
         )
 
@@ -511,7 +527,7 @@ def test_rejects_invalid_score_that_promotes_diagnostic_as_numeric_score(
         score_status="invalid",
         score_mutator=invalidate_score,
         metrics_mutator=lambda metrics: metrics.update(
-            {"analysis": dict(formal_analysis)}
+            {"analysis": dict(attested_analysis)}
         ),
     )
 
@@ -652,7 +668,10 @@ def test_accepts_attested_evaluator_bundle_provenance(tmp_path: Path) -> None:
     bundle_id = "f" * 64
 
     def attach_bundle(metrics: dict[str, Any]) -> None:
-        metrics["analysis"] = {"evaluator_bundle_sha256": bundle_id}
+        metrics["analysis"] = {
+            "evaluator_bundle_sha256": bundle_id,
+            "comparison_track": dict(COMPARISON_TRACK),
+        }
         metrics["records"][0]["provenance_manifest_id"] = bundle_id
 
     fixture = _seal_fixture(root, metrics_mutator=attach_bundle)
@@ -672,6 +691,39 @@ def test_rejects_required_f1_record_not_equal_to_metrics_aggregate(
 
     assert _run_seal(root, fixture) == 2
     _assert_no_outputs(fixture)
+
+
+def test_rejects_metrics_track_that_disagrees_with_comparison_track(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "track-workspace"
+    fixture = _seal_fixture(
+        root,
+        metrics_mutator=lambda metrics: metrics["analysis"]["comparison_track"].update(
+            {"benchmark_track": "long_read_fixed_panel_genotyping"}
+        ),
+    )
+
+    assert _run_seal(root, fixture) == 2
+    _assert_no_outputs(fixture)
+
+
+def test_metrics_tuple_fields_track_the_frozen_schema() -> None:
+    schema_path = (
+        Path(__file__).resolve().parents[2]
+        / "workflow"
+        / "schemas"
+        / "metrics.schema.yaml"
+    )
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    tuple_schema = schema["properties"]["tuple"]
+    # The schema forbids extra tuple keys, so a private copy that has drifted
+    # in either direction is a contract violation, not a stylistic difference.
+    assert tuple_schema["additionalProperties"] is False
+    assert set(finalizer.METRICS_TUPLE_FIELDS) == set(tuple_schema["required"])
+    assert set(finalizer.BENCHMARK_TRACKS) == set(
+        tuple_schema["properties"]["benchmark_track"]["enum"]
+    )
 
 
 def test_rejects_metrics_tuple_mismatch_and_post_manifest_tampering(
