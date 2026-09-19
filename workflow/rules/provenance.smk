@@ -37,6 +37,20 @@ def pre_score_manifest_paths(wildcards):
                     )
                     for evaluator in FORMAL_EVALUATORS
                 ],
+                # fuse_evaluator_metrics consumes these three manifests (see
+                # scoring.smk dynamic_metric_inputs), so the seal has to load
+                # them as well.  Without them the lineage closure of
+                # fuse_evaluator_metrics reports their manifest IDs as missing
+                # nodes and the seal refuses to be written.
+                SEMANTIC_VALIDATION_RULE_MANIFEST,
+                (
+                    RESULTS_ROOT + "/provenance/rules/freeze_information_contract/"
+                    + f"{wildcards.tool}.json"
+                ),
+                (
+                    RESULTS_ROOT + "/provenance/rules/materialize_evaluation_query/"
+                    + f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}.json"
+                ),
             ]
         )
     return manifests

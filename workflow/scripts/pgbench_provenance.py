@@ -1490,8 +1490,54 @@ def audit_manifests(
             )
         ):
             invalid_core = True
-    if lineage.get("missing_manifest_ids") or lineage.get("cycles"):
+            # Report the offending edge.  Without an issue here the caller
+            # surfaces this as an empty "manifest path validation failed"
+            # message, which gives the operator nothing to act on.
+            issues.append(
+                {
+                    "code": "unlinked_core_edge",
+                    "severity": "error",
+                    "upstream_manifest_id": edge.get("upstream_manifest_id"),
+                    "downstream_manifest_id": edge.get("downstream_manifest_id"),
+                    "producer_rule": edge.get("producer_rule"),
+                    "consumer_rule": edge.get("consumer_rule"),
+                    "path": edge.get("path"),
+                    "message": (
+                        "core lineage edge is not hash-linked: "
+                        f"{edge.get('producer_rule')!r} -> "
+                        f"{edge.get('consumer_rule')!r} via {edge.get('path')!r}"
+                    ),
+                }
+            )
+    missing_manifest_ids = list(lineage.get("missing_manifest_ids") or ())
+    lineage_cycles = list(lineage.get("cycles") or ())
+    if missing_manifest_ids:
         invalid_core = True
+        issues.append(
+            {
+                "code": "missing_manifest_ids",
+                "severity": "error",
+                "missing_manifest_ids": missing_manifest_ids,
+                "message": (
+                    "lineage references manifest IDs that are absent from the "
+                    "audited manifest set: "
+                    + ", ".join(str(entry) for entry in missing_manifest_ids)
+                ),
+            }
+        )
+    if lineage_cycles:
+        invalid_core = True
+        issues.append(
+            {
+                "code": "lineage_cycles",
+                "severity": "error",
+                "cycles": lineage_cycles,
+                "message": (
+                    "lineage contains dependency cycles: "
+                    + "; ".join(str(cycle) for cycle in lineage_cycles)
+                ),
+            }
+        )
 
     denominator = len(jobs)
     manifest_completeness = valid_packages / denominator if denominator else 0.0
