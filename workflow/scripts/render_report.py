@@ -94,6 +94,8 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
     addressability = addressability if isinstance(addressability, Mapping) else {}
     me_f1_ci = analysis.get("me_f1_confidence_interval")
     me_f1_ci = me_f1_ci if isinstance(me_f1_ci, Mapping) else {}
+    candidate = analysis.get("candidate_genotype_summary")
+    candidate = candidate if isinstance(candidate, Mapping) else {}
     fields = [
         *TUPLE_FIELDS, "ME-F1", "TruvariPrecision", "TruvariRecall", "TruvariF1",
         "AardvarkGTPrecision", "AardvarkGTRecall", "AardvarkGTF1",
@@ -102,7 +104,9 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "score_contract_sha256", "evaluation_mode", "score_status",
         "EvaluatorSD", "truth_eligible_count", "query_result_count",
         "DiagnosticGTMacroF1", "DiagnosticNonReferenceF1", "DiagnosticPanelCoverage",
-        "ME-F1_AddressableDiagnostic", "CallRate", "NoCallRate", "AddressabilityRate",
+        "ME-F1_AddressableDiagnostic", "CallRate", "NoCallRate",
+        "AllSiteCallRate", "ExactGTAccuracy", "GTConfusionMatrix",
+        "AddressabilityNoCallRate", "AddressabilityRate",
         "PanelTotal", "AddressableCount", "CalledCount", "ExplicitNoCallCount",
         "MissingOutputCount", "LinkingFailureCount",
         "UnsupportedRepresentationCount", "AdapterConversionFailureCount",
@@ -132,9 +136,15 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
         "AllSiteCallRate": candidate.get("all_site_call_rate"),
         "ExactGTAccuracy": candidate.get("exact_gt_accuracy"),
         "NoCallRate": candidate.get("no_call_rate"),
-        "GTConfusionMatrix": json.dumps(
-            candidate.get("genotype_confusion_matrix"), sort_keys=True
-        ) if candidate.get("genotype_confusion_matrix") is not None else None,
+        "GTConfusionMatrix": (
+            json.dumps(
+                candidate.get("genotype_confusion_matrix"),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if candidate.get("genotype_confusion_matrix") is not None
+            else None
+        ),
         "ME-F1_AddressableDiagnostic": (
             analysis.get("addressable_subset_diagnostic", {}).get("me_f1")
             if isinstance(analysis.get("addressable_subset_diagnostic"), Mapping)
@@ -146,7 +156,7 @@ def write_score_tsv(path: Path, score: Mapping[str, Any]) -> None:
             if addressability.get("canonical_candidate_count")
             else None
         ),
-        "NoCallRate": (
+        "AddressabilityNoCallRate": (
             float(addressability.get("explicit_no_call_count", 0))
             / float(addressability["canonical_candidate_count"])
             if addressability.get("canonical_candidate_count")
