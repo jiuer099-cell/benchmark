@@ -2,6 +2,7 @@ rule validate_config:
     input:
         config=CONFIG_PATH,
         config_schema="config/config.schema.yaml",
+        track_registry="config/track_registry.yaml",
         tool_schema="workflow/schemas/tool.schema.yaml",
         rule_source="workflow/rules/common.smk",
         rule_executor=RULE_EXECUTOR,
@@ -40,6 +41,7 @@ rule validate_config:
           --param config_schema={input.config_schema:q} \
           --input {input.config:q} \
           --input {input.config_schema:q} \
+          --input {input.track_registry:q} \
           --input {input.tool_schema:q} \
           --input {input.rule_source:q} \
           --input {input.rule_executor:q} \

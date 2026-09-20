@@ -4,6 +4,8 @@ import gzip
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "plugins" / "graphtyper2" / "run.py"
@@ -24,6 +26,15 @@ def test_root_workflow_can_supply_reference_index_to_read_based_plugins() -> Non
     workflow = (ROOT / "Snakefile").read_text(encoding="utf-8")
     input_candidates = workflow.split("input_candidates = {", 1)[1].split("}", 1)[0]
     assert '"reference_index": config["reference"].get("fai")' in input_candidates
+
+
+def test_graphtyper2_requires_target_sample_read_group() -> None:
+    header = "@HD\tVN:1.6\n@RG\tID:rg1\tSM:HG002\tPL:ILLUMINA\n"
+    MODULE.require_sample_read_group(header, "HG002")
+    with pytest.raises(RuntimeError, match="@RG record"):
+        MODULE.require_sample_read_group("@HD\tVN:1.6\n", "HG002")
+    with pytest.raises(RuntimeError, match="PGBENCH_SAMPLE_ID='HG002'"):
+        MODULE.require_sample_read_group("@RG\tID:rg1\tSM:OTHER\n", "HG002")
 
 
 def _candidate(path: Path) -> None:

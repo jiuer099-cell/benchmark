@@ -129,7 +129,38 @@ def test_plugin_technology_must_match_sample(tmp_path: Path) -> None:
     config["sample"]["technology"] = "unsupported_technology"
     config_path = tmp_path / "technology.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    with pytest.raises(ConfigValidationError, match="illumina_pe"):
+    with pytest.raises(ConfigValidationError, match="not in the track registry"):
+        validate_configuration(
+            config_path,
+            config_schema_path=ROOT / "config" / "config.schema.yaml",
+            tool_schema_path=ROOT / "workflow" / "schemas" / "tool.schema.yaml",
+            repo_root=ROOT,
+        )
+
+
+def test_ont_track_binds_one_frozen_pass_policy_dataset(tmp_path: Path) -> None:
+    config = _named_config("config.hifi.example.yaml")
+    config["benchmark_contract"]["track"] = "lr_ont"
+    config["sample"].update(
+        technology="ont",
+        source_evidence_id="HG002_ONT_R9.4.1_Guppy5.0.6_SUP_pass_v1",
+        read_selection_policy="official_qscore_pass_only",
+        fastq="resources/reads/HG002.ONT.R9.4.1.Guppy5.0.6.SUP.pass.chr1-22.fastq.gz",
+    )
+    config["external_plugins"] = []
+    config_path = tmp_path / "ont.yaml"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    validated, plugins = validate_configuration(
+        config_path,
+        config_schema_path=ROOT / "config" / "config.schema.yaml",
+        tool_schema_path=ROOT / "workflow" / "schemas" / "tool.schema.yaml",
+        repo_root=ROOT,
+    )
+    assert validated["sample"]["read_selection_policy"] == "official_qscore_pass_only"
+    assert plugins == {}
+    config["sample"]["read_selection_policy"] = "pass_plus_fail"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="adapters may not choose"):
         validate_configuration(
             config_path,
             config_schema_path=ROOT / "config" / "config.schema.yaml",

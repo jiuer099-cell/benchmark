@@ -1,0 +1,36 @@
+# The complete set of comparable PGBench tracks.  This is the only place a
+# future sequencing technology is registered; Core consumes these declarations
+# and never branches on a technology name.
+schema_version: 1
+tracks:
+  sr_illumina:
+    release_id: PGBench-SR-Illumina-v1.0
+    read_class: short
+    technology: illumina_pe
+    legacy_ids: [short_read_fixed_panel_genotyping]
+  lr_hifi:
+    release_id: PGBench-LR-HiFi-v1.0
+    read_class: long
+    technology: pacbio_hifi
+    legacy_ids: [long_read_fixed_panel_genotyping]
+  lr_clr:
+    release_id: PGBench-LR-CLR-v1.0
+    read_class: long
+    technology: pacbio_clr
+    legacy_ids: []
+  lr_ont:
+    release_id: PGBench-LR-ONT-v1.0
+    read_class: long
+    technology: ont
+    legacy_ids: []
+    # Every ONT adapter consumes this exact release.  The official fail
+    # partition must never be merged or selected by an individual adapter.
+    frozen_input:
+      dataset_id: HG002_ONT_R9.4.1_Guppy5.0.6_SUP_pass_v1
+      object_name: basecalls.fastq.gz
+      read_selection_policy: official_qscore_pass_only
+      prohibited_read_selection: [pass_plus_fail, fail_only, adapter_selected_subset]
+policy:
+  cross_track_ranking: false
+  cross_technology_ranking: false
+  cross_track_runtime_ranking: false

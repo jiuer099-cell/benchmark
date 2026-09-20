@@ -721,9 +721,17 @@ def test_metrics_tuple_fields_track_the_frozen_schema() -> None:
     # in either direction is a contract violation, not a stylistic difference.
     assert tuple_schema["additionalProperties"] is False
     assert set(finalizer.METRICS_TUPLE_FIELDS) == set(tuple_schema["required"])
-    assert set(finalizer.BENCHMARK_TRACKS) == set(
-        tuple_schema["properties"]["benchmark_track"]["enum"]
-    )
+    assert tuple_schema["properties"]["benchmark_track"] == {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+    }
+    assert {
+        "sr_illumina",
+        "lr_hifi",
+        "lr_clr",
+        "lr_ont",
+        "short_read_fixed_panel_genotyping",
+        "long_read_fixed_panel_genotyping",
+    }.issubset(finalizer.BENCHMARK_TRACKS)
 
 
 def test_rejects_metrics_tuple_mismatch_and_post_manifest_tampering(

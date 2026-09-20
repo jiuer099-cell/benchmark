@@ -36,6 +36,43 @@ def run(command: list[str], *, stdout: Path | None = None) -> None:
         subprocess.run(command, check=True, stdout=handle)
 
 
+def require_sample_read_group(header: str, sample: str) -> None:
+    """Fail before genotyping when a BAM cannot identify the target sample.
+
+    GraphTyper2 interprets sample identity through BAM read groups.  This is an
+    adapter prerequisite, deliberately kept outside PGBench Core so a future
+    adapter can declare a different native requirement without changing Core.
+    """
+
+    sample_names: set[str] = set()
+    for line in header.splitlines():
+        if not line.startswith("@RG\t"):
+            continue
+        fields = dict(
+            field.split(":", 1)
+            for field in line.split("\t")[1:]
+            if ":" in field
+        )
+        if fields.get("ID") and fields.get("SM"):
+            sample_names.add(fields["SM"])
+    if sample not in sample_names:
+        rendered = ", ".join(sorted(sample_names)) or "none"
+        raise RuntimeError(
+            "GraphTyper2 requires an @RG record with an SM field matching "
+            f"PGBENCH_SAMPLE_ID={sample!r}; observed samples: {rendered}"
+        )
+
+
+def validate_bam_sample_read_group(bam: Path, sample: str) -> None:
+    header = subprocess.run(
+        ["samtools", "view", "-H", str(bam)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    require_sample_read_group(header, sample)
+
+
 def candidate_keys(path: Path) -> tuple[list[str], dict[tuple[str, str, str, str], str]]:
     order: list[str] = []
     keys: dict[tuple[str, str, str, str], str] = {}
@@ -316,6 +353,7 @@ def main() -> int:
     if not bai.is_file() or bai.stat().st_size == 0:
         raise RuntimeError("GraphTyper2 requires the frozen shared BAM index")
     run(["samtools", "quickcheck", "-v", str(bam)])
+    validate_bam_sample_read_group(bam, sample)
     work = output_dir / "work"
     work.mkdir(parents=True, exist_ok=True)
     staged_candidate = work / "candidate.vcf.gz"

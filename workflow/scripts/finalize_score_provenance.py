@@ -41,6 +41,11 @@ except ModuleNotFoundError:  # pragma: no cover - package-style invocation
         sha256_path,
     )
 
+try:
+    from track_registry import default_registry_path, load_track_registry
+except ModuleNotFoundError:  # pragma: no cover - package-style invocation
+    from .track_registry import default_registry_path, load_track_registry
+
 
 # Historical runs can be sealed from a worktree frozen at their original Git
 # snapshot.  Install the strict manifest-document attestation rule when that
@@ -111,9 +116,15 @@ METRICS_TUPLE_FIELDS = (
     "primary_truth_profile",
     "score_profile",
 )
+_TRACK_REGISTRY = load_track_registry(
+    default_registry_path(Path(__file__).resolve().parents[2])
+)
+# Include legacy IDs exclusively so historical immutable releases can still be
+# audited.  New track support is supplied only by config/track_registry.yaml.
 BENCHMARK_TRACKS = {
-    "short_read_fixed_panel_genotyping",
-    "long_read_fixed_panel_genotyping",
+    identifier
+    for track in _TRACK_REGISTRY.values()
+    for identifier in (track.id, *track.legacy_ids)
 }
 OFFICIAL_SCORE_MODES = {"end_to_end_from_reads"}
 EVALUATION_MODES = {"formal", "synthetic_smoke"}

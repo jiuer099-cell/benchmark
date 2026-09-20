@@ -42,7 +42,7 @@ properties:
       - independent_samples_status
     properties:
       track:
-        enum: [short_read_fixed_panel_genotyping, long_read_fixed_panel_genotyping]
+        $ref: "#/$defs/identifier"
       read_class:
         enum: [short, long]
       cross_track_ranking:
@@ -123,11 +123,15 @@ properties:
       sex:
         enum: [male, female, unknown]
       technology:
-        enum: [illumina_pe, pacbio_hifi]
+        $ref: "#/$defs/identifier"
       library_id:
         $ref: "#/$defs/identifier"
       source_evidence_id:
         $ref: "#/$defs/identifier"
+      read_selection_policy:
+        oneOf:
+          - $ref: "#/$defs/identifier"
+          - type: "null"
       coverage_x:
         oneOf:
           - type: number

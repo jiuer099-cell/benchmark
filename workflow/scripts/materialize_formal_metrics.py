@@ -2371,8 +2371,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tool-manifest", type=Path)
     parser.add_argument("--resolved-inputs", type=Path)
     parser.add_argument("--sample-technology")
-    parser.add_argument("--benchmark-track", required=True,
-                        choices=["short_read_fixed_panel_genotyping", "long_read_fixed_panel_genotyping"])
+    # Track membership is verified against the declarative registry by config
+    # validation.  Do not hard-code technology names here.
+    parser.add_argument("--benchmark-track", required=True)
     parser.add_argument("--library-id")
     parser.add_argument("--source-evidence-id")
     parser.add_argument("--coverage-x", type=float)

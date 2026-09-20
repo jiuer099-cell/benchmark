@@ -34,7 +34,7 @@ properties:
       official_score_mode:
         const: end_to_end_from_reads
       benchmark_track:
-        enum: [short_read_fixed_panel_genotyping, long_read_fixed_panel_genotyping]
+        pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
       primary_truth_profile:
         $ref: "#/$defs/identifier"
       score_profile:
@@ -560,7 +560,7 @@ $defs:
           contract:
             const: pgbench_evidence_v1
           actual_technology:
-            enum: [illumina_pe, pacbio_hifi]
+            pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
           library_id:
             $ref: "#/$defs/identifier"
           source_evidence_id:
@@ -646,9 +646,9 @@ $defs:
           candidate_output_contract:
             const: all_sites
           actual_technology:
-            enum: [illumina_pe, pacbio_hifi]
+            pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
           benchmark_track:
-            enum: [short_read_fixed_panel_genotyping, long_read_fixed_panel_genotyping]
+            pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
           primary_truth_profile:
             $ref: "#/$defs/identifier"
           score_profile_sha256:

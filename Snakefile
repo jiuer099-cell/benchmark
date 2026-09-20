@@ -148,7 +148,10 @@ for registration in config["external_plugins"]:
         raise WorkflowError(
             f"external plugin ID {tool_id!r} does not match {manifest_path}"
         )
-    if tool_manifest["capabilities"]["read_class"] != config["benchmark_contract"]["read_class"]:
+    if (
+        tool_manifest["capabilities"]["read_class"] != config["benchmark_contract"]["read_class"]
+        or config["sample"]["technology"] not in tool_manifest["capabilities"]["technology"]
+    ):
         # A registry may contain adapters for both channels.  Only adapters
         # eligible for the selected evidence channel enter this DAG or score
         # set; the other channel is reported as unsupported, never zero-score.
@@ -158,6 +161,8 @@ for registration in config["external_plugins"]:
                 "status": "unsupported_for_selected_track",
                 "selected_track": config["benchmark_contract"]["track"],
                 "adapter_read_class": tool_manifest["capabilities"]["read_class"],
+                "adapter_technologies": tool_manifest["capabilities"]["technology"],
+                "sample_technology": config["sample"]["technology"],
             }
         )
         continue

@@ -11,6 +11,23 @@ from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
+
+try:
+    from track_registry import (
+        TrackRegistryError,
+        default_registry_path,
+        load_track_registry,
+        resolve_track,
+        technologies,
+    )
+except ModuleNotFoundError:  # pragma: no cover - package-style invocation
+    from .track_registry import (
+        TrackRegistryError,
+        default_registry_path,
+        load_track_registry,
+        resolve_track,
+        technologies,
+    )
 from jsonschema import Draft202012Validator, FormatChecker
 
 
@@ -176,10 +193,38 @@ def _validate_graph_profile(config: Mapping[str, Any]) -> None:
 def _validate_plugin_compatibility(
     config: Mapping[str, Any],
     plugins: Mapping[str, Mapping[str, Any]],
+    *,
+    repo_root: Path,
 ) -> None:
     technology = config["sample"]["technology"]
     benchmark_track = config["benchmark_contract"]["track"]
     track_class = config["benchmark_contract"]["read_class"]
+    try:
+        registry = load_track_registry(default_registry_path(repo_root))
+        selected_track = resolve_track(registry, benchmark_track)
+    except TrackRegistryError as exc:
+        raise ConfigValidationError(str(exc)) from exc
+    if technology not in technologies(registry):
+        raise ConfigValidationError(f"sample technology {technology} is not in the track registry")
+    if selected_track.read_class != track_class or selected_track.technology != technology:
+        raise ConfigValidationError(
+            "benchmark_contract track/read_class and sample technology must match "
+            "one registry entry"
+        )
+    frozen_input = selected_track.frozen_input
+    if frozen_input is not None:
+        sample = config["sample"]
+        if sample.get("source_evidence_id") != frozen_input["dataset_id"]:
+            raise ConfigValidationError(
+                f"track {selected_track.id} requires source_evidence_id="
+                f"{frozen_input['dataset_id']!r}"
+            )
+        if sample.get("read_selection_policy") != frozen_input["read_selection_policy"]:
+            raise ConfigValidationError(
+                f"track {selected_track.id} requires read_selection_policy="
+                f"{frozen_input['read_selection_policy']!r}; adapters may not choose "
+                "a different pass/fail policy"
+            )
     mode = config["execution"]["official_score_mode"]
     graph_profile = config["pangenome"]["graph_assets"]["profile"]
     native_contract = config["pangenome"].get("native_input_contract")
@@ -195,14 +240,13 @@ def _validate_plugin_compatibility(
         )
     for plugin_id, manifest in plugins.items():
         supported_technologies = set(manifest["capabilities"]["technology"])
-        if technology not in supported_technologies:
-            raise ConfigValidationError(
-                f"tool {plugin_id} does not support sample technology {technology}; "
-                f"supported={sorted(supported_technologies)}"
-            )
-        if manifest["capabilities"]["read_class"] != track_class:
+        if (
+            technology not in supported_technologies
+            or manifest["capabilities"]["read_class"] != track_class
+        ):
             # Registered adapters for the other channel are explicitly
-            # ineligible rather than counted as failed/zero-score tools.
+            # ineligible rather than counted as failed/zero-score tools.  This
+            # is what permits one registry to declare all external adapters.
             continue
         contract = manifest["supported_modes"].get(mode)
         if not isinstance(contract, Mapping):
@@ -268,10 +312,6 @@ def _validate_plugin_compatibility(
                 f"tool {plugin_id} is missing registered adapter assets: {missing_assets}"
             )
 
-    if benchmark_track not in {"short_read_fixed_panel_genotyping", "long_read_fixed_panel_genotyping"}:
-        raise ConfigValidationError(f"unsupported benchmark track {benchmark_track}")
-
-
 def validate_configuration(
     config_path: Path,
     *,
@@ -287,7 +327,7 @@ def validate_configuration(
         tool_schema_path=tool_schema_path,
     )
     _validate_graph_profile(config)
-    _validate_plugin_compatibility(config, plugins)
+    _validate_plugin_compatibility(config, plugins, repo_root=repo_root)
     catalogues: dict[str, dict[str, Any]] = {}
     for catalog_name in (
         "truthsets",

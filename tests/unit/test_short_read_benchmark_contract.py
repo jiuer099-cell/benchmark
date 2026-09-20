@@ -100,7 +100,9 @@ def test_existing_five_tools_are_external_and_unified() -> None:
 
 
 def test_active_tree_contains_no_removed_benchmark_tracks() -> None:
-    forbidden = ("kan" + "pig", "sva" + "rp", "pac" + "bio_clr", "caller" + "_only", "variant" + "_sites", "novel" + "_truth", "canonical" + "_fastq")
+    # CLR is now an explicit independent long-read track declared only in the
+    # registry; the remaining identifiers are retired tool-specific Core paths.
+    forbidden = ("kan" + "pig", "sva" + "rp", "caller" + "_only", "variant" + "_sites", "novel" + "_truth", "canonical" + "_fastq")
     roots = [ROOT / "Snakefile", ROOT / "config", ROOT / "plugins", ROOT / "workflow"]
     hits: list[str] = []
     for root in roots:
