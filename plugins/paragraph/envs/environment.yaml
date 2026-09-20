@@ -7,7 +7,9 @@ dependencies:
   - paragraph=2.3
   # multigrmpy.py imports pysam directly; declare it explicitly so a
   # reproducible adapter environment cannot be created without it.
-  - pysam=0.24
+  # Paragraph 2.3 is linked against the htslib/zlib 1.2 ABI generation;
+  # pysam 0.22.1 is the compatible Python 3.11 build in this environment.
+  - pysam=0.22.1
   - bwa=0.7.17
   - samtools=1.21
   - bcftools=1.21
