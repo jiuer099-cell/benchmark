@@ -64,6 +64,23 @@ pangenome:
     canonical_candidate_count: 18164
     tool_specific_denominator: forbidden
     deterministic_native_projection_required: true
+  native_input_contract:
+    population_context:
+      source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
+      target_family_excluded: true
+      allowed_derived_resources: [phased_haplotype_vcf, phased_haplotype_index, gbz, gbwt, graph_index, tool_native_index]
+    tools:
+      graphtyper2: {input_mode: shared_bam, native_context_provenance_required: false, family_exclusion_required: false, external_population_context_forbidden: true}
+    shared_shortread_alignment:
+      bam: resources/alignments/HG002.shared.bwa-mem2.rg-v2.bam
+      bai: resources/alignments/HG002.shared.bwa-mem2.rg-v2.bam.bai
+      source_fastq_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      reference_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      aligner: bwa-mem2
+      aligner_version: UNSET_FORMAL_PREFLIGHT_REQUIRED
+      command_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      bam_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      bai_sha256: 0000000000000000000000000000000000000000000000000000000000000000
   population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz
   graph_assets:
     profile: none

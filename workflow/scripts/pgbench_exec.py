@@ -70,6 +70,39 @@ MODE_INPUTS = {
     "graph_assets",
     "tool_index",
 }
+
+SHORT_READ_EVIDENCE_CONTRACTS = (
+    frozenset({"short_fastq_r1", "short_fastq_r2"}),
+    frozenset({"shared_shortread_alignment", "shared_shortread_alignment_index"}),
+)
+
+
+def required_evidence_contracts(read_class: object) -> tuple[frozenset[str], ...]:
+    """Return complete, mutually exclusive primary evidence options."""
+
+    if read_class == "short":
+        return SHORT_READ_EVIDENCE_CONTRACTS
+    return (frozenset({"long_reads_fastq"}),)
+
+
+def validate_required_evidence(
+    required: set[str],
+    *,
+    read_class: object,
+    context: str,
+) -> str | None:
+    """Validate a mode's primary evidence declaration without tool IDs."""
+
+    matches = [option for option in required_evidence_contracts(read_class) if option <= required]
+    if len(matches) == 1:
+        return None
+    if len(matches) == 0:
+        choices = " or ".join(
+            "{" + ", ".join(sorted(option)) + "}"
+            for option in required_evidence_contracts(read_class)
+        )
+        return f"{context} must require exactly one complete {read_class}-read evidence contract: {choices}"
+    return f"{context} declares more than one primary evidence contract"
 TRANSPORT_INPUTS = MODE_INPUTS
 TRANSPORT_TO_CONTRACT = {name: name for name in MODE_INPUTS}
 FASTQ_VALIDATOR_VERSION = "pgbench_fastq_validator_v2"
@@ -526,15 +559,13 @@ def _semantic_manifest_errors(manifest: Mapping[str, Any]) -> list[str]:
         if mode != "end_to_end_from_reads":
             errors.append(f"unsupported execution mode: {mode}")
         read_class = cast(Mapping[str, Any], manifest["capabilities"]).get("read_class")
-        expected_evidence = (
-            {"short_fastq_r1", "short_fastq_r2"}
-            if read_class == "short"
-            else {"long_reads_fastq"}
+        evidence_error = validate_required_evidence(
+            required,
+            read_class=read_class,
+            context="end_to_end_from_reads",
         )
-        if not expected_evidence.issubset(required):
-            errors.append(
-                "end_to_end_from_reads must require evidence matching capabilities.read_class"
-            )
+        if evidence_error:
+            errors.append(evidence_error)
 
         if paradigm == "genotyping_only" and "candidate_panel" not in required:
             errors.append(

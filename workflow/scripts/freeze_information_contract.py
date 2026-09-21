@@ -139,13 +139,18 @@ def freeze(
             "path_type": item.get("path_type"),
         }
     read_class = tool.get("capabilities", {}).get("read_class")
-    evidence = (
-        {"short_fastq_r1", "short_fastq_r2"}
-        if read_class == "short"
-        else {"long_reads_fastq"}
-    )
-    if not evidence.union({"candidate_panel"}).issubset(by_name):
-        raise InformationContractError("channel evidence and candidate panel are mandatory")
+    if read_class == "short":
+        evidence_options = (
+            {"short_fastq_r1", "short_fastq_r2"},
+            {"shared_shortread_alignment", "shared_shortread_alignment_index"},
+        )
+    else:
+        evidence_options = ({"long_reads_fastq"},)
+    matching_evidence = [option for option in evidence_options if option.issubset(by_name)]
+    if len(matching_evidence) != 1 or "candidate_panel" not in by_name:
+        raise InformationContractError(
+            "one complete channel evidence contract and candidate panel are mandatory"
+        )
 
     def information_for_input(name: str) -> Any:
         if name in resolved_mapping:

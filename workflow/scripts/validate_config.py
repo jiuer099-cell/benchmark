@@ -49,6 +49,33 @@ TASK_TO_STAGE = {
 GRAPH_METADATA_FIELDS = {"profile", "reference_path"}
 
 
+def _evidence_contract_error(
+    required: set[str], *, read_class: object, context: str
+) -> str | None:
+    """Require one complete channel-specific evidence contract.
+
+    Short-read adapters can consume either the common paired FASTQs or the
+    Core-managed frozen shared BAM/BAI. The choice is adapter-declared and
+    mutually exclusive, so the Core remains tool-agnostic.
+    """
+
+    options = (
+        (
+            {"short_fastq_r1", "short_fastq_r2"},
+            {"shared_shortread_alignment", "shared_shortread_alignment_index"},
+        )
+        if read_class == "short"
+        else ({"long_reads_fastq"},)
+    )
+    matches = [option for option in options if option.issubset(required)]
+    if len(matches) == 1:
+        return None
+    if len(matches) == 0:
+        rendered = " or ".join("{" + ", ".join(sorted(item)) + "}" for item in options)
+        return f"{context} must require exactly one complete {read_class}-read evidence contract: {rendered}"
+    return f"{context} declares more than one primary evidence contract"
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as handle:
@@ -91,16 +118,13 @@ def _mode_semantics(tool: Mapping[str, Any]) -> None:
             if isinstance(capabilities, Mapping)
             else "short"
         )
-        evidence = (
-            {"short_fastq_r1", "short_fastq_r2"}
-            if read_class == "short"
-            else {"long_reads_fastq"}
+        evidence_error = _evidence_contract_error(
+            required,
+            read_class=read_class,
+            context=f"tool {tool['id']} mode {mode}",
         )
-        if not evidence.issubset(required):
-            raise ConfigValidationError(
-                f"tool {tool['id']} must require {sorted(evidence)} for its "
-                f"{read_class}-read channel"
-            )
+        if evidence_error:
+            raise ConfigValidationError(evidence_error)
 
         declared_stages = set(contract["billable_stages"])
         permitted_stages = {TASK_TO_STAGE[task] for task in tool["tasks"]}

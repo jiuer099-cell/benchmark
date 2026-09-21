@@ -45,13 +45,16 @@ def test_every_adapter_uses_one_channel_specific_all_sites_contract() -> None:
         manifest = _yaml(path)
         jsonschema.Draft202012Validator(schema).validate(manifest)
         mode = manifest["supported_modes"]["end_to_end_from_reads"]
-        evidence = (
-            {"short_fastq_r1", "short_fastq_r2"}
-            if manifest["capabilities"]["read_class"] == "short"
-            else {"long_reads_fastq"}
-        )
-        assert evidence.issubset(mode["required_inputs"])
-        assert {"pangenome_panel", "candidate_panel"}.issubset(mode["required_inputs"])
+        required = set(mode["required_inputs"])
+        if manifest["capabilities"]["read_class"] == "short":
+            evidence_options = (
+                {"short_fastq_r1", "short_fastq_r2"},
+                {"shared_shortread_alignment", "shared_shortread_alignment_index"},
+            )
+            assert sum(option.issubset(required) for option in evidence_options) == 1
+        else:
+            assert {"long_reads_fastq"}.issubset(required)
+        assert "candidate_panel" in required
         assert manifest["source"] == "external"
         assert "native_assets" in manifest
         assert manifest["outputs"] == {

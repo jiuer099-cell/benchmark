@@ -34,7 +34,8 @@ sample:
   read_count: null
   read_bases: null
   downsampling_seed: null
-  # Formal PanGenie execution consumes the explicit R1/R2 pair below.
+  # These are the frozen source evidence for the SR track. Paragraph itself
+  # receives only the separately frozen shared BAM/BAI declared below.
   fastq_r1: resources/reads/HG002.Illumina.R1.fastq.gz
   fastq_r2: resources/reads/HG002.Illumina.R2.fastq.gz
 
@@ -65,6 +66,23 @@ pangenome:
     canonical_candidate_count: 18164
     tool_specific_denominator: forbidden
     deterministic_native_projection_required: true
+  native_input_contract:
+    population_context:
+      source_cohort_id: HG002_LOO_HPRC_GRCh38_SV_v1
+      target_family_excluded: true
+      allowed_derived_resources: [phased_haplotype_vcf, phased_haplotype_index, gbz, gbwt, graph_index, tool_native_index]
+    tools:
+      paragraph: {input_mode: shared_bam, native_context_provenance_required: false, family_exclusion_required: false, external_population_context_forbidden: true}
+    shared_shortread_alignment:
+      bam: resources/alignments/HG002.shared.bwa-mem2.rg-v2.bam
+      bai: resources/alignments/HG002.shared.bwa-mem2.rg-v2.bam.bai
+      source_fastq_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      reference_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      aligner: bwa-mem2
+      aligner_version: UNSET_FORMAL_PREFLIGHT_REQUIRED
+      command_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      bam_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+      bai_sha256: 0000000000000000000000000000000000000000000000000000000000000000
   # Must be a PanGenie-ready, fully phased, non-overlapping,
   # sequence-resolved multi-sample VCF with HG002 removed.
   population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz

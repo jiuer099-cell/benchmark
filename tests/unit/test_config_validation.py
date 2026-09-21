@@ -96,6 +96,31 @@ def test_mode_semantics_rejects_unbilled_declared_task() -> None:
         _mode_semantics(manifest)
 
 
+def test_mode_semantics_accepts_shared_bam_but_rejects_hybrid_short_evidence() -> None:
+    manifest = {
+        "id": "bam-consumer",
+        "tasks": ["genotyping"],
+        "capabilities": {"read_class": "short"},
+        "supported_modes": {
+            "end_to_end_from_reads": {
+                "required_inputs": [
+                    "shared_shortread_alignment",
+                    "shared_shortread_alignment_index",
+                ],
+                "optional_inputs": [],
+                "billable_stages": ["genotype"],
+            }
+        },
+    }
+    _mode_semantics(manifest)
+    manifest["supported_modes"]["end_to_end_from_reads"]["required_inputs"] += [
+        "short_fastq_r1",
+        "short_fastq_r2",
+    ]
+    with pytest.raises(ConfigValidationError, match="more than one primary"):
+        _mode_semantics(manifest)
+
+
 def test_pangenie_requires_complete_paired_short_reads(tmp_path: Path) -> None:
     config = _named_config("config.pangenie.example.yaml")
     config["sample"]["fastq_r2"] = None

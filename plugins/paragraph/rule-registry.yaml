@@ -1,10 +1,10 @@
 schema_version: 1
 rules:
   - id: paragraph
-    description: Map the common paired reads, run Paragraph on the frozen panel, and retain all candidates.
+    description: Run Paragraph from the frozen shared BAM/BAI on the canonical panel and retain all candidates.
     phase: tool_execution
     kind: plugin
-    inputs: [short_fastq_r1, short_fastq_r2, reference, candidate_panel]
+    inputs: [shared_shortread_alignment, shared_shortread_alignment_index, reference, candidate_panel]
     outputs: [raw_tool_vcf]
     upstream: ["tool__{tool}__execute"]
     audit_scope: pre_score

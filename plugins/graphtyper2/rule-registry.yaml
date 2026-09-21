@@ -1,34 +1,17 @@
 schema_version: 1
 rules:
-  - id: tool__graphtyper2__map
-    description: Map the registered paired Illumina reads to the frozen GRCh38 reference.
-    phase: tool_execution
-    kind: plugin
-    inputs: [short_fastq_r1, short_fastq_r2, grch38_reference]
-    outputs: [coordinate_sorted_bam, bam_index]
-    upstream: [build_pangenome_manifest]
-    audit_scope: pre_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: implemented
-    source_path: plugins/graphtyper2/run.py
-    environment: plugins/graphtyper2/envs/environment.yaml
-    resource_class: tool_large
-    active_when: {tool: graphtyper2, task: mapping}
-  - id: tool__graphtyper2__genotype
+  - id: graphtyper2
     description: Genotype deterministic disjoint shards of the frozen blinded pangenome SV panel with GraphTyper2.
     phase: tool_execution
     kind: plugin
-    inputs: [coordinate_sorted_bam, blinded_candidate_panel]
+    inputs: [shared_shortread_alignment, shared_shortread_alignment_index, reference, reference_index, candidate_panel]
     outputs: [raw_all_sites_vcf]
-    upstream: [tool__graphtyper2__map]
+    upstream: ["tool__{tool}__execute"]
     audit_scope: pre_score
     manifest_required: true
     log_required: true
     benchmark_required: true
-    implementation_status: implemented
-    source_path: plugins/graphtyper2/run.py
-    environment: plugins/graphtyper2/envs/environment.yaml
-    resource_class: tool_large
-    active_when: {tool: graphtyper2, task: genotyping}
+    implementation_status: verified
+    source_path: run.py
+    environment: envs/environment.yaml
+    resource_class: compute_large

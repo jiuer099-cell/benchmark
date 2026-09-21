@@ -3,15 +3,12 @@ id: graphtyper2
 name: GraphTyper2 external short-read SV genotyper
 version: 2.7.7
 source: external
-paradigm: short_read_pangenome_genotyping
+paradigm: genotyping_only
 comparison_task: panel_genotyping
 
 information_inputs:
-  - target_short_reads
   - reference_grch38
   - canonical_candidate_panel
-  - benchmark_panel_haplotypes
-  - benchmark_panel_af_ac
   - benchmark_supplied_shared_alignment
 
 information_contract:
@@ -23,13 +20,13 @@ information_contract:
   tuning_mode: official_recommended_sv_config
   parameter_source: official_documentation
 
-tasks: [mapping, prepare_assets, genotyping, postprocess]
+tasks: [prepare_assets, genotyping, postprocess]
 
 inputs:
   reference: required
   candidates: required
-  pangenome_manifest: required
-  pangenome_panel: required
+  pangenome_manifest: forbidden
+  pangenome_panel: forbidden
   graph_assets:
     required: false
     accepted_formats: [other]
@@ -58,14 +55,10 @@ execution:
 supported_modes:
   end_to_end_from_reads:
     required_inputs:
-      - short_fastq_r1
-      - short_fastq_r2
       - shared_shortread_alignment
       - shared_shortread_alignment_index
       - reference
       - reference_index
-      - pangenome_manifest
-      - pangenome_panel
       - candidate_panel
     optional_inputs: []
     billable_stages:

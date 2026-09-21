@@ -1545,7 +1545,14 @@ def evidence_profile(
     inputs = payload.get("inputs")
     if not isinstance(inputs, list):
         raise FormalMetricError("resolved-input contract has no inputs list")
-    evidence_names = {"short_fastq_r1", "short_fastq_r2"}
+    evidence_options = (
+        ("paired_fastq", {"short_fastq_r1", "short_fastq_r2"}),
+        (
+            "shared_alignment",
+            {"shared_shortread_alignment", "shared_shortread_alignment_index"},
+        ),
+    )
+    evidence_names = set().union(*(names for _, names in evidence_options))
     selected: dict[str, dict[str, Any]] = {}
     for item in inputs:
         if not isinstance(item, dict):
@@ -1567,14 +1574,20 @@ def evidence_profile(
             "path_type": item.get("path_type"),
         }
     primary = set(selected)
-    paired = {"short_fastq_r1", "short_fastq_r2"}
-    if primary != paired:
-        raise FormalMetricError("resolved short-read evidence is not a complete pair")
-    evidence_kind = "paired_fastq"
+    matching_evidence = [
+        (kind, names)
+        for kind, names in evidence_options
+        if primary == names
+    ]
+    if len(matching_evidence) != 1:
+        raise FormalMetricError(
+            "resolved short-read evidence must be exactly one complete paired FASTQ or shared BAM/BAI contract"
+        )
+    evidence_kind, _ = matching_evidence[0]
     read_validation = payload.get("read_validation", {})
     measured_read_count: int | None = None
     measured_read_bases: int | None = None
-    if isinstance(read_validation, dict):
+    if evidence_kind == "paired_fastq" and isinstance(read_validation, dict):
         validation = read_validation.get("paired_fastq")
         if isinstance(validation, dict):
             candidate_count = validation.get("read_count")

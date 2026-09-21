@@ -1,9 +1,15 @@
 # Paragraph adapter
 
-This bundled adapter begins from the benchmark-supplied paired Illumina FASTQ,
-maps those reads inside the billed tool run, and genotypes the frozen canonical
-candidate panel with Paragraph. The target truth, target assembly, relatives'
-genotypes, and undeclared callsets are not exposed to the process.
+This external adapter consumes only the benchmark-supplied, frozen RG-v2
+Illumina BAM/BAI plus the reference and canonical candidate panel. It does not
+receive FASTQ files, does not map reads, and does not receive pangenome assets.
+The target truth, target assembly, relatives' genotypes, and undeclared
+callsets are not exposed to the process.
+
+The BAM/BAI pair is a Core-managed immutable shared-alignment input. Its lock
+records the source FASTQ and reference identities, while Paragraph's own
+resolved-input manifest freezes the BAM/BAI content hashes. This is a generic
+short-read adapter evidence option; it is not a Paragraph-specific Core path.
 
 The adapter preserves every canonical candidate. Any site missing from the
 native output is subsequently materialized as `./.` with an explicit output
