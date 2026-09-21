@@ -1,0 +1,11 @@
+# TEMPLATE conda environment.  List only what your tool needs at runtime.
+# Pin versions — reproducibility is part of the benchmark contract.
+name: pgbench-adapter-template
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # Example shims — replace with your tool's real requirements:
+  # - samtools >=1.19
+  # - your-tool ==X.Y.Z
+  - python >=3.10

@@ -1,0 +1,23 @@
+schema_version: 1
+rules:
+  # One rule per billable chain your adapter adds.  phase/kind stay fixed.
+  - id: adapter_template
+    description: TEMPLATE — describe in one line what your rule does end to end.
+    phase: tool_execution
+    kind: plugin
+    # Mirror supported_modes.end_to_end_from_reads.required_inputs here
+    # (minus reference/pangenome/candidate inputs already carried globally).
+    inputs: [short_fastq_r1, short_fastq_r2, reference, candidate_panel]
+    outputs: [raw_tool_vcf]
+    upstream: ["tool__{tool}__execute"]
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: unverified   # promote to verified after conformance
+    source_path: run.py
+    environment: envs/environment.yaml
+    # resource_class drives scheduling hints; the honest memory ceiling lives
+    # in the run config (tool_memory_mb).  If your tool builds genome-wide
+    # graphs, chunk inside run.py and declare the measured peak, not a guess.
+    resource_class: compute_large

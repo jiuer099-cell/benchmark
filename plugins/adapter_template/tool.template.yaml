@@ -1,0 +1,125 @@
+# PGBench adapter TEMPLATE — copy this whole directory, rename, then fill in.
+# Rename this file to tool.yaml in your copy (the .template.yaml name keeps CI
+# adapter discovery from treating the scaffold as a formal tool).
+# Every field below is schema-validated (workflow/schemas/tool.schema.yaml);
+# comments show the alternatives for each decision point.  Delete comments
+# that no longer apply once you have chosen.
+interface_version: 2
+
+# Schema: ^[A-Za-z0-9][A-Za-z0-9_.-]*$ — must be unique across plugins/.
+# IMPORTANT: the core must never branch on this id (enforced by CI), but it
+# appears in configs, run directories, and reports.
+id: adapter_template
+name: PGBench adapter template (rename me)
+version: "0.1.0"
+source: external
+
+# Choose ONE paradigm:
+#   short_read_pangenome_genotyping | long_read_pangenome_genotyping
+#   graph_pangenome                 | genotyping_only
+paradigm: short_read_pangenome_genotyping
+comparison_task: panel_genotyping
+
+# Declare what your tool CONSUMES (min 3). Available tokens:
+#   target_short_reads, target_long_reads, reference_grch38,
+#   canonical_candidate_panel, benchmark_panel_haplotypes,
+#   benchmark_panel_af_ac, benchmark_supplied_graph_assets,
+#   benchmark_supplied_tool_index, benchmark_supplied_shared_alignment
+information_inputs:
+  - target_short_reads
+  - reference_grch38
+  - canonical_candidate_panel
+
+# These are the benchmark's fail-closed honesty contract — keep them false.
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  # official_default | official_recommended_sv_config | validation_tuned
+  tuning_mode: official_default
+  # official_default | official_documentation | independent_validation_sample
+  parameter_source: official_default
+
+# tasks:      prepare_assets | index | mapping | calling | genotyping | postprocess
+tasks:
+  - genotyping
+  - postprocess
+
+inputs:
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: required
+  graph_assets:
+    required: false
+    accepted_formats: []     # e.g. [gbz] or [xg_gbwt] if your tool consumes graphs
+    accepted_profiles: []    # e.g. [vg_gbz_min_dist]
+
+capabilities:
+  # read_class: short | long  (must match the track you benchmark on)
+  read_class: short
+  # technology: illumina_pe | pacbio_hifi | pacbio_clr | ont  (see
+  # config/track_registry.yaml; free-form identifiers are allowed but should
+  # name the track's technology).  Never benchmark one adapter across tracks.
+  technology: [illumina_pe]
+  # Schema requires exactly DEL and INS for panel genotyping.
+  svtypes: [DEL, INS]
+  phasing: false
+  novel_discovery: false
+  # native only if your tool emits allele-level linkage itself.
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+
+native_assets:
+  uses_population_or_pangenome_information: false
+  # Population-aware adapters must name their frozen bundle here; else null.
+  frozen_haplotype_source_bundle: null
+
+execution:
+  runner: run.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  # untrusted = development (sandbox_backend none allowed only in dev);
+  # trusted_reviewed = accepted for formal execution.
+  trust_level: untrusted
+  # none (dev only) | apptainer | bwrap
+  sandbox_backend: none
+
+supported_modes:
+  end_to_end_from_reads:
+    # Choose the input block matching your tool (see variants/):
+    #
+    # A) SHORT reads via the benchmark's frozen shared BAM (Paragraph-style):
+    #    [shared_shortread_alignment, shared_shortread_alignment_index,
+    #     reference, pangenome_manifest, pangenome_panel, candidate_panel]
+    #
+    # B) SHORT reads via raw FASTQ (vg/BayesTyper-style, you map yourself):
+    #    [short_fastq_r1, short_fastq_r2, reference, pangenome_manifest,
+    #     pangenome_panel, candidate_panel]
+    #
+    # C) LONG reads via the benchmark's frozen long-read FASTQ (CLR/HiFi/ONT):
+    #    [long_reads_fastq, reference, pangenome_manifest, pangenome_panel,
+    #     candidate_panel]
+    required_inputs:
+      - short_fastq_r1
+      - short_fastq_r2
+      - reference
+      - pangenome_manifest
+      - pangenome_panel
+      - candidate_panel
+    # optional: reference_index, graph_assets, tool_index,
+    #           adapter_asset.<your-asset> (tool-private assets)
+    optional_inputs: []
+    # billable_stages enum: prepare_assets | index | map | call | genotype | postprocess
+    billable_stages:
+      - genotype
+      - postprocess
+
+outputs:
+  # Where run.py's projected all-sites VCF is expected (relative to run dir).
+  vcf: raw/calls.vcf.gz
+  # Both are fixed benchmark policy — do not change:
+  candidate_output_contract: all_sites
+  absence_semantics: no_call
