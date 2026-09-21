@@ -1,7 +1,17 @@
 # PG-F1 实现与验收说明
 
-本次变更新增 `pgbench_pgf1_v1`，用于新 release；已经 seal 的
-PanGenie SR ME-F1 release 不会被重算或覆盖。
+早期 ME-F1 产物仅为 provenance 留存，不进入最终 PG-F1 leaderboard。
+PanGenie 已有 genotyping native output 可以复用，但 evaluator、normalizer、
+PG-F1 与 admission 链必须按本合同重新回放。
+
+版本身份分为两层：
+
+- benchmark release：`PGBench-SR-Illumina-PGF1-v1.0`；
+- score contract：`pgf1_v1`（代码中的 profile ID 为
+  `pgbench_pgf1_v1`）。
+
+以后若只修改评分合同，应升级为 `pgf1_v2`；track/release 身份单独管理，
+不会把二者混成同一个版本号。
 
 ## 正式链路
 

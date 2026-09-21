@@ -1,5 +1,6 @@
 schema_version: 1
-# New release only. This never mutates the sealed ME-F1 v1.0 historical release.
+# Earlier ME-F1 artifacts are provenance-only and are excluded from the final
+# PG-F1 leaderboard. Existing native caller output may be replayed here.
 score:
   id: PG-F1
   version: "1.0"
