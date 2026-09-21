@@ -330,10 +330,13 @@ def parse_vcfdist(
         if mapped_components == len(expected_components):
             status_counts["exact"] += 1
         elif mapped_components > 0:
-            # vcfdist can absorb one normalized component of a complex allele
-            # into its supercluster representation. The remaining component
-            # is still an explicit evaluator decision for the source event.
-            status_counts["partial_complex"] += 1
+            # PG-F1 v1 accepts only one-to-one, fully traceable unit evidence.
+            # A partial component/supercluster assignment must never be turned
+            # into a unit vote or silently removed from the denominator.
+            raise FormalEvaluatorError(
+                "AMBIGUOUS_COMPLEX_MAPPING: vcfdist did not map every "
+                f"component for canonical query {result_id}"
+            )
         else:
             status_counts["unresolved"] += 1
             continue

@@ -46,8 +46,11 @@ disabled by policy (`track_registry.yaml: policy`).
 2. **Fill `tool.yaml`** using the variant guide that matches your input mode.
    The manifest is schema-validated; keep `information_contract` untouched
    (they are the honesty contract, not boilerplate).
-3. **Implement `run_tool()`** in `run.py`. You get preflight checks and the
-   all-sites projection for free; only the "invoke my tool" part is yours.
+3. **Implement `run_tool()`** in `run.py`. You get input *injection* checks
+   and the all-sites projection for free; only the "invoke my tool" part is
+   yours. FASTQ/BAM integrity, SHA256, read counts and dataset identity are
+   Core-managed immutable validation, performed once before every adapter.
+   Do not reimplement or bypass them in an adapter.
    If your tool builds genome-wide graphs in memory, chunk your input like
    `plugins/paragraph/run.py` does — a single whole-genome invocation of that
    kind OOM-killed at 389 GB on the reference server.
@@ -79,6 +82,11 @@ The core injects exactly the inputs you declare in
 Plus always: `PGBENCH_SAMPLE_ID`, `PGBENCH_THREADS`, `PGBENCH_OUTPUT_DIR`,
 `PGBENCH_OUTPUT_VCF`.
 
+The template only consumes already validated, read-only public inputs. A
+tool-specific prerequisite (for example an RG requirement) may be checked in
+the copied tool adapter, but it must not replace Core validation or silently
+reinterpret input identity.
+
 ## Output contract (fixed)
 
 - `outputs.vcf` must cover **every** candidate in `PGBENCH_CANDIDATE_VCF`
@@ -86,6 +94,9 @@ Plus always: `PGBENCH_SAMPLE_ID`, `PGBENCH_THREADS`, `PGBENCH_OUTPUT_DIR`,
 - A candidate your tool did not genotype is emitted as `./.`
   (`absence_semantics: no_call`) — **never** materialize `0/0` for silence.
 - `project_all_sites()` in `run.py` implements this; use it.
+- Keep the native VCF and a deterministic native-record → candidate trace in
+  `tool-work/`. PG-F1 evaluator queries preserve the native representation;
+  the all-sites VCF is only the canonical GT/accounting ledger.
 
 ## What will get your run invalidated
 

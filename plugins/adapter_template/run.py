@@ -58,38 +58,17 @@ def open_text(path: Path, mode: str) -> TextIO:
 
 
 # ---------------------------------------------------------------------------
-# Input preflight helpers — reuse them, they encode benchmark policy
+# Input boundary helpers
 # ---------------------------------------------------------------------------
-def preflight_shared_bam(bam: Path, bai: Path, sample: str) -> None:
-    """Validate the frozen shared BAM and its read group (SM must match)."""
-    if not bai.is_file() or bai.stat().st_size == 0:
-        raise RuntimeError("shared alignment requires a non-empty BAI index")
-    subprocess.run(["samtools", "quickcheck", "-v", str(bam)], check=True)
-    header = subprocess.check_output(["samtools", "view", "-H", str(bam)], text=True)
-    read_groups: dict[str, str] = {}
-    for line in header.splitlines():
-        if line.startswith("@RG\t"):
-            tags = dict(
-                part.split(":", 1) for part in line.split("\t")[1:] if ":" in part
-            )
-            if tags.get("ID"):
-                read_groups[tags["ID"]] = tags.get("SM", "")
-    if not read_groups:
-        raise RuntimeError("shared BAM header declares no @RG read group")
-    mismatched = {rg: sm for rg, sm in read_groups.items() if sm != sample}
-    if mismatched:
-        raise RuntimeError(f"@RG SM mismatch for sample {sample}: {mismatched}")
+def require_readonly_input(path: Path, label: str) -> None:
+    """Check injection only; Core owns content validation and its cache.
 
-
-def preflight_fastq(path: Path) -> None:
-    """Existence + gzip integrity for a (possibly compressed) FASTQ input."""
+    Do not add SHA256, gzip passes, read counting, `samtools quickcheck`, or
+    generic read-group validation here. Those public-input semantics are
+    performed once by Core before this external adapter starts.
+    """
     if not path.is_file() or path.stat().st_size == 0:
-        raise RuntimeError(f"input FASTQ is missing or empty: {path}")
-    if path.name.endswith(".gz"):
-        import gzip
-        with gzip.open(path, "rb") as handle:
-            while handle.read(1 << 20):
-                pass  # full pass; raises gzip.BadGzipFile on truncation/corruption
+        raise RuntimeError(f"Core injected missing/empty validated {label}: {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -141,9 +120,14 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
                 raise RuntimeError(f"candidate panel duplicates {candidate_id}")
             order.append(candidate_id)
             records[candidate_id] = fields
-            by_key[(fields[0], fields[1], fields[3], fields[4])] = candidate_id
+            key = (fields[0], fields[1], fields[3], fields[4])
+            if key in by_key:
+                raise RuntimeError(f"ambiguous duplicate canonical allele key: {key}")
+            by_key[key] = candidate_id
             allele_id = _allele_id(fields[7])
             if allele_id:
+                if allele_id in by_allele:
+                    raise RuntimeError(f"ambiguous duplicate pangenome allele ID: {allele_id}")
                 by_allele[allele_id] = candidate_id
     if not order:
         raise RuntimeError("candidate panel contains no records")
@@ -264,23 +248,29 @@ def main() -> int:
             bam=Path(required("PGBENCH_SHARED_ALIGNMENT_BAM")),
             bai=Path(required("PGBENCH_SHARED_ALIGNMENT_BAI")),
         )
-        preflight_shared_bam(context.bam, context.bai, sample)  # type: ignore[arg-type]
+        require_readonly_input(context.bam, "shared BAM")  # type: ignore[arg-type]
+        require_readonly_input(context.bai, "shared BAM index")  # type: ignore[arg-type]
     elif input_mode == "short_fastq":
         context = dataclasses.replace(
             context,
             fastq_r1=Path(required("PGBENCH_INPUT_FASTQ_R1")),
             fastq_r2=Path(required("PGBENCH_INPUT_FASTQ_R2")),
         )
-        preflight_fastq(context.fastq_r1)  # type: ignore[arg-type]
-        preflight_fastq(context.fastq_r2)  # type: ignore[arg-type]
+        require_readonly_input(context.fastq_r1, "R1 FASTQ")  # type: ignore[arg-type]
+        require_readonly_input(context.fastq_r2, "R2 FASTQ")  # type: ignore[arg-type]
     elif input_mode == "long_fastq":
         context = dataclasses.replace(
             context,
             long_fastq=Path(required("PGBENCH_INPUT_LONG_READS_FASTQ")),
         )
-        preflight_fastq(context.long_fastq)  # type: ignore[arg-type]
-    for name in ("reference_index", "graph_assets", "tool_index"):
-        value = optional(f"PGBENCH_{name.upper()}")
+        require_readonly_input(context.long_fastq, "long-read FASTQ")  # type: ignore[arg-type]
+    optional_variables = {
+        "reference_index": "PGBENCH_REFERENCE_INDEX",
+        "graph_assets": "PGBENCH_GRAPH_DIR",
+        "tool_index": "PGBENCH_INDEX_DIR",
+    }
+    for name, variable in optional_variables.items():
+        value = optional(variable)
         if value:
             context.optional_inputs[name] = Path(value)
 

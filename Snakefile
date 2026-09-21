@@ -35,6 +35,7 @@ OFFICIAL_MODE = config["execution"]["official_score_mode"]
 PANGENOME_ID = config["pangenome"]["id"]
 SYNTHETIC_MODE = config.get("development", {}).get("synthetic_mode", False)
 EVALUATION_MODE = "synthetic_smoke" if SYNTHETIC_MODE else "formal"
+PGF1_ENABLED = config.get("score", {}).get("profile") == "pgbench_pgf1_v1"
 # Use the running module version.  Distribution metadata can be stale when a
 # test target contains remnants of an older installation, which must never be
 # written into provenance as the executor version.
@@ -386,7 +387,18 @@ TOOL_MANIFESTS = [
     for settings in EXTERNAL_SETTINGS
 ]
 if EXTERNAL_SETTINGS:
-    FINAL_TARGETS = [
+    FINAL_TARGETS = (
+        [
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{config['benchmark_contract']['track']}/"
+            f"{settings['tool_id']}/evaluation/consensus/score.json"
+            for settings in EXTERNAL_SETTINGS
+        ]
+        + [
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{config['benchmark_contract']['track']}/"
+            f"{settings['tool_id']}/evaluation/leaderboard-admission.json"
+            for settings in EXTERNAL_SETTINGS
+        ]
+        if PGF1_ENABLED else [
         RESULTS_ROOT + "/report/index.html",
         RESULTS_ROOT + "/summary/score.tsv",
         RESULTS_ROOT + "/summary/point_breakdown.tsv",
@@ -438,7 +450,8 @@ if EXTERNAL_SETTINGS:
                 "provenance-audit.json",
             )
         ],
-    ]
+        ]
+    )
 else:
     FINAL_TARGETS = [RESULTS_ROOT + "/provenance/config.validated.json"]
 
@@ -454,6 +467,7 @@ include: "workflow/rules/panel.smk"
 include: "workflow/rules/contracts.smk"
 include: "workflow/rules/normalization.smk"
 include: "workflow/rules/evaluation.smk"
+include: "workflow/rules/pgf1.smk"
 include: "workflow/rules/provenance.smk"
 include: "workflow/rules/scoring.smk"
 include: "workflow/rules/report.smk"

@@ -177,7 +177,7 @@ def test_information_contract_is_hash_frozen(tmp_path: Path) -> None:
     assert len(documents["parameter_manifest"]["parameter_sha256"]) == 64
 
 
-def test_main_configuration_freezes_unified_panel_and_me_f1() -> None:
+def test_main_configuration_freezes_unified_panel_and_pgf1() -> None:
     config = _yaml(ROOT / "config" / "config.example.yaml")
     contract = config["benchmark_contract"]
     assert contract["chromosomes"] == [f"chr{i}" for i in range(1, 23)]
@@ -188,10 +188,12 @@ def test_main_configuration_freezes_unified_panel_and_me_f1() -> None:
     assert contract["read_class"] == "short"
     assert contract["cross_track_ranking"] is False
     assert len(contract["downsampling_seeds"]) >= 3
-    assert config["score"]["profile"] == "pgbench_me_f1_v1"
-    assert config["catalogs"]["score_weights"] == "config/me_f1_scoring.yaml"
-    score = _yaml(ROOT / "config" / "me_f1_scoring.yaml")["score"]
-    assert score["evaluators"] == ["truvari", "aardvark_gt", "vcfdist"]
-    assert score["formula"] == "arithmetic_mean"
-    assert score["renormalize_missing_weights"] is False
+    assert config["score"]["profile"] == "pgbench_pgf1_v1"
+    assert config["catalogs"]["score_weights"] == "config/pg_f1_scoring.yaml"
+    score = _yaml(ROOT / "config" / "pg_f1_scoring.yaml")["score"]
+    assert score["evaluators"] == ["truvari", "aardvark", "vcfdist"]
+    assert score["vote"] == {
+        "kind": "binary_2_of_3", "threshold": 2, "dynamic_denominator": False
+    }
+    assert score["evaluator_evidence"]["require_all_evaluators"] is True
     assert score["stratification_affects_primary_score"] is False

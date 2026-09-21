@@ -2,6 +2,7 @@ schema_version: 1
 
 benchmark_contract:
   track: short_read_fixed_panel_genotyping
+  release_id: PGBench-SR-Illumina-PGF1-v1.0
   read_class: short
   cross_track_ranking: false
   chromosomes: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12, chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22]
@@ -84,7 +85,7 @@ truth:
 catalogs:
   truthsets: config/truthsets.yaml
   stratifications: config/stratifications.yaml
-  score_weights: config/me_f1_scoring.yaml
+  score_weights: config/pg_f1_scoring.yaml
   evaluator_profile: config/evaluator_profile.yaml
   metric_dictionary: config/metric_dictionary.yaml
   allowed_information: config/allowed_information.yaml
@@ -112,8 +113,8 @@ development:
   evaluator_fixture_dir: null
 
 score:
-  profile: pgbench_me_f1_v1
-  final_score_name: ME-F1
+  profile: pgbench_pgf1_v1
+  final_score_name: PG-F1
   produce_ranking: true
 
 evaluation:

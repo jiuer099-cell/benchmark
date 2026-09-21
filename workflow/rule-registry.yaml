@@ -213,6 +213,36 @@ rules:
     source_path: workflow/scripts/materialize_evaluation_query.py
     environment: workflow/envs/core.yaml
     resource_class: local_medium
+  - id: materialize_canonical_units
+    description: Freeze the ALT-specific canonical candidate × allele unit set for PG-F1.
+    phase: normalization
+    kind: core
+    inputs: [blinded_panel_vcf, hidden_truth_ledger]
+    outputs: [canonical_units_tsv_gz, canonical_unit_set_sha256]
+    upstream: [build_blinded_challenge_panel]
+    audit_scope: formal_validity_gate
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/materialize_canonical_units.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_small
+  - id: materialize_pgf1_evaluator_query
+    description: Preserve caller representation while adding deterministic unit trace IDs for evaluators.
+    phase: normalization
+    kind: core
+    inputs: [linked_vcf, canonical_units_tsv_gz]
+    outputs: [representation_preserving_evaluator_query]
+    upstream: [link_pangenome_alleles, materialize_canonical_units]
+    audit_scope: formal_validity_gate
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/materialize_pgf1_evaluator_query.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_small
   - id: evaluate_truvari
     description: Run genotype-aware Truvari and emit benchmark-defined TP FP FN.
     phase: evaluation
@@ -258,19 +288,49 @@ rules:
     source_path: workflow/scripts/run_formal_evaluator.py
     environment: workflow/envs/core.yaml
     resource_class: compute_medium
-  - id: compute_me_f1
-    description: Compute ME-F1 as the arithmetic mean of the three evaluator F1 values.
+  - id: normalize_pgf1_evidence
+    description: Trace raw evaluator evidence to each canonical unit; no aggregate-to-unit inference.
     phase: scoring
     kind: core
-    inputs: [evaluator_ledgers, addressability_audit_json, information_contracts]
-    outputs: [score_json]
-    upstream: [evaluate_truvari, evaluate_aardvark, evaluate_vcfdist, freeze_information_contract]
+    inputs: [evaluator_ledgers, canonical_units_tsv_gz]
+    outputs: [normalized_unit_evidence]
+    upstream: [evaluate_truvari, evaluate_aardvark, evaluate_vcfdist, materialize_canonical_units]
     audit_scope: formal_validity_gate
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/scripts/pgbench_scoring.py
+    source_path: workflow/scripts/normalize_evaluator_evidence.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_small
+  - id: compute_pg_f1
+    description: Apply fixed binary 2-of-3 evidence vote and one Core exact-unphased GT check to derive PG-F1.
+    phase: scoring
+    kind: core
+    inputs: [canonical_units_tsv_gz, all_sites_vcf_gz, normalized_unit_evidence]
+    outputs: [pgf1_evidence_ledger, score_json]
+    upstream: [normalize_pgf1_evidence]
+    audit_scope: formal_validity_gate
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/materialize_pgf1_evidence.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_small
+  - id: validate_pgf1_leaderboard_admission
+    description: Admit only invariant-matched valid PG-F1 scores to a track-local leaderboard.
+    phase: provenance
+    kind: post_score
+    inputs: [score_json, canonical_unit_set_sha256, evaluator_bundle]
+    outputs: [leaderboard_admission_json]
+    upstream: [compute_pg_f1]
+    audit_scope: post_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/validate_leaderboard_admission.py
     environment: workflow/envs/core.yaml
     resource_class: local_small
   - id: finalize_score_provenance

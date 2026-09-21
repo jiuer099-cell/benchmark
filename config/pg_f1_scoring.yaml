@@ -1,0 +1,23 @@
+schema_version: 1
+# New release only. This never mutates the sealed ME-F1 v1.0 historical release.
+score:
+  id: PG-F1
+  version: "1.0"
+  score_semantics_version: "1.0"
+  canonical_scoring_unit: canonical_candidate_x_alt
+  canonical_unit_id: candidate_id:A<one_based_alt_index>
+  evaluators: [truvari, aardvark, vcfdist]
+  evaluator_evidence:
+    relations: [NONE, LM, AM]
+    binary_mapping: {NONE: 0, LM: 0, AM: 1}
+    require_all_evaluators: true
+    no_aggregate_to_unit_inference: true
+    mapping_contract: one_to_one_only
+  vote: {kind: binary_2_of_3, threshold: 2, dynamic_denominator: false}
+  genotype: {phase_sensitive: false, allele_order_sensitive: false, canonicalization: alt_specific_unphased_dosage, no_call: NA}
+  accounting: {truth_alt_query_alt_match_exact_gt: TP, truth_alt_query_alt_gt_mismatch: FN+FP, truth_alt_query_ref_or_no_call: FN, truth_ref_query_alt: FP, truth_ref_query_ref: IGNORE}
+  failure_policy: {missing_evaluator_evidence: CONSENSUS_EVIDENCE_INCOMPLETE, complex_mapping: AMBIGUOUS_COMPLEX_MAPPING, normalizer_failure: NORMALIZER_RECONCILIATION_FAILURE, failure_is_not_score_zero: true}
+  stratification_affects_primary_score: false
+profile: {id: pgbench_pgf1_v1, final_score_name: PG-F1, score_min: 0.0, score_max: 100.0, display_decimals: 4, produce_ranking: true}
+published_metrics: [pg_f1, precision, recall, tp, fp, fn]
+diagnostics_only: [evaluator_votes, evaluator_native_summaries, all_site_call_rate, exact_gt_accuracy, no_call_rate, gt_confusion_matrix]

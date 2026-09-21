@@ -43,6 +43,8 @@ properties:
     properties:
       track:
         $ref: "#/$defs/identifier"
+      release_id:
+        $ref: "#/$defs/identifier"
       read_class:
         enum: [short, long]
       cross_track_ranking:
@@ -450,9 +452,9 @@ properties:
     required: [profile, final_score_name, produce_ranking]
     properties:
       profile:
-        const: pgbench_me_f1_v1
+        enum: [pgbench_me_f1_v1, pgbench_pgf1_v1]
       final_score_name:
-        const: ME-F1
+        enum: [ME-F1, PG-F1]
       produce_ranking:
         const: true
   evaluation:

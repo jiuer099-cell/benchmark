@@ -1,6 +1,33 @@
 FORMAL_EVALUATORS = ("truvari", "aardvark", "vcfdist")
 
 
+def formal_evaluator_query(wildcards):
+    if PGF1_ENABLED:
+        return (
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{config['benchmark_contract']['track']}/"
+            f"{wildcards.tool}/evaluation/evaluator-query.vcf.gz"
+        )
+    return (
+        f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+        f"{wildcards.tool}/canonical/evaluation-query.vcf.gz"
+    )
+
+
+def formal_evaluator_query_manifest(wildcards):
+    if PGF1_ENABLED:
+        # The representation-preserving query derives directly from linked
+        # caller output.  The legacy canonical evaluation-query manifest must
+        # not be pulled into a PG-F1 run merely as an accidental dependency.
+        return semantic_rule_manifest(
+            "link_pangenome_alleles",
+            f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}",
+        )
+    return (
+        RESULTS_ROOT + "/provenance/rules/materialize_evaluation_query/"
+        f"{SAMPLE_ID}.{wildcards.tool}.{OFFICIAL_MODE}.json"
+    )
+
+
 def evaluation_tool_manifest(wildcards):
     for settings in EXTERNAL_SETTINGS:
         if settings["tool_id"] == wildcards.tool:
@@ -97,14 +124,8 @@ if not SYNTHETIC_MODE:
 
     rule run_formal_evaluator:
         input:
-            query=(
-                f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-                "{tool}/canonical/evaluation-query.vcf.gz"
-            ),
-            link_rule_manifest=(
-                RESULTS_ROOT + "/provenance/rules/materialize_evaluation_query/"
-                f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
-            ),
+            query=formal_evaluator_query,
+            link_rule_manifest=formal_evaluator_query_manifest,
             query_audit=(
                 f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
                 "{tool}/canonical/evaluation-query.audit.json"
