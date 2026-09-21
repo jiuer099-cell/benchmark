@@ -43,7 +43,7 @@ execution:
   runner: run.py
   environment: envs/environment.yaml
   rule_registry: rule-registry.yaml
-  trust_level: trusted_reviewed
+  trust_level: untrusted
   sandbox_backend: bwrap
 supported_modes:
   end_to_end_from_reads:
