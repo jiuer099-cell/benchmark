@@ -67,20 +67,29 @@ def test_native_ledger_replays_to_one_auditable_pgf1_score(tmp_path: Path):
 
 
 def test_m1_representation_preserving_query_does_not_become_truth_like(tmp_path: Path):
-    source=tmp_path/"linked.vcf"; output=tmp_path/"query.vcf.gz"
+    source=tmp_path/"linked.vcf"; output=tmp_path/"query.vcf.gz"; audit=tmp_path/"query.audit.json"
     source.write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\nchr1\t101\tNATIVE_B\tN\t<INS:CALLER_B>\t.\tPASS\tSVTYPE=INS;PANGENOME_LINKED_ID=C1;PANGENOME_CANDIDATE_COUNT=1\tGT\t0/1\n",encoding="utf-8")
-    assert evaluator_query_main(["--linked-vcf",str(source),"--output-vcf",str(output)]) == 0
+    panel=tmp_path/"panel.vcf";hidden=tmp_path/"hidden.tsv";units=tmp_path/"units.tsv.gz"
+    panel.write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t101\tC1\tN\t<INS>\t.\tPASS\tEND=101;SVTYPE=INS\n",encoding="utf-8")
+    hidden.write_text("candidate_id\ttruth_gt\ttruth_scorable\nC1\t0/1\ttrue\n",encoding="utf-8")
+    materialize_units(panel,hidden,units,tmp_path/"units.sha",tmp_path/"units.audit.json")
+    assert evaluator_query_main(["--linked-vcf",str(source),"--canonical-units",str(units),"--output-vcf",str(output),"--audit-json",str(audit)]) == 0
     with open_text(output,"rt") as handle: rendered=handle.read()
     assert "<INS:CALLER_B>" in rendered
     assert "PGBENCH_UNIT_TRACE=C1:A1" in rendered
     assert "PGBENCH_NATIVE_RECORD_ID=NATIVE_B" in rendered
     assert "\tC1\tN\t<INS:CALLER_B>\t" in rendered
+    assert '"caller_representation_rewritten": false' in audit.read_text(encoding="utf-8")
 
 
 def test_no_call_is_not_submitted_as_an_evaluator_event(tmp_path: Path):
-    source=tmp_path/"linked.vcf"; output=tmp_path/"query.vcf.gz"
+    source=tmp_path/"linked.vcf"; output=tmp_path/"query.vcf.gz"; audit=tmp_path/"query.audit.json"
     source.write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\nchr1\t101\tNATIVE\tN\t<DEL>\t.\tPASS\tPANGENOME_LINKED_ID=C1;PANGENOME_CANDIDATE_COUNT=1\tGT\t.\n",encoding="utf-8")
-    assert evaluator_query_main(["--linked-vcf",str(source),"--output-vcf",str(output)]) == 0
+    panel=tmp_path/"panel.vcf";hidden=tmp_path/"hidden.tsv";units=tmp_path/"units.tsv.gz"
+    panel.write_text("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t101\tC1\tN\t<DEL>\t.\tPASS\tEND=120;SVTYPE=DEL\n",encoding="utf-8")
+    hidden.write_text("candidate_id\ttruth_gt\ttruth_scorable\nC1\t0/1\ttrue\n",encoding="utf-8")
+    materialize_units(panel,hidden,units,tmp_path/"units.sha",tmp_path/"units.audit.json")
+    assert evaluator_query_main(["--linked-vcf",str(source),"--canonical-units",str(units),"--output-vcf",str(output),"--audit-json",str(audit)]) == 0
     with open_text(output,"rt") as handle:
         assert all(line.startswith("#") for line in handle if line.strip())
 

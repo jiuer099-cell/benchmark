@@ -28,6 +28,18 @@ def formal_evaluator_query_manifest(wildcards):
     )
 
 
+def formal_evaluator_query_audit(wildcards):
+    if PGF1_ENABLED:
+        return (
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{config['benchmark_contract']['track']}/"
+            f"{wildcards.tool}/evaluation/evaluator-query.audit.json"
+        )
+    return (
+        f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
+        f"{wildcards.tool}/canonical/evaluation-query.audit.json"
+    )
+
+
 def evaluation_tool_manifest(wildcards):
     for settings in EXTERNAL_SETTINGS:
         if settings["tool_id"] == wildcards.tool:
@@ -126,10 +138,7 @@ if not SYNTHETIC_MODE:
         input:
             query=formal_evaluator_query,
             link_rule_manifest=formal_evaluator_query_manifest,
-            query_audit=(
-                f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/"
-                "{tool}/canonical/evaluation-query.audit.json"
-            ),
+            query_audit=formal_evaluator_query_audit,
             truth=evaluation_truth_vcf,
             truth_index=evaluation_truth_index,
             truth_rule_manifest=evaluation_truth_rule_manifest,

@@ -233,7 +233,7 @@ rules:
     phase: normalization
     kind: core
     inputs: [linked_vcf, canonical_units_tsv_gz]
-    outputs: [representation_preserving_evaluator_query]
+    outputs: [representation_preserving_evaluator_query, evaluator_query_audit_json]
     upstream: [link_pangenome_alleles, materialize_canonical_units]
     audit_scope: formal_validity_gate
     manifest_required: true

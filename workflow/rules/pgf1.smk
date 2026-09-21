@@ -20,11 +20,13 @@ if PGF1_ENABLED:
     rule materialize_pgf1_evaluator_query:
         input:
             linked=f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{{tool}}/canonical/linked.vcf",
+            units=PGF1_UNITS,
         output:
             query=PGF1_ROOT + "/{tool}/evaluation/evaluator-query.vcf.gz",
+            audit=PGF1_ROOT + "/{tool}/evaluation/evaluator-query.audit.json",
         conda: "../envs/core.yaml"
         shell:
-            "python workflow/scripts/materialize_pgf1_evaluator_query.py --linked-vcf {input.linked:q} --output-vcf {output.query:q}"
+            "python workflow/scripts/materialize_pgf1_evaluator_query.py --linked-vcf {input.linked:q} --canonical-units {input.units:q} --output-vcf {output.query:q} --audit-json {output.audit:q}"
 
     rule normalize_pgf1_evidence:
         input:
