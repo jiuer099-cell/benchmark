@@ -151,7 +151,11 @@ def main(argv: list[str] | None = None) -> int:
             "hidden_truth": args.output_dir / "hidden-truth.tsv",
             "linked": args.output_dir / "linked.vcf",
             "all_sites": args.output_dir / "all-sites.vcf.gz",
-            "truth": args.output_dir / "truth.vcf.gz",
+            # Leave the replay truth uncompressed.  The acceptance runner must
+            # explicitly BGZF-compress and tabix-index it with its frozen bio
+            # toolchain before invoking evaluators; ordinary gzip is not a
+            # valid random-access evaluator input.
+            "truth": args.output_dir / "truth.vcf",
             "bed": args.output_dir / "benchmark.bed",
         }
         write_vcf(outputs["canonical_panel"], panel_headers, panel_subset)

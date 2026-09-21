@@ -49,3 +49,4 @@ def test_small_replay_is_stratified_and_never_production_eligible(tmp_path: Path
     assert manifest["production_eligible"] is False
     assert manifest["leaderboard_admissible"] is False
     assert manifest["selected_unit_count"] == 4
+    assert (output / "truth.vcf").read_text(encoding="utf-8").startswith("#CHROM")
