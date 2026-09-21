@@ -101,7 +101,10 @@ execution:
   cache_policy: isolated_empty_tool_cache
   random_seed: 20260716
   tool_threads: 16
-  tool_memory_mb: 65536
+  # Chunked multigrmpy (see plugins/paragraph/README.md): default budget of
+  # 1000 candidates/chunk at parallelism 2 peaks near ~2 x 20 GB.  Re-measure
+  # with a chr22 pilot before lowering this declaration.
+  tool_memory_mb: 98304
   tool_timeout_seconds: 604800
 
 development:

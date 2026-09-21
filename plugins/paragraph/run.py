@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
-"""PGBench adapter for Paragraph from a frozen shared BAM through all-sites VCF."""
+"""PGBench adapter for Paragraph from a frozen shared BAM through all-sites VCF.
+
+Memory contract (revised after the 2026-09-21 OOM incident): ``multigrmpy.py``
+builds one pangenome graph per invocation and its peak RSS scales with the
+number of graph sites it receives.  Feeding the whole 18,164-candidate genome
+panel in a single invocation peaked at ~389 GB and was killed by the kernel.
+This adapter now chunks the candidate panel (one contig per chunk, optionally
+split further by a candidate-count budget) and genotypes chunks with bounded
+concurrency, so peak memory scales with the largest chunk instead of the whole
+genome.  Chunking never changes results: chunks are disjoint by contig and the
+final projection deterministically covers every canonical candidate.
+"""
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TextIO
+from typing import Sequence, TextIO
+
+DEFAULT_MAX_CANDIDATES_PER_CHUNK = 1000
+DEFAULT_CHUNK_PARALLELISM = 2
 
 
 def required(name: str) -> str:
@@ -22,16 +39,28 @@ def open_text(path: Path, mode: str) -> TextIO:
 
 
 def read_length_from_bam(path: Path) -> int:
-    """Read a representative sequenced-read length without reopening FASTQ."""
+    """Read a representative sequenced-read length without buffering the BAM.
 
-    result = subprocess.run(
-        ["samtools", "view", str(path)], capture_output=True, text=True, check=True
+    The previous implementation captured the full ``samtools view`` stdout in
+    memory before scanning it; this version streams one line and stops.
+    """
+
+    process = subprocess.Popen(
+        ["samtools", "view", str(path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
     )
-    for line in result.stdout.splitlines():
-        fields = line.split("\t")
-        if len(fields) >= 10 and fields[9] not in {"", "*"}:
-            return len(fields[9])
-    raise RuntimeError("frozen shared BAM contains no sequenced reads")
+    assert process.stdout is not None
+    try:
+        for line in process.stdout:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) >= 10 and fields[9] not in {"", "*"}:
+                return len(fields[9])
+        raise RuntimeError("frozen shared BAM contains no sequenced reads")
+    finally:
+        process.kill()
+        process.wait()
 
 
 def _allele_id(info: str) -> str | None:
@@ -52,18 +81,34 @@ def _genotype(fields: list[str]) -> str:
     return value if value not in {"", "."} else "./."
 
 
-def project_all_sites(native: Path, candidates: Path, destination: Path, sample: str) -> tuple[int, int]:
-    """Project native Paragraph genotypes onto every frozen candidate."""
+@dataclasses.dataclass(frozen=True)
+class CandidatePanel:
+    """Deterministic in-memory index of the frozen canonical candidate panel."""
 
+    meta: tuple[str, ...]
+    header: str
+    order: tuple[str, ...]
+    records: dict[str, list[str]]
+    by_allele: dict[str, str]
+    by_key: dict[tuple[str, str, str, str], str]
+    contigs: tuple[str, ...]
+    contig_records: dict[str, tuple[str, ...]]
+
+
+def load_candidate_panel(path: Path) -> CandidatePanel:
     order: list[str] = []
     records: dict[str, list[str]] = {}
     by_allele: dict[str, str] = {}
     by_key: dict[tuple[str, str, str, str], str] = {}
     meta: list[str] = []
-    with open_text(candidates, "rt") as handle:
+    header = ""
+    with open_text(path, "rt") as handle:
         for line in handle:
             if line.startswith("##"):
                 meta.append(line)
+                continue
+            if line.startswith("#CHROM"):
+                header = line.rstrip("\n")
                 continue
             if not line.strip() or line.startswith("#"):
                 continue
@@ -79,38 +124,135 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
             allele_id = _allele_id(fields[7])
             if allele_id:
                 by_allele[allele_id] = candidate_id
-    if not order:
+    if not order or not header:
         raise RuntimeError("candidate panel contains no records")
+    contig_records: dict[str, list[str]] = {}
+    for candidate_id in order:
+        contig_records.setdefault(records[candidate_id][0], []).append(candidate_id)
+    return CandidatePanel(
+        meta=tuple(meta),
+        header=header,
+        order=tuple(order),
+        records=records,
+        by_allele=by_allele,
+        by_key=by_key,
+        contigs=tuple(contig_records),
+        contig_records={contig: tuple(ids) for contig, ids in contig_records.items()},
+    )
+
+
+def write_chunks(
+    panel: CandidatePanel,
+    chunk_dir: Path,
+    max_per_chunk: int,
+    contig_filter: frozenset[str] | None = None,
+) -> list[Path]:
+    """Write disjoint VCF chunks; each chunk is one contig (or a part of it)."""
+
+    if contig_filter is not None:
+        missing = sorted(contig_filter - set(panel.contigs))
+        if missing:
+            raise RuntimeError(f"requested contigs absent from candidate panel: {missing}")
+    selected = panel.contigs if contig_filter is None else [
+        contig for contig in panel.contigs if contig in contig_filter
+    ]
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunks: list[Path] = []
+    index = 0
+    for contig in selected:
+        ids = panel.contig_records[contig]
+        for start in range(0, len(ids), max_per_chunk):
+            part_ids = ids[start : start + max_per_chunk]
+            index += 1
+            path = chunk_dir / f"chunk-{index:03d}-{contig}-part{start // max_per_chunk + 1:03d}.vcf"
+            with path.open("wt", encoding="utf-8") as out:
+                out.writelines(panel.meta)
+                out.write(panel.header + "\n")
+                for candidate_id in part_ids:
+                    out.write("\t".join(panel.records[candidate_id]) + "\n")
+            chunks.append(path)
+    if not chunks:
+        raise RuntimeError("chunking produced zero chunks")
+    return chunks
+
+
+def run_chunk(
+    chunk: Path,
+    manifest: Path,
+    reference: Path,
+    work: Path,
+    threads: int,
+    max_depth: int,
+) -> Path | None:
+    """Genotype one chunk with multigrmpy; return its native genotypes VCF."""
+
+    out = work / f"native-{chunk.stem}"
+    subprocess.run(
+        [
+            "multigrmpy.py", "-i", str(chunk), "-m", str(manifest),
+            "-r", str(reference), "-o", str(out), "-t", str(threads),
+            "-M", str(max_depth),
+        ],
+        check=True,
+    )
+    genotypes = out / "genotypes.vcf.gz"
+    return genotypes if genotypes.is_file() else None
+
+
+def project_all_sites(
+    native_paths: Sequence[Path],
+    panel: CandidatePanel,
+    destination: Path,
+    sample: str,
+    pilot_contigs: Sequence[str] | None = None,
+) -> tuple[int, int]:
+    """Project native Paragraph genotypes (possibly chunked) onto every candidate."""
+
     calls: dict[str, str] = {}
-    with open_text(native, "rt") as handle:
-        for line in handle:
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8:
-                raise RuntimeError("Paragraph output contains a malformed record")
-            candidate_id = fields[2] if fields[2] in records else None
-            if candidate_id is None:
-                allele_id = _allele_id(fields[7])
-                candidate_id = by_allele.get(allele_id) if allele_id else None
-            if candidate_id is None:
-                candidate_id = by_key.get((fields[0], fields[1], fields[3], fields[4]))
-            if candidate_id is not None:
-                if candidate_id in calls:
-                    raise RuntimeError(f"Paragraph output duplicates {candidate_id}")
-                calls[candidate_id] = _genotype(fields)
+    for native in native_paths:
+        with open_text(native, "rt") as handle:
+            for line in handle:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) < 8:
+                    raise RuntimeError("Paragraph output contains a malformed record")
+                candidate_id = fields[2] if fields[2] in panel.records else None
+                if candidate_id is None:
+                    allele_id = _allele_id(fields[7])
+                    candidate_id = panel.by_allele.get(allele_id) if allele_id else None
+                if candidate_id is None:
+                    candidate_id = panel.by_key.get((fields[0], fields[1], fields[3], fields[4]))
+                if candidate_id is not None:
+                    if candidate_id in calls:
+                        raise RuntimeError(f"Paragraph output duplicates {candidate_id}")
+                    calls[candidate_id] = _genotype(fields)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with open_text(destination, "wt") as output:
         output.write("##fileformat=VCFv4.2\n")
-        for line in meta:
+        for line in panel.meta:
             if not line.startswith("##fileformat") and not line.startswith("##FORMAT=<ID=GT,"):
                 output.write(line)
         output.write("##source=PGBench-Paragraph-all-sites-adapter\n")
+        if pilot_contigs:
+            output.write(f"##PGBENCH_Paragraph_PilotContigs={','.join(pilot_contigs)}\n")
         output.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
         output.write(f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n")
-        for candidate_id in order:
-            output.write("\t".join(records[candidate_id][:8] + ["GT", calls.get(candidate_id, "./.")]) + "\n")
-    return len(calls), len(order) - len(calls)
+        for candidate_id in panel.order:
+            output.write(
+                "\t".join(panel.records[candidate_id][:8] + ["GT", calls.get(candidate_id, "./.")]) + "\n"
+            )
+    return len(calls), len(panel.order) - len(calls)
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    value = int(raw)
+    if value < 1:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw}")
+    return value
 
 
 def main() -> int:
@@ -119,12 +261,27 @@ def main() -> int:
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
     candidates = Path(required("PGBENCH_CANDIDATE_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
-    threads = required("PGBENCH_THREADS")
+    threads = _positive_int_env("PGBENCH_THREADS", 1)
     output_dir = Path(required("PGBENCH_OUTPUT_DIR")).resolve()
     output_vcf = Path(required("PGBENCH_OUTPUT_VCF")).resolve()
     output_vcf.relative_to(output_dir)
     work = output_dir / "paragraph-work"
     work.mkdir(parents=True, exist_ok=True)
+
+    contigs_raw = os.environ.get("PGBENCH_PARAGRAPH_CONTIGS")
+    contig_filter = (
+        frozenset(part.strip() for part in contigs_raw.split(",") if part.strip())
+        if contigs_raw
+        else None
+    )
+    max_per_chunk = _positive_int_env(
+        "PGBENCH_PARAGRAPH_MAX_CANDIDATES_PER_CHUNK", DEFAULT_MAX_CANDIDATES_PER_CHUNK
+    )
+    parallelism = min(
+        _positive_int_env("PGBENCH_PARAGRAPH_CHUNK_PARALLELISM", DEFAULT_CHUNK_PARALLELISM),
+        threads,
+    )
+
     if not bai.is_file() or bai.stat().st_size == 0:
         raise RuntimeError("Paragraph requires the frozen shared BAM index")
     subprocess.run(["samtools", "quickcheck", "-v", str(bam)], check=True)
@@ -133,25 +290,56 @@ def main() -> int:
     ).splitlines()
     depths = [float(line.split("\t")[6]) for line in coverage if line and not line.startswith("#")]
     depth = sum(depths) / len(depths) if depths else 1.0
+    max_depth = max(20, round(depth * 20))
     manifest = work / "sample.tsv"
     manifest.write_text(
         "id\tpath\tread length\tdepth\n"
         f"{sample}\t{bam}\t{read_length_from_bam(bam)}\t{depth:.6f}\n",
         encoding="utf-8",
     )
-    native = work / "native"
-    subprocess.run(
-        [
-            "multigrmpy.py", "-i", str(candidates), "-m", str(manifest),
-            "-r", str(reference), "-o", str(native), "-t", threads,
-            "-M", str(max(20, round(depth * 20))),
-        ],
-        check=True,
+
+    panel = load_candidate_panel(candidates)
+    chunks = write_chunks(panel, work / "chunks", max_per_chunk, contig_filter)
+    threads_per_chunk = max(1, threads // parallelism)
+    print(
+        f"Paragraph chunked genotyping: candidates={len(panel.order)} "
+        f"chunks={len(chunks)} max_per_chunk={max_per_chunk} "
+        f"parallelism={parallelism} threads_per_chunk={threads_per_chunk} "
+        f"pilot_contigs={','.join(sorted(contig_filter)) if contig_filter else 'none'}"
     )
-    source = native / "genotypes.vcf.gz"
-    if not source.is_file():
-        raise RuntimeError("Paragraph did not create genotypes.vcf.gz")
-    matched, no_call = project_all_sites(source, candidates, output_vcf, sample)
+    with ThreadPoolExecutor(max_workers=parallelism) as pool:
+        futures = [
+            pool.submit(run_chunk, chunk, manifest, reference, work, threads_per_chunk, max_depth)
+            for chunk in chunks
+        ]
+        native = [future.result() for future in futures]
+    empty = [chunk for chunk, path in zip(chunks, native) if path is None]
+    native_paths = [path for path in native if path is not None]
+    if empty:
+        print(f"WARNING: {len(empty)} chunk(s) produced no genotypes.vcf.gz: {[c.name for c in empty]}")
+
+    pilot_contigs = sorted(contig_filter) if contig_filter else None
+    matched, no_call = project_all_sites(native_paths, panel, output_vcf, sample, pilot_contigs)
+    if contig_filter:
+        marker = output_dir / "paragraph-pilot.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "pilot": True,
+                    "genotyped_contigs": pilot_contigs,
+                    "chunks": len(chunks),
+                    "matched": matched,
+                    "no_call": no_call,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(
+            "WARNING: PGBENCH_PARAGRAPH_CONTIGS is set, so this is a PILOT run. "
+            "The output covers only the pilot contigs; it must not be used for a formal score."
+        )
     print(f"Paragraph candidate projection: matched={matched} no_call={no_call}")
     return 0
 
