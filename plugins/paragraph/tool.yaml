@@ -55,6 +55,9 @@ supported_modes:
     optional_inputs: [reference_index]
     billable_stages: [prepare_assets, genotype, postprocess]
 outputs:
-  vcf: raw/calls.vcf.gz
+  # Paragraph projects its canonical all-sites ledger as plain VCF. This keeps
+  # the external-adapter transport independent of optional BGZF/index tooling;
+  # Core owns any downstream evaluator-specific conversion.
+  vcf: raw/calls.vcf
   candidate_output_contract: all_sites
   absence_semantics: no_call
