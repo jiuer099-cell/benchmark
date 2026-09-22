@@ -153,11 +153,22 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
                 if candidate_id is not None:
                     match_strategy = "exact_variant_key"
             if candidate_id is None or match_strategy is None:
-                raise RuntimeError(
-                    "native tool record cannot be deterministically projected to a "
-                    f"canonical candidate at line {line_number}: "
-                    f"{fields[0]}:{fields[1]} {fields[3]}>{fields[4]}"
+                # A tool-native panel/graph may contain calls outside the fixed
+                # canonical scoring universe. Retain that fact in the trace,
+                # but never manufacture a candidate link or score it.
+                trace_rows.append(
+                    (
+                        line_number,
+                        "",
+                        "outside_canonical_universe",
+                        fields[0],
+                        fields[1],
+                        fields[3],
+                        fields[4],
+                        _genotype(fields),
+                    )
                 )
+                continue
             if candidate_id in calls:
                 raise RuntimeError(f"tool output duplicates {candidate_id}")
             genotype = _genotype(fields)

@@ -98,10 +98,11 @@ reinterpret input identity.
   (`absence_semantics: no_call`) — **never** materialize `0/0` for silence.
 - `project_all_sites()` in `run.py` implements this; use it.
 - Keep the native VCF in `tool-work/`. The template writes the deterministic
-  `native-to-canonical-projection.tsv` trace there and fails on a native record
-  it cannot map one-to-one. PG-F1 evaluator queries preserve the native
-  representation; the all-sites VCF is only the canonical GT/accounting
-  ledger.
+  `native-to-canonical-projection.tsv` trace there. A tool-native record
+  outside the fixed canonical universe is retained with
+  `outside_canonical_universe` (never silently counted); duplicate mapping to
+  one canonical candidate fails. PG-F1 evaluator queries preserve the native
+  representation; the all-sites VCF is only the canonical GT/accounting ledger.
 
 ## What will get your run invalidated
 

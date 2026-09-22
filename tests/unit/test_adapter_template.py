@@ -45,7 +45,7 @@ def test_template_projection_writes_auditable_native_trace(tmp_path: Path) -> No
     assert "PGSV_1\tpangenome_allele_id\tchr1\t10\tA\tT\t0/1" in trace.read_text(encoding="utf-8")
 
 
-def test_template_projection_rejects_unmapped_native_record(tmp_path: Path) -> None:
+def test_template_projection_traces_native_record_outside_scoring_universe(tmp_path: Path) -> None:
     candidates = _vcf(
         tmp_path / "candidates.vcf",
         ["chr1\t10\tPGSV_1\tA\tT\t.\t.\t.\tGT\t./.\n"],
@@ -54,8 +54,10 @@ def test_template_projection_rejects_unmapped_native_record(tmp_path: Path) -> N
         tmp_path / "native.vcf",
         ["chr1\t11\t.\tA\tC\t.\t.\t.\tGT\t0/1\n"],
     )
-    with pytest.raises(RuntimeError, match="cannot be deterministically projected"):
-        adapter_template.project_all_sites(native, candidates, tmp_path / "raw" / "calls.vcf", "HG002")
+    output = tmp_path / "raw" / "calls.vcf"
+    assert adapter_template.project_all_sites(native, candidates, output, "HG002") == (0, 1)
+    trace = output.parent / "tool-work" / "native-to-canonical-projection.tsv"
+    assert "\t\toutside_canonical_universe\tchr1\t11\tA\tC\t0/1" in trace.read_text(encoding="utf-8")
 
 
 def test_template_rejects_multiple_primary_read_modes(monkeypatch: pytest.MonkeyPatch) -> None:
