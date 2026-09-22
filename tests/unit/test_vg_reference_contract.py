@@ -160,3 +160,32 @@ def test_vg_runner_fails_closed_without_reference_selector(
         match="PGBENCH_GRAPH_REFERENCE_PATH",
     ):
         MODULE.main()
+
+
+def test_vg_accepts_one_release_prefixed_frozen_asset_per_role(tmp_path: Path) -> None:
+    graph_dir = tmp_path / "official-release"
+    graph_dir.mkdir()
+    expected = {
+        "graph.gbz": "hprc-v2.1.d46.gbz",
+        "graph.shortread.withzip.min": "hprc-v2.1.d46.shortread.withzip.min",
+        "graph.shortread.zipcodes": "hprc-v2.1.d46.shortread.zipcodes",
+        "graph.dist": "hprc-v2.1.d46.dist",
+    }
+    for name in expected.values():
+        (graph_dir / name).write_bytes(b"frozen")
+
+    assert MODULE.graph_asset(graph_dir, "graph.gbz", "*.gbz").name == expected["graph.gbz"]
+    assert (
+        MODULE.graph_asset(graph_dir, "graph.shortread.withzip.min", "*.shortread.withzip.min").name
+        == expected["graph.shortread.withzip.min"]
+    )
+
+
+def test_vg_rejects_ambiguous_release_prefixed_assets(tmp_path: Path) -> None:
+    graph_dir = tmp_path / "ambiguous-release"
+    graph_dir.mkdir()
+    (graph_dir / "a.gbz").write_bytes(b"a")
+    (graph_dir / "b.gbz").write_bytes(b"b")
+
+    with pytest.raises(RuntimeError, match="absent or ambiguous"):
+        MODULE.graph_asset(graph_dir, "graph.gbz", "*.gbz")

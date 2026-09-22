@@ -29,6 +29,21 @@ def open_text(path: Path, mode: str) -> TextIO:
     return gzip.open(path, mode, encoding="utf-8") if path.name.endswith(".gz") else path.open(mode, encoding="utf-8")
 
 
+def graph_asset(graph_dir: Path, canonical_name: str, pattern: str) -> Path:
+    """Resolve a frozen graph asset without making an index or guessing."""
+
+    canonical = graph_dir / canonical_name
+    if canonical.is_file():
+        return canonical
+    matches = sorted(path for path in graph_dir.glob(pattern) if path.is_file())
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"required vg graph asset {canonical_name} is absent or ambiguous "
+            f"under {graph_dir} (pattern {pattern!r}, matches={len(matches)})"
+        )
+    return matches[0]
+
+
 def _allele_id(info: str) -> str | None:
     for item in info.split(";"):
         if item.startswith("PANGENOME_ALLELE_ID="):
@@ -122,20 +137,21 @@ def main() -> int:
     threads = required("PGBENCH_THREADS")
     reference_path = required("PGBENCH_GRAPH_REFERENCE_PATH")
 
-    gbz = graph_dir / "graph.gbz"
-    minimizer = graph_dir / "graph.shortread.withzip.min"
-    zipcodes = graph_dir / "graph.shortread.zipcodes"
-    distance = graph_dir / "graph.dist"
-    for path in (gbz, minimizer, zipcodes, distance):
-        if not path.is_file():
-            raise RuntimeError(f"required vg graph asset is absent: {path}")
+    gbz = graph_asset(graph_dir, "graph.gbz", "*.gbz")
+    minimizer = graph_asset(graph_dir, "graph.shortread.withzip.min", "*.shortread.withzip.min")
+    zipcodes = graph_asset(graph_dir, "graph.shortread.zipcodes", "*.shortread.zipcodes")
+    distance = graph_asset(graph_dir, "graph.dist", "*.dist")
 
     work = output_dir / "work"
     work.mkdir(parents=True, exist_ok=True)
     output_vcf.parent.mkdir(parents=True, exist_ok=True)
     gam = work / "HG002.gam"
     pack = work / "HG002.pack"
-    snarls = work / "graph.snarls"
+    frozen_snarls = graph_dir / "graph.snarls"
+    if not frozen_snarls.is_file():
+        candidates = sorted(path for path in graph_dir.glob("*.snarls") if path.is_file())
+        frozen_snarls = candidates[0] if len(candidates) == 1 else None
+    snarls = frozen_snarls or (work / "graph.snarls")
     native_vcf = work / "native.calls.vcf"
 
     # Giraffe is vg's haplotype-aware production mapper for paired short reads.
@@ -176,7 +192,8 @@ def main() -> int:
             threads,
         ]
     )
-    run(["vg", "snarls", str(gbz), "-t", threads], stdout=snarls)
+    if frozen_snarls is None:
+        run(["vg", "snarls", str(gbz), "-t", threads], stdout=snarls)
     run(
         [
             "vg",
