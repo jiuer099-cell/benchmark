@@ -32,10 +32,11 @@ HARD RULES (violations invalidate the run):
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import subprocess
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ def require_readonly_input(path: Path, label: str) -> None:
     generic read-group validation here. Those public-input semantics are
     performed once by Core before this external adapter starts.
     """
-    if not path.is_file() or path.stat().st_size == 0:
+    if not path.exists() or (path.is_file() and path.stat().st_size == 0):
         raise RuntimeError(f"Core injected missing/empty validated {label}: {path}")
 
 
@@ -132,23 +133,47 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
     if not order:
         raise RuntimeError("candidate panel contains no records")
     calls: dict[str, str] = {}
+    trace_rows: list[tuple[int, str, str, str, str, str, str, str]] = []
     with open_text(native, "rt") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             if not line.strip() or line.startswith("#"):
                 continue
             fields = line.rstrip("\n").split("\t")
             if len(fields) < 8:
                 raise RuntimeError("tool output contains a malformed record")
             candidate_id = fields[2] if fields[2] in records else None
+            match_strategy = "candidate_id" if candidate_id is not None else None
             if candidate_id is None:
                 allele_id = _allele_id(fields[7])
                 candidate_id = by_allele.get(allele_id) if allele_id else None
+                if candidate_id is not None:
+                    match_strategy = "pangenome_allele_id"
             if candidate_id is None:
                 candidate_id = by_key.get((fields[0], fields[1], fields[3], fields[4]))
-            if candidate_id is not None:
-                if candidate_id in calls:
-                    raise RuntimeError(f"tool output duplicates {candidate_id}")
-                calls[candidate_id] = _genotype(fields)
+                if candidate_id is not None:
+                    match_strategy = "exact_variant_key"
+            if candidate_id is None or match_strategy is None:
+                raise RuntimeError(
+                    "native tool record cannot be deterministically projected to a "
+                    f"canonical candidate at line {line_number}: "
+                    f"{fields[0]}:{fields[1]} {fields[3]}>{fields[4]}"
+                )
+            if candidate_id in calls:
+                raise RuntimeError(f"tool output duplicates {candidate_id}")
+            genotype = _genotype(fields)
+            calls[candidate_id] = genotype
+            trace_rows.append(
+                (
+                    line_number,
+                    candidate_id,
+                    match_strategy,
+                    fields[0],
+                    fields[1],
+                    fields[3],
+                    fields[4],
+                    genotype,
+                )
+            )
     destination.parent.mkdir(parents=True, exist_ok=True)
     with open_text(destination, "wt") as output:
         output.write("##fileformat=VCFv4.2\n")
@@ -162,6 +187,15 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
             output.write(
                 "\t".join(records[candidate_id][:8] + ["GT", calls.get(candidate_id, "./.")]) + "\n"
             )
+    trace_path = destination.parent / "tool-work" / "native-to-canonical-projection.tsv"
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    with trace_path.open("w", encoding="utf-8", newline="\n") as trace:
+        trace.write(
+            "native_record_line\tcandidate_id\tmatch_strategy\tnative_chrom\t"
+            "native_pos\tnative_ref\tnative_alt\tnative_gt\n"
+        )
+        for row in trace_rows:
+            trace.write("\t".join(str(value) for value in row) + "\n")
     return len(calls), len(order) - len(calls)
 
 
@@ -178,6 +212,10 @@ class AdapterContext:
     output_dir: Path
     output_vcf: Path
     work_dir: Path
+    # Every declared Core input is keyed by its contract token, e.g.
+    # ``context.inputs[\"pangenome_manifest\"]`` or
+    # ``context.inputs[\"adapter_asset.my_index\"]``.
+    inputs: dict[str, Path] = dataclasses.field(default_factory=dict)
     # populated per input mode:
     bam: Path | None = None
     bai: Path | None = None
@@ -211,16 +249,49 @@ def run_tool(context: AdapterContext) -> Path:
 # Wiring — you normally do not need to change anything below
 # ---------------------------------------------------------------------------
 def detect_input_mode() -> str:
-    if os.environ.get("PGBENCH_SHARED_ALIGNMENT_BAM"):
-        return "shared_bam"
-    if os.environ.get("PGBENCH_INPUT_FASTQ_R1"):
-        return "short_fastq"
-    if os.environ.get("PGBENCH_INPUT_LONG_READS_FASTQ"):
-        return "long_fastq"
+    modes = {
+        "shared_bam": bool(os.environ.get("PGBENCH_SHARED_ALIGNMENT_BAM")),
+        "short_fastq": bool(os.environ.get("PGBENCH_INPUT_FASTQ_R1")),
+        "long_fastq": bool(os.environ.get("PGBENCH_INPUT_LONG_READS_FASTQ")),
+    }
+    selected = [name for name, present in modes.items() if present]
+    if len(selected) == 1:
+        return selected[0]
+    if not selected:
+        raise RuntimeError(
+            "no benchmark read input was injected; check supported_modes."
+            "required_inputs in tool.yaml"
+        )
     raise RuntimeError(
-        "no benchmark read input was injected; check supported_modes."
-        "required_inputs in tool.yaml"
+        "Core injected more than one primary read evidence mode: " + ", ".join(selected)
     )
+
+
+def injected_inputs() -> dict[str, Path]:
+    """Expose only the Core-resolved input set, including adapter assets."""
+
+    manifest_path = Path(required("PGBENCH_RESOLVED_INPUTS"))
+    try:
+        payload: Any = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entries = payload["inputs"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"cannot read Core resolved-input manifest: {manifest_path}") from exc
+    if not isinstance(entries, list):
+        raise RuntimeError("Core resolved-input manifest has no input list")
+    inputs: dict[str, Path] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise RuntimeError("Core resolved-input manifest contains a malformed input entry")
+        name = entry.get("contract_name")
+        variable = entry.get("environment_variable")
+        if not isinstance(name, str) or not isinstance(variable, str):
+            raise RuntimeError("Core resolved-input manifest lacks a transport binding")
+        path = Path(required(variable))
+        require_readonly_input(path, name)
+        if name in inputs:
+            raise RuntimeError(f"Core resolved-input manifest duplicates {name}")
+        inputs[name] = path
+    return inputs
 
 
 def main() -> int:
@@ -241,6 +312,7 @@ def main() -> int:
         output_dir=output_dir,
         output_vcf=output_vcf,
         work_dir=work_dir,
+        inputs=injected_inputs(),
     )
     if input_mode == "shared_bam":
         context = dataclasses.replace(

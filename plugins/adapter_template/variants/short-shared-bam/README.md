@@ -26,9 +26,10 @@ bias, and read selection are held fixed across tools.
 | `PGBENCH_SAMPLE_ID` / `PGBENCH_THREADS` | sample and thread budget |
 | `PGBENCH_OUTPUT_DIR` / `PGBENCH_OUTPUT_VCF` | where the projected VCF goes |
 
-The template's `preflight_shared_bam()` already enforces: non-empty BAI,
-`samtools quickcheck`, and `@RG` `SM == PGBENCH_SAMPLE_ID` (a BAM without a
-matching read group is rejected — see the v1/v2 reheader incident).
+Core owns generic BAM/BAI integrity validation. The template only confirms
+that Core injected non-empty read-only paths. If a tool requires a matching
+`@RG`/`SM`, add that *tool-private prerequisite* to the copied adapter; do not
+replace or bypass the Core validation contract.
 
 ## Pitfalls learned in this repo
 

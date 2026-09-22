@@ -24,9 +24,10 @@ style). Your adapter maps the benchmark-supplied reads inside the billed run.
 | `PGBENCH_INDEX_DIR` (only if `tool_index` declared) | benchmark-supplied tool index |
 | `PGBENCH_SAMPLE_ID` / `PGBENCH_THREADS` / `PGBENCH_OUTPUT_DIR` / `PGBENCH_OUTPUT_VCF` | run plumbing |
 
-The template's `preflight_fastq()` validates existence and gzip integrity
-before your tool starts, so a truncated FASTQ fails fast instead of silently
-skewing coverage.
+Core validates FASTQ content once through its immutable shared cache before
+the adapter starts. The template only confirms that Core injected a non-empty
+read-only path; it deliberately does not reimplement gzip/SHA256/read-count
+validation.
 
 ## Pitfalls
 

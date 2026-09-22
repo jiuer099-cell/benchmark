@@ -82,7 +82,10 @@ The core injects exactly the inputs you declare in
 Plus always: `PGBENCH_SAMPLE_ID`, `PGBENCH_THREADS`, `PGBENCH_OUTPUT_DIR`,
 `PGBENCH_OUTPUT_VCF`.
 
-The template only consumes already validated, read-only public inputs. A
+The template only consumes already validated, read-only public inputs. The
+complete declared set is available to `run_tool()` as `context.inputs`, keyed
+by contract token (including `adapter_asset.<name>`); do not invent an
+environment variable or read an undeclared path. A
 tool-specific prerequisite (for example an RG requirement) may be checked in
 the copied tool adapter, but it must not replace Core validation or silently
 reinterpret input identity.
@@ -94,9 +97,11 @@ reinterpret input identity.
 - A candidate your tool did not genotype is emitted as `./.`
   (`absence_semantics: no_call`) — **never** materialize `0/0` for silence.
 - `project_all_sites()` in `run.py` implements this; use it.
-- Keep the native VCF and a deterministic native-record → candidate trace in
-  `tool-work/`. PG-F1 evaluator queries preserve the native representation;
-  the all-sites VCF is only the canonical GT/accounting ledger.
+- Keep the native VCF in `tool-work/`. The template writes the deterministic
+  `native-to-canonical-projection.tsv` trace there and fails on a native record
+  it cannot map one-to-one. PG-F1 evaluator queries preserve the native
+  representation; the all-sites VCF is only the canonical GT/accounting
+  ledger.
 
 ## What will get your run invalidated
 
