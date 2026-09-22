@@ -103,6 +103,30 @@ def test_write_chunks_rejects_unknown_pilot_contig(tmp_path):
         )
 
 
+def test_paragraph_private_input_left_anchors_only_incompatible_records(tmp_path):
+    reference = tmp_path / "reference.fa"
+    # Write LF bytes directly so the fixture's FAI offsets are portable to
+    # Windows, where text-mode writes otherwise translate newlines.
+    reference.write_bytes(b">chr1\nACGTACGT\n")
+    # ``chr1`` bases begin at byte 6; lines contain eight bases plus one LF.
+    (tmp_path / "reference.fa.fai").write_text("chr1\t8\t6\t8\t9\n", encoding="utf-8")
+    panel_path = _panel_path(
+        tmp_path,
+        [
+            "chr1\t2\tPGSV_a1\tC\tTTT\t.\t.\tPANGENOME_ALLELE_ID=allele-1\n",
+            "chr1\t4\tPGSV_a2\tT\tTGG\t.\t.\tPANGENOME_ALLELE_ID=allele-2\n",
+        ],
+    )
+    panel = paragraph_adapter.load_candidate_panel(panel_path)
+
+    prepared, changed = paragraph_adapter.paragraph_compatible_records(panel, reference)
+
+    assert changed == 1
+    assert prepared["PGSV_a1"][1:5] == ["1", "PGSV_a1", "AC", "ATTT"]
+    assert prepared["PGSV_a2"][1:5] == ["4", "PGSV_a2", "T", "TGG"]
+    assert panel.records["PGSV_a1"][1:5] == ["2", "PGSV_a1", "C", "TTT"]
+
+
 def test_project_all_sites_merges_disjoint_chunks_and_fills_no_calls(tmp_path):
     panel = paragraph_adapter.load_candidate_panel(_panel_path(tmp_path, PANEL_LINES))
     native_a = _native_path(tmp_path, "a.vcf", [_native_record("chr1", 100, "allele-1", "0/1")])

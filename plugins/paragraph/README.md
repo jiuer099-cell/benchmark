@@ -11,6 +11,14 @@ records the source FASTQ and reference identities, while Paragraph's own
 resolved-input manifest freezes the BAM/BAI content hashes. This is a generic
 short-read adapter evidence option; it is not a Paragraph-specific Core path.
 
+Before native genotyping, the adapter prepares a **tool-private** Paragraph
+input view. Paragraph 2.3 rejects valid sequence-resolved records whose REF and
+ALT lack a shared leading padding base. For only those records, the adapter
+prefixes the preceding frozen-reference base and decrements POS by one. This is
+an equivalent VCF representation; candidate IDs and biological alleles remain
+unchanged. The canonical panel is read-only, and all-sites output is projected
+back onto its original representation before Core scoring.
+
 The adapter preserves every canonical candidate. Any site missing from the
 native output is subsequently materialized as `./.` with an explicit output
 status; it is never inferred to be `0/0`.

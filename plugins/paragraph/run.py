@@ -20,7 +20,7 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Sequence, TextIO
+from typing import Mapping, Sequence, TextIO
 
 DEFAULT_MAX_CANDIDATES_PER_CHUNK = 1000
 DEFAULT_CHUNK_PARALLELISM = 2
@@ -95,6 +95,107 @@ class CandidatePanel:
     contig_records: dict[str, tuple[str, ...]]
 
 
+@dataclasses.dataclass(frozen=True)
+class FastaIndexEntry:
+    """One random-access entry from a standard FASTA ``.fai`` index."""
+
+    length: int
+    offset: int
+    bases_per_line: int
+    bytes_per_line: int
+
+
+def load_fasta_index(reference: Path) -> dict[str, FastaIndexEntry]:
+    """Read the adjacent FAI without loading the multi-gigabase reference."""
+
+    entries: dict[str, FastaIndexEntry] = {}
+    index = Path(f"{reference}.fai")
+    with index.open("rt", encoding="utf-8") as handle:
+        for line in handle:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 5:
+                raise RuntimeError(f"malformed FASTA index record: {line!r}")
+            name = fields[0]
+            if not name or name in entries:
+                raise RuntimeError(f"duplicate or empty FASTA index contig: {name!r}")
+            entries[name] = FastaIndexEntry(
+                length=int(fields[1]),
+                offset=int(fields[2]),
+                bases_per_line=int(fields[3]),
+                bytes_per_line=int(fields[4]),
+            )
+    if not entries:
+        raise RuntimeError(f"FASTA index is empty: {index}")
+    return entries
+
+
+def reference_base(
+    reference: Path,
+    index: Mapping[str, FastaIndexEntry],
+    contig: str,
+    position: int,
+) -> str:
+    """Return one 1-based reference base using the frozen FAI geometry."""
+
+    entry = index.get(contig)
+    if entry is None or not 1 <= position <= entry.length:
+        raise RuntimeError(f"reference position is unavailable: {contig}:{position}")
+    zero_based = position - 1
+    offset = (
+        entry.offset
+        + (zero_based // entry.bases_per_line) * entry.bytes_per_line
+        + zero_based % entry.bases_per_line
+    )
+    with reference.open("rb") as handle:
+        handle.seek(offset)
+        base = handle.read(1).decode("ascii").upper()
+    if base not in {"A", "C", "G", "T", "N"}:
+        raise RuntimeError(f"invalid reference base at {contig}:{position}: {base!r}")
+    return base
+
+
+def paragraph_compatible_records(
+    panel: CandidatePanel,
+    reference: Path,
+) -> tuple[dict[str, list[str]], int]:
+    """Add a shared left anchor only where Paragraph rejects the VCF syntax.
+
+    Paragraph 2.3 requires REF and ALT to begin with the same padding base.
+    Some valid sequence-resolved canonical SV records do not use that encoding.
+    Prefixing the preceding reference base is an equivalent VCF representation:
+    it preserves the biological allele, stable candidate ID, END and SVLEN.
+    The original canonical records remain untouched and are used for output
+    projection and all downstream scoring.
+    """
+
+    index = load_fasta_index(reference)
+    prepared: dict[str, list[str]] = {}
+    changed = 0
+    for candidate_id in panel.order:
+        fields = list(panel.records[candidate_id])
+        ref, alt = fields[3], fields[4]
+        if (
+            not ref
+            or not alt
+            or alt.startswith("<")
+            or ref[0] == alt[0]
+        ):
+            prepared[candidate_id] = fields
+            continue
+        position = int(fields[1])
+        if position <= 1:
+            raise RuntimeError(
+                f"Paragraph cannot left-anchor {candidate_id} at {fields[0]}:{position}"
+            )
+        anchor = reference_base(reference, index, fields[0], position - 1)
+        fields[1] = str(position - 1)
+        fields[3] = anchor + ref
+        fields[4] = anchor + alt
+        prepared[candidate_id] = fields
+        changed += 1
+    return prepared, changed
+
+
 def load_candidate_panel(path: Path) -> CandidatePanel:
     order: list[str] = []
     records: dict[str, list[str]] = {}
@@ -146,6 +247,7 @@ def write_chunks(
     chunk_dir: Path,
     max_per_chunk: int,
     contig_filter: frozenset[str] | None = None,
+    records: Mapping[str, Sequence[str]] | None = None,
 ) -> list[Path]:
     """Write disjoint VCF chunks; each chunk is one contig (or a part of it)."""
 
@@ -157,6 +259,7 @@ def write_chunks(
         contig for contig in panel.contigs if contig in contig_filter
     ]
     chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunk_records = panel.records if records is None else records
     chunks: list[Path] = []
     index = 0
     for contig in selected:
@@ -169,7 +272,7 @@ def write_chunks(
                 out.writelines(panel.meta)
                 out.write(panel.header + "\n")
                 for candidate_id in part_ids:
-                    out.write("\t".join(panel.records[candidate_id]) + "\n")
+                    out.write("\t".join(chunk_records[candidate_id]) + "\n")
             chunks.append(path)
     if not chunks:
         raise RuntimeError("chunking produced zero chunks")
@@ -299,13 +402,21 @@ def main() -> int:
     )
 
     panel = load_candidate_panel(candidates)
-    chunks = write_chunks(panel, work / "chunks", max_per_chunk, contig_filter)
+    prepared_records, left_anchored = paragraph_compatible_records(panel, reference)
+    chunks = write_chunks(
+        panel,
+        work / "chunks",
+        max_per_chunk,
+        contig_filter,
+        records=prepared_records,
+    )
     threads_per_chunk = max(1, threads // parallelism)
     print(
         f"Paragraph chunked genotyping: candidates={len(panel.order)} "
         f"chunks={len(chunks)} max_per_chunk={max_per_chunk} "
         f"parallelism={parallelism} threads_per_chunk={threads_per_chunk} "
-        f"pilot_contigs={','.join(sorted(contig_filter)) if contig_filter else 'none'}"
+        f"pilot_contigs={','.join(sorted(contig_filter)) if contig_filter else 'none'} "
+        f"left_anchored_records={left_anchored}"
     )
     with ThreadPoolExecutor(max_workers=parallelism) as pool:
         futures = [
