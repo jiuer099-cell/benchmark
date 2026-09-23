@@ -575,6 +575,15 @@ properties:
           type: object
           additionalProperties:
             $ref: "#/$defs/nonEmptyPath"
+        frozen_native_output:
+          type: object
+          additionalProperties: false
+          required: [source_vcf, source_resolved_inputs, source_attempt_record, source_tool_manifest]
+          properties:
+            source_vcf: {$ref: "#/$defs/nonEmptyPath"}
+            source_resolved_inputs: {$ref: "#/$defs/nonEmptyPath"}
+            source_attempt_record: {$ref: "#/$defs/nonEmptyPath"}
+            source_tool_manifest: {$ref: "#/$defs/nonEmptyPath"}
 
 allOf:
   - if:

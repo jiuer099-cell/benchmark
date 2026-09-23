@@ -30,6 +30,20 @@ PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
 PYTHON_EXECUTABLE = sys.executable
 GRAPH_ASSET_MANIFEST = SETTINGS.get("graph_asset_manifest")
 GRAPH_ASSET_LOCK = SETTINGS.get("graph_asset_lock")
+FROZEN_NATIVE_OUTPUT = SETTINGS.get("frozen_native_output")
+REPLAY_MODE = FROZEN_NATIVE_OUTPUT is not None
+IMPORT_SCRIPT = "workflow/scripts/import_frozen_native_output.py"
+REPLAY_SOURCES = (
+    [
+        FROZEN_NATIVE_OUTPUT["source_vcf"],
+        FROZEN_NATIVE_OUTPUT["source_resolved_inputs"],
+        FROZEN_NATIVE_OUTPUT["source_attempt_record"],
+        FROZEN_NATIVE_OUTPUT["source_tool_manifest"],
+    ]
+    if REPLAY_MODE
+    else []
+)
+IMPORT_AUDIT = str(OUTPUT_DIR / "meta" / "frozen-native-import.json")
 
 
 def resolve_plugin_execution_path(value):
@@ -137,6 +151,8 @@ PROVENANCE_INPUTS = [
     *([GRAPH_ASSET_LOCK] if GRAPH_ASSET_LOCK is not None else []),
     *ASSETS.values(),
     *([PLUGIN_ENVIRONMENT_LOCK] if PLUGIN_ENVIRONMENT_LOCK is not None else []),
+    *([IMPORT_SCRIPT] if REPLAY_MODE else []),
+    *REPLAY_SOURCES,
 ]
 PROVENANCE_INPUT_ARGUMENTS = [
     item
@@ -187,10 +203,12 @@ rule generic_external_tool:
             else []
         ),
         plugin_package=PLUGIN_PACKAGE_EXTRA_INPUTS,
+        replay_sources=REPLAY_SOURCES,
     output:
         vcf=update(OUTPUT_VCF),
         resolved_inputs=update(SETTINGS["resolved_inputs"]),
         attempt_record=update(SETTINGS["attempt_record"]),
+        import_audit=(update(IMPORT_AUDIT) if REPLAY_MODE else []),
         rule_manifest=update(SETTINGS["rule_manifest"]),
     log:
         SETTINGS["log"],
@@ -232,6 +250,48 @@ rule generic_external_tool:
         snakemake_version=SETTINGS["snakemake_version"],
         execution_profile=SETTINGS["execution_profile"],
         random_seed=SETTINGS["random_seed"],
+        replay_mode=("true" if REPLAY_MODE else "false"),
+        execution_script=(IMPORT_SCRIPT if REPLAY_MODE else EXECUTOR),
+        source_vcf=(FROZEN_NATIVE_OUTPUT["source_vcf"] if REPLAY_MODE else ""),
+        source_resolved_inputs=(FROZEN_NATIVE_OUTPUT["source_resolved_inputs"] if REPLAY_MODE else ""),
+        source_attempt_record=(FROZEN_NATIVE_OUTPUT["source_attempt_record"] if REPLAY_MODE else ""),
+        source_tool_manifest=(FROZEN_NATIVE_OUTPUT["source_tool_manifest"] if REPLAY_MODE else ""),
+        execution_arguments=(
+            [
+                "--tool-id", SETTINGS["tool_id"],
+                "--source-vcf", FROZEN_NATIVE_OUTPUT["source_vcf"],
+                "--source-resolved-inputs", FROZEN_NATIVE_OUTPUT["source_resolved_inputs"],
+                "--source-attempt-record", FROZEN_NATIVE_OUTPUT["source_attempt_record"],
+                "--source-tool-manifest", FROZEN_NATIVE_OUTPUT["source_tool_manifest"],
+                "--output-vcf", OUTPUT_VCF,
+                "--output-resolved-inputs", SETTINGS["resolved_inputs"],
+                "--output-attempt-record", SETTINGS["attempt_record"],
+                "--import-audit", IMPORT_AUDIT,
+            ]
+            if REPLAY_MODE
+            else [
+                "--tool-manifest", SETTINGS["tool_manifest"],
+                "--schema", SCHEMA,
+                "--mode", SETTINGS["mode"],
+                "--run-id", SETTINGS["run_id"],
+                "--sample-id", SETTINGS["sample_id"],
+                "--output-dir", str(OUTPUT_DIR),
+                "--resolved-inputs", SETTINGS["resolved_inputs"],
+                "--attempt-record", SETTINGS["attempt_record"],
+                "--log", SETTINGS["tool_log"],
+                "--threads", str(SETTINGS.get("threads", 1)),
+                "--memory-mb", str(SETTINGS.get("memory_mb", 1024)),
+                "--cache-policy", SETTINGS.get("cache_policy", "isolated_empty_tool_cache"),
+                "--execution-purpose", SETTINGS.get("execution_purpose", "development_only"),
+                "--timeout-seconds", str(SETTINGS.get("timeout_seconds", 3600)),
+                "--random-seed", str(SETTINGS["random_seed"]),
+                *INPUT_ARGUMENTS,
+                *ALIGNMENT_ARGUMENTS,
+            ]
+        ),
+        import_output_arguments=(
+            ["--output", IMPORT_AUDIT] if REPLAY_MODE else []
+        ),
     conda:
         PLUGIN_ENVIRONMENT or "../../envs/core.yaml"
     shell:
@@ -243,7 +303,7 @@ rule generic_external_tool:
           --module-or-tool-id {params.tool_id:q} \
           --snakefile-path {input.rule_source:q} \
           --rule-source-path {input.rule_source:q} \
-          --script-or-wrapper-path {input.executor:q} \
+          --script-or-wrapper-path {params.execution_script:q} \
           --config-snapshot {input.config_snapshot:q} \
           --score-profile {input.score_profile:q} \
           {params.conda_lock_arguments:q} \
@@ -262,26 +322,11 @@ rule generic_external_tool:
           --output {output.vcf:q} \
           --output {output.resolved_inputs:q} \
           --output {output.attempt_record:q} \
+          {params.import_output_arguments:q} \
           {params.upstream_arguments:q} \
           --manifest-output {output.rule_manifest:q} \
           -- \
-          {PYTHON_EXECUTABLE:q} {input.executor:q} \
-            --tool-manifest {input.tool_manifest:q} \
-            --schema {input.schema:q} \
-            --mode {params.mode:q} \
-            --run-id {params.run_id:q} \
-            --sample-id {params.sample_id:q} \
-            --output-dir {params.output_dir:q} \
-            --resolved-inputs {output.resolved_inputs:q} \
-            --attempt-record {output.attempt_record:q} \
-            --log {params.tool_log:q} \
-            --threads {threads} \
-            --memory-mb {resources.mem_mb} \
-            --cache-policy {params.cache_policy:q} \
-            --execution-purpose {params.execution_purpose:q} \
-            --timeout-seconds {params.timeout_seconds} \
-            --random-seed {params.random_seed} \
-            {params.input_arguments:q} \
-            {params.alignment_arguments:q} \
+          {PYTHON_EXECUTABLE:q} {params.execution_script:q} \
+            {params.execution_arguments:q} \
           > {log:q} 2>&1
         """

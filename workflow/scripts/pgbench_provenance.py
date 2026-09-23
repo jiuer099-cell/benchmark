@@ -83,6 +83,7 @@ MANIFEST_REQUIRED_FIELDS = (
 
 DEFAULT_CORE_RULE_PATTERNS = (
     "tool__*__*",
+    "import_native_tool_output",
     "canonicalize_vcf",
     "link_pangenome_alleles",
     "evaluate_truvari",

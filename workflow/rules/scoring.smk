@@ -390,10 +390,7 @@ rule fuse_evaluator_metrics:
             RESULTS_ROOT + "/provenance/rules/link_pangenome_alleles/"
             f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
         ),
-        tool_rule_manifest=(
-            RESULTS_ROOT + "/provenance/rules/tool__{tool}__execute/"
-            f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json"
-        ),
+        tool_rule_manifest=tool_producer_manifest,
         context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],

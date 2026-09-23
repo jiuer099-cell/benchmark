@@ -170,9 +170,29 @@ for registration in config["external_plugins"]:
     output_dir = f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{tool_id}"
     output_relative = tool_manifest["outputs"]["vcf"]
     raw_output = f"{output_dir}/{output_relative}"
+    frozen_native_output = registration.get("frozen_native_output")
+    if frozen_native_output is not None:
+        if not isinstance(frozen_native_output, dict):
+            raise WorkflowError(
+                f"external plugin {tool_id!r} frozen_native_output must be a mapping"
+            )
+        missing = {
+            "source_vcf", "source_resolved_inputs", "source_attempt_record",
+            "source_tool_manifest",
+        } - set(frozen_native_output)
+        if missing:
+            raise WorkflowError(
+                f"external plugin {tool_id!r} frozen_native_output is incomplete: "
+                + ", ".join(sorted(missing))
+            )
+    producer_rule_name = (
+        "import_native_tool_output"
+        if frozen_native_output is not None
+        else f"tool__{tool_id}__execute"
+    )
     settings = {
         "tool_id": tool_id,
-        "semantic_rule_name": f"tool__{tool_id}__execute",
+        "semantic_rule_name": producer_rule_name,
         "job_key": f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}",
         "tool_manifest": manifest_path,
         "comparison_task": tool_manifest["comparison_task"],
@@ -208,15 +228,15 @@ for registration in config["external_plugins"]:
             f"{LOG_ROOT}/tools/{tool_id}/{SAMPLE_ID}.{OFFICIAL_MODE}.log"
         ),
         "rule_manifest": semantic_rule_manifest(
-            f"tool__{tool_id}__execute",
+            producer_rule_name,
             f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}",
         ),
         "log": (
-            f"{LOG_ROOT}/rules/tool__{tool_id}__execute/"
+            f"{LOG_ROOT}/rules/{producer_rule_name}/"
             f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}.log"
         ),
         "benchmark": (
-            f"{BENCHMARK_ROOT}/rules/tool__{tool_id}__execute/"
+            f"{BENCHMARK_ROOT}/rules/{producer_rule_name}/"
             f"{SAMPLE_ID}.{tool_id}.{OFFICIAL_MODE}.jsonl"
         ),
         "threads": config["execution"].get("tool_threads", 1),
@@ -236,6 +256,7 @@ for registration in config["external_plugins"]:
             else None
         ),
         "inputs": {},
+        "frozen_native_output": frozen_native_output,
     }
     mode_contract = tool_manifest["supported_modes"].get(OFFICIAL_MODE, {})
     allowed_inputs = {
@@ -315,6 +336,24 @@ for registration in config["external_plugins"]:
 TOOL_SETTINGS_BY_ID = {
     settings["tool_id"]: settings for settings in EXTERNAL_SETTINGS
 }
+
+
+def tool_producer_rule_name(wildcards):
+    try:
+        return TOOL_SETTINGS_BY_ID[wildcards.tool]["semantic_rule_name"]
+    except KeyError as error:
+        raise WorkflowError(
+            f"no external plugin is registered for tool {wildcards.tool!r}"
+        ) from error
+
+
+def tool_producer_manifest(wildcards):
+    try:
+        return TOOL_SETTINGS_BY_ID[wildcards.tool]["rule_manifest"]
+    except KeyError as error:
+        raise WorkflowError(
+            f"no external plugin is registered for tool {wildcards.tool!r}"
+        ) from error
 
 
 def tool_comparison_task(wildcards):

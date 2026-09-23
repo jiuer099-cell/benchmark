@@ -153,13 +153,28 @@ rules:
     source_path: workflow/scripts/pgbench_exec.py
     environment: null
     resource_class: compute_large
+  - id: import_native_tool_output
+    description: Verify and copy a successful frozen external caller output into an isolated scoring replay.
+    phase: tool_execution
+    kind: core
+    inputs: [source_tool_manifest, raw_tool_vcf, resolved_inputs_json, attempt_record_json]
+    outputs: [raw_tool_vcf, resolved_inputs_json, attempt_record_json, frozen_native_import_audit]
+    upstream: []
+    audit_scope: pre_score
+    manifest_required: true
+    log_required: true
+    benchmark_required: true
+    implementation_status: verified
+    source_path: workflow/scripts/import_frozen_native_output.py
+    environment: workflow/envs/core.yaml
+    resource_class: local_medium
   - id: canonicalize_vcf
     description: Normalize tool VCF output without changing missing genotypes.
     phase: normalization
     kind: core
     inputs: [raw_tool_vcf, reference_fasta]
     outputs: [normalized_vcf]
-    upstream: ["tool__{tool}__execute"]
+    upstream: ["tool__{tool}__execute", import_native_tool_output]
     audit_scope: pre_score
     manifest_required: true
     log_required: true

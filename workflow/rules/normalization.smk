@@ -1,7 +1,7 @@
 rule canonicalize_vcf:
     input:
         raw=external_raw_vcf,
-        upstream=RESULTS_ROOT + "/provenance/rules/tool__{tool}__execute/" + f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".json",
+        upstream=tool_producer_manifest,
         context=RESULTS_ROOT + "/provenance/run-context.json",
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],

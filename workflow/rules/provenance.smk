@@ -7,9 +7,12 @@ def pre_score_manifest_paths(wildcards):
         *([GRAPH_ASSET_RULE_MANIFEST] if GRAPH_ASSETS_ENABLED else []),
         PANGENOME_RULE_MANIFEST,
         CHALLENGE_RULE_MANIFEST,
-        semantic_rule_manifest(
-            f"tool__{wildcards.tool}__execute",
-            tool_job,
+        (
+            tool_producer_manifest(wildcards)
+            if "tool_producer_manifest" in globals()
+            else semantic_rule_manifest(
+                f"tool__{wildcards.tool}__execute", tool_job
+            )
         ),
         semantic_rule_manifest("canonicalize_vcf", core_job),
         semantic_rule_manifest("link_pangenome_alleles", core_job),
@@ -69,7 +72,11 @@ def expected_pre_score_jobs(wildcards):
         ),
         f"build_pangenome_manifest={PANGENOME_ID}",
         f"build_blinded_challenge_panel={SAMPLE_ID}",
-        f"tool__{wildcards.tool}__execute={tool_job}",
+        (
+            f"{tool_producer_rule_name(wildcards)}={tool_job}"
+            if "tool_producer_rule_name" in globals()
+            else f"tool__{wildcards.tool}__execute={tool_job}"
+        ),
         f"canonicalize_vcf={core_job}",
         f"link_pangenome_alleles={core_job}",
         f"materialize_all_sites={core_job}",
