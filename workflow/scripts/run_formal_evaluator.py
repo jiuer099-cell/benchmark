@@ -943,6 +943,135 @@ def recover_vcfdist_unresolved_events(
     return recovered, details
 
 
+def recover_aardvark_unresolved_events(
+    *,
+    source_query: Path,
+    unresolved_ids: set[str],
+    work: Path,
+    artifacts: Path,
+    output_dir: Path,
+    bcftools_prefix: list[str],
+    tabix_prefix: list[str],
+    aardvark_prefix: list[str],
+    aardvark_extra_args: list[str],
+    truth: Path,
+    reference: Path,
+    regions: Path,
+    threads: int,
+    version_sha256: str,
+) -> tuple[dict[str, bool], list[dict[str, Any]]]:
+    """Recover Aardvark decisions that its bulk output did not retain.
+
+    Every recovery query contains exactly one submitted caller event.  A native
+    Aardvark TP/FP record can therefore be provenance-bound to that event
+    without coordinate-only reuse or aggregate-to-unit inference.  Absence of
+    a native verdict remains unresolved and is rejected later by the PG-F1
+    normalizer.
+    """
+
+    source_ids = {fields[2] for fields in vcf_records(source_query)}
+    unknown = sorted(unresolved_ids - source_ids)
+    if unknown:
+        raise FormalEvaluatorError(
+            "Aardvark recovery requested IDs absent from the source query: "
+            + ", ".join(unknown[:5])
+        )
+    recovered: dict[str, bool] = {}
+    details: list[dict[str, Any]] = []
+    recovery_root = artifacts / "isolated-unresolved-v1"
+    prepared_root = work / "input" / "isolated-unresolved-v1"
+    cache_root = (
+        output_dir.parent / ".aardvark.native-cache" / "isolated-unresolved-v1"
+    )
+    recovery_root.mkdir(parents=True, exist_ok=True)
+    prepared_root.mkdir(parents=True, exist_ok=True)
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    for result_id in sorted(unresolved_ids):
+        token = hashlib.sha256(result_id.encode("utf-8")).hexdigest()[:20]
+        plain = prepared_root / f"{token}.vcf"
+        prepared = prepared_root / f"{token}.vcf.gz"
+        event_artifacts = recovery_root / token
+        event_log = recovery_root / f"{token}.log"
+        write_variant_query(source_query, plain, {result_id}, reference=reference)
+        if len(vcf_records(plain)) != 1:
+            raise FormalEvaluatorError(
+                f"isolated Aardvark recovery did not write exactly one event: {result_id}"
+            )
+        subprocess.run(
+            [*bcftools_prefix, "view", "-Oz", "-o", str(prepared), str(plain)],
+            check=True,
+        )
+        subprocess.run([*tabix_prefix, "-f", "-p", "vcf", str(prepared)], check=True)
+        native_key, native_manifest = native_evaluator_cache_key(
+            evaluator="aardvark",
+            prepared_query=prepared,
+            truth=truth,
+            reference=reference,
+            regions=regions,
+            version_sha256=version_sha256,
+            prefix=aardvark_prefix,
+            extra_args=aardvark_extra_args,
+            threads=threads,
+        )
+        cache = cache_root / native_key
+        cache_hit = False
+        if (
+            (cache / "native-run.json").is_file()
+            and (cache / "artifacts").is_dir()
+            and (cache / "evaluator.log").is_file()
+        ):
+            shutil.copytree(cache / "artifacts", event_artifacts)
+            shutil.copy2(cache / "evaluator.log", event_log)
+            cache_hit = True
+        else:
+            command = build_command(
+                "aardvark",
+                aardvark_prefix,
+                aardvark_extra_args,
+                query=prepared,
+                truth=truth,
+                reference=reference,
+                regions=regions,
+                artifacts=event_artifacts,
+                threads=threads,
+            )
+            with event_log.open("w", encoding="utf-8") as handle:
+                try:
+                    subprocess.run(
+                        command,
+                        check=True,
+                        stdout=handle,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                except subprocess.CalledProcessError as error:
+                    raise FormalEvaluatorError(
+                        f"isolated Aardvark recovery failed for {result_id} "
+                        f"with exit status {error.returncode}"
+                    ) from error
+            store_native_cache(event_artifacts, event_log, cache, native_manifest)
+        order, votes = parse_aardvark(prepared, event_artifacts)
+        if order != [result_id]:
+            raise FormalEvaluatorError(
+                f"isolated Aardvark recovery returned an unexpected event: {order!r}"
+            )
+        if result_id in votes:
+            recovered[result_id] = votes[result_id]
+        details.append(
+            {
+                "result_id": result_id,
+                "artifact_token": token,
+                "prepared_query_sha256": sha256_file(prepared),
+                "native_cache_key": native_key,
+                "native_cache_hit": cache_hit,
+                "resolved": result_id in votes,
+                "vote": votes.get(result_id),
+            }
+        )
+    return recovered, details
+
+
 def event_query_indices(
     queries: list[SvRecord],
     *,
@@ -1249,6 +1378,80 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 _, evaluator_votes = parse_truvari(prepared, artifacts)
             elif args.evaluator == "aardvark":
                 _, evaluator_votes = parse_aardvark(prepared, artifacts)
+                unresolved_ids = event_ids - set(evaluator_votes)
+                if unresolved_ids:
+                    bulk_diagnostics = {
+                        "algorithm": "aardvark_native_record_identity_v1",
+                        "query_events": len(event_ids),
+                        "resolved_events": len(evaluator_votes),
+                        "unresolved_events": len(unresolved_ids),
+                        "mapping_coverage": (
+                            len(evaluator_votes) / len(event_ids)
+                            if event_ids
+                            else 1.0
+                        ),
+                        "status_counts": {
+                            "exact": len(evaluator_votes),
+                            "unresolved": len(unresolved_ids),
+                        },
+                    }
+                    recovered, isolated_recovery_details = (
+                        recover_aardvark_unresolved_events(
+                            source_query=args.query,
+                            unresolved_ids=unresolved_ids,
+                            work=work,
+                            artifacts=artifacts,
+                            output_dir=args.output_dir,
+                            bcftools_prefix=bcftools,
+                            tabix_prefix=tabix,
+                            aardvark_prefix=prefix,
+                            aardvark_extra_args=list(
+                                evaluator_profile.get("extra_args", [])
+                            ),
+                            truth=args.truth,
+                            reference=args.reference,
+                            regions=args.regions,
+                            threads=args.threads,
+                            version_sha256=version["sha256"],
+                        )
+                    )
+                    duplicate_recovered_ids = set(recovered) & set(evaluator_votes)
+                    if duplicate_recovered_ids:
+                        raise FormalEvaluatorError(
+                            "Aardvark isolated recovery attempted to overwrite an "
+                            "already-resolved bulk event: "
+                            f"{sorted(duplicate_recovered_ids)}"
+                        )
+                    evaluator_votes.update(recovered)
+                    status_counts = dict(bulk_diagnostics["status_counts"])
+                    status_counts["isolated_unresolved_attempted"] = len(
+                        isolated_recovery_details
+                    )
+                    status_counts["isolated_unresolved_resolved"] = len(recovered)
+                    status_counts["isolated_unresolved_unresolved"] = (
+                        len(unresolved_ids) - len(recovered)
+                    )
+                    mapping_diagnostics = {
+                        "algorithm": "aardvark_bulk_plus_isolated_unresolved_v1",
+                        "query_events": len(event_ids),
+                        "resolved_events": len(evaluator_votes),
+                        "unresolved_events": len(event_ids) - len(evaluator_votes),
+                        "mapping_coverage": (
+                            len(evaluator_votes) / len(event_ids)
+                            if event_ids
+                            else 1.0
+                        ),
+                        "status_counts": dict(sorted(status_counts.items())),
+                        "bulk": bulk_diagnostics,
+                        "isolated_unresolved_recovery": {
+                            "contract": "isolated_single_query_event_v1",
+                            "selection": "every_bulk_unresolved_submitted_event",
+                            "attempted_events": len(isolated_recovery_details),
+                            "resolved_events": len(recovered),
+                            "unresolved_events": len(unresolved_ids) - len(recovered),
+                            "events": isolated_recovery_details,
+                        },
+                    }
             else:
                 _, evaluator_votes = parse_vcfdist(
                     prepared,
