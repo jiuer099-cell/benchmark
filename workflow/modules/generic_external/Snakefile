@@ -292,8 +292,11 @@ rule generic_external_tool:
         import_output_arguments=(
             ["--output", IMPORT_AUDIT] if REPLAY_MODE else []
         ),
+    # A frozen-native scoring replay executes only Core's authenticated copy
+    # transport.  It must not solve or activate the caller's environment:
+    # that adapter is deliberately not invoked during replay.
     conda:
-        PLUGIN_ENVIRONMENT or "../../envs/core.yaml"
+        ("../../envs/core.yaml" if REPLAY_MODE else (PLUGIN_ENVIRONMENT or "../../envs/core.yaml"))
     shell:
         """
         {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \
