@@ -132,3 +132,46 @@ def test_projection_uses_old_variant_id_and_prefers_aggregated_model(
     assert records[0][2:5] == ["CAND_1", "A", "<DEL>"]
     assert records[0][8:] == ["GT", "0/1"]
     assert records[1][9] == "./."
+
+
+def test_projection_accepts_stable_pgsv_candidate_ids(tmp_path: Path) -> None:
+    """The challenge-panel contract does not require a CAND_ ID prefix."""
+
+    candidate = tmp_path / "candidate.vcf"
+    candidate.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t10\tPGSV_1\tA\t<DEL>\t.\tPASS\t"
+        "PANGENOME_ALLELE_ID=PGSV_1\n",
+        encoding="utf-8",
+    )
+    generated = tmp_path / "generated.vcf.gz"
+    with gzip.open(generated, "wt", encoding="utf-8") as handle:
+        handle.write(
+            "##fileformat=VCFv4.2\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n"
+            "chr1\t10\tmodel.agg\tN\t<DEL:AGGREGATED>\t99\tPASS\t"
+            "OLD_VARIANT_ID=PGSV_1;SVMODEL=AGGREGATED\tGT\t0/1\n"
+        )
+
+    output = tmp_path / "calls.vcf"
+    MODULE.project_calls(candidate, [generated], output, "HG002")
+    record = next(
+        line.split("\t")
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    )
+    assert record[2] == "PGSV_1"
+    assert record[9] == "0/1"
+
+
+def test_candidate_id_is_required_for_unambiguous_projection(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.vcf"
+    candidate.write_text(
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t10\t.\tA\t<DEL>\t.\tPASS\tEND=20\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="stable VCF ID"):
+        MODULE.candidate_keys(candidate)

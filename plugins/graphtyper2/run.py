@@ -74,6 +74,14 @@ def validate_bam_sample_read_group(bam: Path, sample: str) -> None:
 
 
 def candidate_keys(path: Path) -> tuple[list[str], dict[tuple[str, str, str, str], str]]:
+    """Return the panel's opaque stable record IDs and coordinate lookup.
+
+    Candidate IDs are owned by the frozen challenge-panel contract.  They are
+    commonly ``CAND_*`` but may also be stable source IDs such as ``PGSV_*``;
+    an adapter must not impose a naming convention that the Core contract does
+    not require.  A missing VCF ID is still fail-closed because projection back
+    to the immutable candidate record would then be ambiguous.
+    """
     order: list[str] = []
     keys: dict[tuple[str, str, str, str], str] = {}
     with open_text(path, "rt") as handle:
@@ -81,13 +89,20 @@ def candidate_keys(path: Path) -> tuple[list[str], dict[tuple[str, str, str, str
             if not line.strip() or line.startswith("#"):
                 continue
             fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8 or not fields[2].startswith("CAND_"):
+            if len(fields) < 8:
                 raise RuntimeError(f"invalid blinded candidate at line {line_number}")
+            candidate_id = fields[2]
+            if candidate_id in {"", "."}:
+                raise RuntimeError(
+                    f"blinded candidate lacks a stable VCF ID at line {line_number}"
+                )
             key = (fields[0], fields[1], fields[3], fields[4])
             if key in keys:
                 raise RuntimeError(f"duplicate blinded candidate coordinates: {key}")
-            keys[key] = fields[2]
-            order.append(fields[2])
+            if candidate_id in order:
+                raise RuntimeError(f"duplicate blinded candidate ID: {candidate_id}")
+            keys[key] = candidate_id
+            order.append(candidate_id)
     if not order:
         raise RuntimeError("blinded candidate panel contains no records")
     return order, keys
