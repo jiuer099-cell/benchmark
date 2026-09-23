@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -162,6 +163,80 @@ def test_project_all_sites_rejects_duplicate_candidate_across_chunks(tmp_path):
     native = _native_path(tmp_path, "a.vcf", [duplicate, duplicate])
     with pytest.raises(RuntimeError, match="duplicates"):
         paragraph_adapter.project_all_sites([native], panel, tmp_path / "out.vcf", "SAMPLE")
+
+
+def test_project_all_sites_turns_over_limit_positive_allele_into_explicit_no_call(tmp_path):
+    long_alt = "A" + "T" * paragraph_adapter.MAX_EVALUATOR_ALLELE_LENGTH
+    panel_path = _panel_path(
+        tmp_path,
+        [
+            "chr1\t100\tPGSV_long\tA\t"
+            f"{long_alt}\t.\t.\tPANGENOME_ALLELE_ID=long\n"
+        ],
+    )
+    panel = paragraph_adapter.load_candidate_panel(panel_path)
+    native = _native_path(
+        tmp_path,
+        "native.vcf",
+        [
+            "chr1\t100\tPGSV_long\tA\t"
+            f"{long_alt}\t.\t.\tPANGENOME_ALLELE_ID=long\tGT\t0/1\n"
+        ],
+    )
+    output = tmp_path / "out.vcf"
+
+    assert paragraph_adapter.project_all_sites([native], panel, output, "SAMPLE") == (1, 0)
+    record = next(line for line in output.read_text(encoding="utf-8").splitlines() if not line.startswith("#"))
+    fields = record.split("\t")
+    assert fields[9] == "./."
+    assert fields[7].endswith("PGBENCH_ADAPTER_PROJECTION=evaluator_allele_length_exceeds_10000_no_call")
+
+
+def test_reproject_frozen_all_sites_authenticates_and_preserves_panel(tmp_path):
+    panel_path = _panel_path(tmp_path, PANEL_LINES[:2])
+    panel = paragraph_adapter.load_candidate_panel(panel_path)
+    source = tmp_path / "source.vcf"
+    source.write_text(
+        "".join(META) + FULL_HEADER + "\n" + "".join(
+            line.rstrip("\n") + "\tGT\t0/1\n" for line in PANEL_LINES[:2]
+        ),
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "source-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "rule_name": "tool__paragraph__execute",
+                "output_sha256": {str(tmp_path / "raw" / "calls.vcf"): paragraph_adapter._sha256_file(source)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "replayed.vcf"
+
+    assert paragraph_adapter.reproject_frozen_all_sites(source, manifest, panel, output, "SAMPLE") == (2, 0)
+    assert "##PGBENCH_Paragraph_ReplayProjection=frozen_native_evaluator_length_ceiling_v1\n" in output.read_text(encoding="utf-8")
+
+
+def test_reproject_frozen_all_sites_rejects_manifest_hash_mismatch(tmp_path):
+    panel_path = _panel_path(tmp_path, PANEL_LINES[:1])
+    panel = paragraph_adapter.load_candidate_panel(panel_path)
+    source = tmp_path / "source.vcf"
+    source.write_text("".join(META) + FULL_HEADER + "\n" + PANEL_LINES[0].rstrip("\n") + "\tGT\t0/1\n", encoding="utf-8")
+    manifest = tmp_path / "source-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "rule_name": "tool__paragraph__execute",
+                "output_sha256": {str(tmp_path / "raw" / "calls.vcf"): "0" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="SHA-256"):
+        paragraph_adapter.reproject_frozen_all_sites(source, manifest, panel, tmp_path / "out.vcf", "SAMPLE")
 
 
 def test_read_length_from_bam_streams_and_stops_early(tmp_path, monkeypatch):

@@ -15,6 +15,7 @@ final projection deterministically covers every canonical candidate.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import subprocess
@@ -24,6 +25,13 @@ from typing import Mapping, Sequence, TextIO
 
 DEFAULT_MAX_CANDIDATES_PER_CHUNK = 1000
 DEFAULT_CHUNK_PARALLELISM = 2
+# The frozen PG-F1 evaluator bundle accepts sequence-resolved alleles through
+# 10 kb.  Paragraph can emit larger graph-path alleles.  An all-sites adapter
+# must fail closed for those calls rather than submit a record one evaluator
+# silently drops, which would turn a tool-output representation limit into
+# incomplete consensus evidence.
+MAX_EVALUATOR_ALLELE_LENGTH = 10_000
+FROZEN_REPLAY_PROJECTION = "frozen_native_evaluator_length_ceiling_v1"
 
 
 def required(name: str) -> str:
@@ -79,6 +87,43 @@ def _genotype(fields: list[str]) -> str:
         return "./."
     value = values[names.index("GT")]
     return value if value not in {"", "."} else "./."
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _is_non_reference(genotype: str) -> bool:
+    if genotype in {"", ".", "./.", ".|."}:
+        return False
+    return any(allele not in {".", "0"} for allele in genotype.replace("|", "/").split("/"))
+
+
+def _evaluator_compatible_genotype(fields: list[str], genotype: str) -> tuple[str, str | None]:
+    """Return a standard-evaluator-safe all-sites genotype without using truth.
+
+    This is an adapter output boundary, not an evaluator result conversion: a
+    native non-reference graph allele exceeding the declared sequence-VCF
+    ceiling is emitted as an explicit no-call.  Reference and already no-call
+    states need no evaluator event and are left untouched.
+    """
+
+    if not _is_non_reference(genotype):
+        return genotype, None
+    if max(len(fields[3]), len(fields[4])) > MAX_EVALUATOR_ALLELE_LENGTH:
+        return "./.", f"evaluator_allele_length_exceeds_{MAX_EVALUATOR_ALLELE_LENGTH}_no_call"
+    return genotype, None
+
+
+def _with_projection_info(info: str, status: str | None) -> str:
+    if status is None:
+        return info
+    prefix = "" if info in {"", "."} else info + ";"
+    return prefix + f"PGBENCH_ADAPTER_PROJECTION={status}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -302,6 +347,50 @@ def run_chunk(
     return genotypes if genotypes.is_file() else None
 
 
+def _write_all_sites(
+    panel: CandidatePanel,
+    destination: Path,
+    sample: str,
+    calls: Mapping[str, str],
+    *,
+    pilot_contigs: Sequence[str] | None = None,
+    source_contract: str | None = None,
+) -> int:
+    """Write the immutable panel representation and return forced no-calls."""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    forced_no_calls = 0
+    with open_text(destination, "wt") as output:
+        output.write("##fileformat=VCFv4.2\n")
+        for line in panel.meta:
+            if not line.startswith("##fileformat") and not line.startswith("##FORMAT=<ID=GT,"):
+                output.write(line)
+        output.write("##source=PGBench-Paragraph-all-sites-adapter\n")
+        output.write(
+            '##INFO=<ID=PGBENCH_ADAPTER_PROJECTION,Number=1,Type=String,'
+            'Description="Adapter-declared output projection status">\n'
+        )
+        output.write(
+            f"##PGBENCH_Paragraph_MaxEvaluatorAlleleLength={MAX_EVALUATOR_ALLELE_LENGTH}\n"
+        )
+        if source_contract:
+            output.write(f"##PGBENCH_Paragraph_ReplayProjection={source_contract}\n")
+        if pilot_contigs:
+            output.write(f"##PGBENCH_Paragraph_PilotContigs={','.join(pilot_contigs)}\n")
+        output.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
+        output.write(f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n")
+        for candidate_id in panel.order:
+            fields = list(panel.records[candidate_id][:8])
+            genotype, projection_status = _evaluator_compatible_genotype(
+                fields, calls.get(candidate_id, "./.")
+            )
+            if projection_status is not None:
+                forced_no_calls += 1
+                fields[7] = _with_projection_info(fields[7], projection_status)
+            output.write("\t".join(fields + ["GT", genotype]) + "\n")
+    return forced_no_calls
+
+
 def project_all_sites(
     native_paths: Sequence[Path],
     panel: CandidatePanel,
@@ -330,22 +419,86 @@ def project_all_sites(
                     if candidate_id in calls:
                         raise RuntimeError(f"Paragraph output duplicates {candidate_id}")
                     calls[candidate_id] = _genotype(fields)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with open_text(destination, "wt") as output:
-        output.write("##fileformat=VCFv4.2\n")
-        for line in panel.meta:
-            if not line.startswith("##fileformat") and not line.startswith("##FORMAT=<ID=GT,"):
-                output.write(line)
-        output.write("##source=PGBench-Paragraph-all-sites-adapter\n")
-        if pilot_contigs:
-            output.write(f"##PGBENCH_Paragraph_PilotContigs={','.join(pilot_contigs)}\n")
-        output.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-        output.write(f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n")
-        for candidate_id in panel.order:
-            output.write(
-                "\t".join(panel.records[candidate_id][:8] + ["GT", calls.get(candidate_id, "./.")]) + "\n"
-            )
+    forced_no_calls = _write_all_sites(
+        panel, destination, sample, calls, pilot_contigs=pilot_contigs
+    )
+    if forced_no_calls:
+        print(
+            "Paragraph evaluator-compatible projection: "
+            f"forced_no_call={forced_no_calls} "
+            f"max_allele_length={MAX_EVALUATOR_ALLELE_LENGTH}"
+        )
     return len(calls), len(panel.order) - len(calls)
+
+
+def _source_manifest_vcf_sha256(source_manifest: Path) -> str:
+    """Authenticate a successful prior Paragraph all-sites output."""
+
+    try:
+        manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"cannot load frozen Paragraph source manifest: {error}") from error
+    if not isinstance(manifest, dict):
+        raise RuntimeError("frozen Paragraph source manifest is not a mapping")
+    if manifest.get("status") != "success" or manifest.get("rule_name") != "tool__paragraph__execute":
+        raise RuntimeError("frozen Paragraph source manifest is not a successful native adapter execution")
+    output_hashes = manifest.get("output_sha256")
+    if not isinstance(output_hashes, dict):
+        raise RuntimeError("frozen Paragraph source manifest lacks output SHA-256 values")
+    expected = [
+        digest
+        for path, digest in output_hashes.items()
+        if isinstance(path, str)
+        and path.replace("\\", "/").endswith("/raw/calls.vcf")
+        and isinstance(digest, str)
+        and len(digest) == 64
+    ]
+    if len(expected) != 1:
+        raise RuntimeError("frozen Paragraph source manifest has no unambiguous all-sites VCF hash")
+    return expected[0]
+
+
+def reproject_frozen_all_sites(
+    source_vcf: Path,
+    source_manifest: Path,
+    panel: CandidatePanel,
+    destination: Path,
+    sample: str,
+) -> tuple[int, int]:
+    """Replay only Paragraph's output projection, never multigrmpy genotyping.
+
+    The old all-sites VCF must authenticate to its successful Paragraph rule
+    manifest and exactly match the immutable panel representation.  This lets
+    a scoring repair preserve frozen native calls while creating an auditable,
+    evaluator-compatible all-sites VCF under a new formal run identity.
+    """
+
+    if not source_vcf.is_file() or source_vcf.is_symlink():
+        raise RuntimeError(f"frozen Paragraph source VCF is not a regular file: {source_vcf}")
+    if _sha256_file(source_vcf) != _source_manifest_vcf_sha256(source_manifest):
+        raise RuntimeError("frozen Paragraph source VCF SHA-256 does not match its source manifest")
+    calls: dict[str, str] = {}
+    with open_text(source_vcf, "rt") as handle:
+        for line in handle:
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 10 or fields[2] not in panel.records:
+                raise RuntimeError("frozen Paragraph source VCF is not a complete all-sites panel projection")
+            candidate_id = fields[2]
+            if candidate_id in calls or fields[:8] != panel.records[candidate_id][:8]:
+                raise RuntimeError("frozen Paragraph source VCF does not exactly preserve the canonical panel")
+            calls[candidate_id] = _genotype(fields)
+    if set(calls) != set(panel.order):
+        raise RuntimeError("frozen Paragraph source VCF does not cover every canonical candidate")
+    forced_no_calls = _write_all_sites(
+        panel,
+        destination,
+        sample,
+        calls,
+        source_contract=FROZEN_REPLAY_PROJECTION,
+    )
+    return len(calls), forced_no_calls
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -368,6 +521,27 @@ def main() -> int:
     output_dir = Path(required("PGBENCH_OUTPUT_DIR")).resolve()
     output_vcf = Path(required("PGBENCH_OUTPUT_VCF")).resolve()
     output_vcf.relative_to(output_dir)
+    frozen_source = os.environ.get("PGBENCH_ADAPTER_ASSET_FROZEN_NATIVE_VCF")
+    frozen_manifest = os.environ.get("PGBENCH_ADAPTER_ASSET_FROZEN_NATIVE_TOOL_MANIFEST")
+    if bool(frozen_source) != bool(frozen_manifest):
+        raise RuntimeError(
+            "Paragraph frozen scoring replay requires both source VCF and source tool manifest assets"
+        )
+    panel = load_candidate_panel(candidates)
+    if frozen_source and frozen_manifest:
+        matched, forced_no_calls = reproject_frozen_all_sites(
+            Path(frozen_source),
+            Path(frozen_manifest),
+            panel,
+            output_vcf,
+            sample,
+        )
+        print(
+            "Paragraph frozen-native scoring replay: "
+            f"matched={matched} forced_no_call={forced_no_calls} "
+            f"max_allele_length={MAX_EVALUATOR_ALLELE_LENGTH}"
+        )
+        return 0
     work = output_dir / "paragraph-work"
     work.mkdir(parents=True, exist_ok=True)
 
@@ -401,7 +575,6 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    panel = load_candidate_panel(candidates)
     prepared_records, left_anchored = paragraph_compatible_records(panel, reference)
     chunks = write_chunks(
         panel,

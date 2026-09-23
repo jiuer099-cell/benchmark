@@ -23,6 +23,23 @@ The adapter preserves every canonical candidate. Any site missing from the
 native output is subsequently materialized as `./.` with an explicit output
 status; it is never inferred to be `0/0`.
 
+## Formal scoring replay boundary
+
+The frozen PG-F1 evaluator bundle accepts sequence-resolved alleles up to
+10,000 bp. Paragraph can emit graph-path alleles above that transport limit.
+The adapter therefore emits a positive over-limit call as `./.` and marks the
+record with `PGBENCH_ADAPTER_PROJECTION=..._no_call`; it never infers a match
+from truth or from an evaluator aggregate. This is an explicit all-sites
+no-call, so it remains in the canonical denominator and is scored by Core
+under the frozen PG-F1 no-call semantics.
+
+For an already completed Paragraph run, a scoring replay may register the
+optional `frozen_native_vcf` and `frozen_native_tool_manifest` adapter assets.
+The adapter verifies the VCF SHA-256 against the successful source execution
+manifest, verifies its exact canonical-panel projection, and applies only the
+same output-boundary rule. It does not invoke `multigrmpy.py`, reuse a prior
+score, or modify the frozen source run.
+
 ## Chunked genotyping (memory safety)
 
 `multigrmpy.py` builds one pangenome graph per invocation and its peak RSS
