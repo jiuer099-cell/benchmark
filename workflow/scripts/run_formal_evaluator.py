@@ -9,6 +9,7 @@ import csv
 import gzip
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -367,7 +368,7 @@ def vcfdist_query_rows(
     rows: list[tuple[tuple[str, int, str, str], float]] = []
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        required = {"CONTIG", "POS", "REF", "ALT", "CREDIT"}
+        required = {"CONTIG", "POS", "REF", "ALT", "CREDIT", "ERRTYPE"}
         if reader.fieldnames is None or not required.issubset(reader.fieldnames):
             raise FormalEvaluatorError("vcfdist query.tsv has an unsupported header")
         for row in reader:
@@ -383,11 +384,22 @@ def vcfdist_query_rows(
                 raise FormalEvaluatorError(
                     f"vcfdist query.tsv has an invalid data row: {row!r}"
                 ) from exc
-            if not 0.0 <= credit <= 1.0:
+            if math.isfinite(credit) and 0.0 <= credit <= 1.0:
+                rows.append((key, credit))
+                continue
+            # vcfdist can emit ``-nan`` for an unmatched query component when
+            # its internal credit denominator is zero.  This is not a missing
+            # or aggregate-derived decision: the same native query row marks
+            # that component explicitly as FP.  Preserve its direct semantics
+            # as a zero credit.  Any other non-finite value remains
+            # unscorable and fails closed rather than being guessed as a vote.
+            if not math.isfinite(credit) and row["ERRTYPE"] == "FP":
+                rows.append((key, 0.0))
+                continue
+            if not math.isfinite(credit) or not 0.0 <= credit <= 1.0:
                 raise FormalEvaluatorError(
                     f"vcfdist query credit is outside [0, 1]: {credit}"
                 )
-            rows.append((key, credit))
     return rows
 
 

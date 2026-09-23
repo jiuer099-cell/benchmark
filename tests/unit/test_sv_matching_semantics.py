@@ -18,6 +18,7 @@ from run_formal_evaluator import (  # noqa: E402
     fully_contained,
     load_regions,
     parse_truvari,
+    vcfdist_query_rows,
     write_ledger,
 )
 from sv_matching import (  # noqa: E402
@@ -66,6 +67,31 @@ def test_tolerant_matching_is_one_to_one_and_deterministic() -> None:
     assert set(assignments) == {1}
     assert assignments[1].truth_index == 0
     assert assignments[1].start_distance == 5
+
+
+def test_vcfdist_nan_fp_is_a_direct_zero_credit(tmp_path: Path) -> None:
+    """A native per-query FP row is evidence even when vcfdist prints -nan."""
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "query.tsv").write_text(
+        "CONTIG\tPOS\tREF\tALT\tCREDIT\tERRTYPE\n"
+        "chr1\t100\tA\tAT\t-nan\tFP\n",
+        encoding="utf-8",
+    )
+    assert vcfdist_query_rows(artifacts) == [(("chr1", 100, "A", "AT"), 0.0)]
+
+
+def test_vcfdist_nan_without_native_fp_fails_closed(tmp_path: Path) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "query.tsv").write_text(
+        "CONTIG\tPOS\tREF\tALT\tCREDIT\tERRTYPE\n"
+        "chr1\t100\tA\tAT\t-nan\tTP\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(FormalEvaluatorError, match="outside"):
+        vcfdist_query_rows(artifacts)
 
 
 def test_matching_rejects_wrong_svtype_even_inside_tolerance() -> None:
