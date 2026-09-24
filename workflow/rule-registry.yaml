@@ -348,33 +348,18 @@ rules:
     source_path: workflow/scripts/validate_leaderboard_admission.py
     environment: workflow/envs/core.yaml
     resource_class: local_small
-  - id: finalize_score_provenance
-    description: Seal the score and its complete provenance lineage.
+  - id: finalize_pgf1_release
+    description: Seal a valid, admitted PG-F1 score with its complete formal artifact hash closure.
     phase: provenance
     kind: post_score
-    inputs: [score_json, rule_manifests]
-    outputs: [sealed_score_package]
-    upstream: [compute_me_f1]
+    inputs: [pgf1_evidence_ledger, raw_evaluator_ledgers, normalized_unit_evidence, leaderboard_admission_json]
+    outputs: [sealed_pgf1_score_package, pgf1_provenance_audit, pgf1_release_seal]
+    upstream: [validate_pgf1_leaderboard_admission]
     audit_scope: post_score
     manifest_required: true
     log_required: true
     benchmark_required: true
     implementation_status: verified
-    source_path: workflow/scripts/finalize_score_provenance.py
-    environment: workflow/envs/core.yaml
-    resource_class: local_small
-  - id: render_report
-    description: Render the main and stratified short-read benchmark report.
-    phase: reporting
-    kind: post_score
-    inputs: [sealed_score_package]
-    outputs: [report_html]
-    upstream: [finalize_score_provenance]
-    audit_scope: post_score
-    manifest_required: true
-    log_required: true
-    benchmark_required: true
-    implementation_status: verified
-    source_path: workflow/scripts/render_report.py
+    source_path: workflow/scripts/finalize_pgf1_release.py
     environment: workflow/envs/core.yaml
     resource_class: local_small

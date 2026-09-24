@@ -44,12 +44,6 @@ SNAKEMAKE_VERSION = snakemake.__version__
 PYTHON_EXECUTABLE = sys.executable if os.name == "nt" else "python"
 RULE_EXECUTOR = "workflow/scripts/pgbench_rule_exec.py"
 PROVENANCE_LIBRARY = "workflow/scripts/pgbench_provenance.py"
-METRICS_LIBRARY = "workflow/scripts/pgbench_metrics.py"
-SCORING_LIBRARY = "workflow/scripts/pgbench_scoring.py"
-# The frozen ME-F1 contract has exactly one definition.  It is fingerprinted by
-# every rule that derives score-contract identity so that a change to the
-# contract can never be sealed without being recorded.
-SCORE_CONTRACT_LIBRARY = "workflow/scripts/pgbench_score_contract.py"
 CORE_ENV_SPEC = "workflow/envs/core.yaml"
 VALIDATE_MANIFEST = RESULTS_ROOT + "/provenance/rules/validate_config/config.json"
 CONTEXT_MANIFEST = (
@@ -437,6 +431,11 @@ if EXTERNAL_SETTINGS:
             f"{settings['tool_id']}/evaluation/leaderboard-admission.json"
             for settings in EXTERNAL_SETTINGS
         ]
+        + [
+            f"{RESULTS_ROOT}/{SAMPLE_ID}/{config['benchmark_contract']['track']}/"
+            f"{settings['tool_id']}/release/score-package.json"
+            for settings in EXTERNAL_SETTINGS
+        ]
         if PGF1_ENABLED else [
         RESULTS_ROOT + "/report/index.html",
         RESULTS_ROOT + "/summary/score.tsv",
@@ -507,9 +506,6 @@ include: "workflow/rules/contracts.smk"
 include: "workflow/rules/normalization.smk"
 include: "workflow/rules/evaluation.smk"
 include: "workflow/rules/pgf1.smk"
-include: "workflow/rules/provenance.smk"
-include: "workflow/rules/scoring.smk"
-include: "workflow/rules/report.smk"
 include: "workflow/rules/obsidian.smk"
 
 

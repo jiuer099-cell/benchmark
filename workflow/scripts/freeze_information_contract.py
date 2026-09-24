@@ -54,7 +54,7 @@ def _reject_plugin_scores(value: Any, location: str = "tool") -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             normalized = str(key).casefold().replace("-", "_")
-            if normalized in {"me_f1", "benchmark_score", "primary_score"}:
+            if normalized in {"pg_f1", "benchmark_score", "primary_score"}:
                 raise InformationContractError(
                     f"plugins cannot provide benchmark scores: {location}.{key}"
                 )
@@ -241,7 +241,7 @@ def freeze(
             tuning_policy_path.read_bytes()
         ).hexdigest(),
         "target_truth_inspected": False,
-        "final_me_f1_inspected_before_freeze": False,
+        "final_pgf1_inspected_before_freeze": False,
         "status": "frozen_before_test",
     }
     return {

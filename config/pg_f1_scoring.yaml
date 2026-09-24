@@ -1,6 +1,5 @@
 schema_version: 1
-# Earlier ME-F1 artifacts are provenance-only and are excluded from the final
-# PG-F1 leaderboard. Existing native caller output may be replayed here.
+# Existing native caller output may be replayed under this sole PG-F1 contract.
 score:
   id: PG-F1
   version: "1.0"

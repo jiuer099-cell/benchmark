@@ -351,7 +351,6 @@ properties:
       - stratifications
       - score_weights
       - evaluator_profile
-      - metric_dictionary
       - allowed_information
       - tuning_policy
       - panel_provenance
@@ -363,8 +362,6 @@ properties:
       score_weights:
         $ref: "#/$defs/nonEmptyPath"
       evaluator_profile:
-        $ref: "#/$defs/nonEmptyPath"
-      metric_dictionary:
         $ref: "#/$defs/nonEmptyPath"
       allowed_information:
         $ref: "#/$defs/nonEmptyPath"
@@ -452,9 +449,9 @@ properties:
     required: [profile, final_score_name, produce_ranking]
     properties:
       profile:
-        enum: [pgbench_me_f1_v1, pgbench_pgf1_v1]
+        const: pgbench_pgf1_v1
       final_score_name:
-        enum: [ME-F1, PG-F1]
+        const: PG-F1
       produce_ranking:
         const: true
   evaluation:

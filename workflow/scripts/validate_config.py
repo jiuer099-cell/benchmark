@@ -358,7 +358,6 @@ def validate_configuration(
         "stratifications",
         "score_weights",
         "evaluator_profile",
-        "metric_dictionary",
         "allowed_information",
         "tuning_policy",
         "panel_provenance",

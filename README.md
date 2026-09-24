@@ -8,22 +8,12 @@ panel, GRCh38 reference, frozen canonical candidate universe, tool-independent
 scoring denominator, autosomal benchmark regions, and the same three frozen
 evaluators under one unified genotype-aware judgement layer.
 
-The only primary score is:
-
-```text
-ME-F1 = (F1_Truvari + F1_Aardvark-GT + F1_vcfdist) / 3
-```
-
-This formula is frozen in score-contract version 1.0. All three evaluator F1
-values are mandatory, missing evaluators are never renormalized, plugins cannot
-provide ME-F1, and strata never change the primary score. The canonicalized
-score-contract block and the complete scoring profile have separate SHA-256
-identities in every sealed result.
-
-Each evaluator's TP, FP, FN, precision, recall, and F1 is published alongside
-the mean. Evaluator range and standard deviation are disagreement diagnostics;
-they never change the ranking score. Candidate-vote agreement and whole-truth
-recovery are diagnostics only.
+The only primary score is **PG-F1**. For each frozen canonical unit, Truvari,
+Aardvark-GT and vcfdist each emit traceable binary evidence. Core accepts the
+unit only when at least two of three evaluators support it, then applies one
+exact phase-insensitive genotype comparison. The resulting TP/FP/FN ledger
+produces PG-F1, precision, and recall. Missing evidence or complex mappings
+fail closed; no partial score is published.
 
 ## Frozen channel scope
 
@@ -51,9 +41,9 @@ recovery are diagnostics only.
 
 ```text
 native VCF -> normalized VCF -> panel allele linking -> all-sites.vcf.gz
-           -> deterministic core projection -> evaluation-query.vcf.gz
-           -> Truvari / Aardvark-GT / vcfdist -> unified TP/FP/FN/GT layer
-           -> ME-F1
+           -> representation-preserving evaluator query
+           -> Truvari / Aardvark-GT / vcfdist raw ledgers
+           -> normalized unit evidence -> 2-of-3 + exact GT -> PG-F1 -> seal
 ```
 
 `all-sites.vcf.gz` and `candidate-status.tsv` retain every candidate and keep
@@ -95,7 +85,7 @@ population prior merely for symmetry.
 
 Adapter status is explicit: `eligible`, `unsupported`, and `adapter_failure`
 are distinct.  Unsupported means that an adapter cannot run in the selected
-channel; it is never converted to ME-F1 = 0.
+channel; it is never converted to PG-F1 = 0.
 
 ## Production isolation and release status
 
@@ -124,8 +114,7 @@ placeholder that could be mistaken for tested software.
 
 ```powershell
 python -m pytest -q
-python -m snakemake -n --cores 1 --configfile tests/fixtures/synthetic/config.yaml
-python -m snakemake --cores 1 --configfile tests/fixtures/synthetic/config.yaml
+python -m snakemake -n --cores 1 --configfile config/config.example.yaml
 ```
 
 Production runs use either `config/config.unified-tools.example.yaml` for SR
@@ -155,10 +144,10 @@ python workflow/scripts/run_coverage_matrix.py \
 
 A score is `valid` only when evaluator semantics, complete candidate status,
 evaluation-query invariants, independent panel provenance, allowed information,
-frozen tuning, required context/AF strata, and core provenance pass. Synthetic
-scores are always provisional. The main result table starts with ME-F1, then
-the three evaluator F1 values, followed by Addressability and call/failure
-diagnostics. HG002-only conclusions are explicitly
+frozen tuning, required context/AF strata, and PG-F1 provenance sealing pass.
+The release package contains PG-F1, precision, recall, TP, FP, FN, all three
+raw evaluator ledgers, normalized evidence, admission, and artifact hashes.
+HG002-only conclusions are explicitly
 sample-and-configuration-specific. See `docs/IMPLEMENTATION_CHECKLIST.md` for
 the original design crosswalk, `docs/CURRENT_IMPROVEMENTS_CROSSWALK.md` for the
 current-improvements crosswalk, and `docs/TOOL_PLUGIN_GUIDE.md` for adapters.

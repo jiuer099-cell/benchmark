@@ -85,7 +85,6 @@ catalogs:
   stratifications: config/stratifications.yaml
   score_weights: config/pg_f1_scoring.yaml
   evaluator_profile: config/evaluator_profile.yaml
-  metric_dictionary: config/metric_dictionary.yaml
   allowed_information: config/allowed_information.yaml
   tuning_policy: config/tuning_policy.yaml
   panel_provenance: config/panel_provenance.yaml

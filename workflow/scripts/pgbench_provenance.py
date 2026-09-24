@@ -96,8 +96,7 @@ DEFAULT_CORE_RULE_PATTERNS = (
     "fuse_evaluator_metrics",
     "collect_tool_resources",
     "audit_score_inputs",
-    "compute_me_f1",
-    "finalize_score_provenance",
+    "finalize_pgf1_release",
 )
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -1573,31 +1572,6 @@ def audit_manifests(
                         ),
                     }
                 )
-    scoring_manifests = [
-        manifest
-        for manifest in valid_manifests
-        if manifest.get("rule_name") == "compute_me_f1"
-    ]
-    if scoring_manifests:
-        scoring_profile_declared = all(
-            isinstance(manifest.get("params"), Mapping)
-            and isinstance(manifest["params"].get("score_profile"), str)
-            and bool(manifest["params"].get("score_profile"))
-            for manifest in scoring_manifests
-        )
-        run_context_complete = run_context_complete and scoring_profile_declared
-        if not scoring_profile_declared:
-            invalid_core = True
-            issues.append(
-                {
-                    "code": "missing_scoring_profile",
-                    "severity": "error",
-                    "message": (
-                        "compute_me_f1 must declare params.score_profile"
-                    ),
-                }
-            )
-
     core_provenance_valid = not invalid_core
     if not core_provenance_valid:
         status = "invalid"

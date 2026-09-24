@@ -122,7 +122,7 @@ def test_mode_semantics_accepts_shared_bam_but_rejects_hybrid_short_evidence() -
 
 
 def test_pangenie_requires_complete_paired_short_reads(tmp_path: Path) -> None:
-    config = _named_config("config.pangenie.example.yaml")
+    config = _example_config()
     config["sample"]["fastq_r2"] = None
     config_path = tmp_path / "pangenie.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -136,7 +136,7 @@ def test_pangenie_requires_complete_paired_short_reads(tmp_path: Path) -> None:
 
 
 def test_core_schema_rejects_tool_specific_pangenome_configuration(tmp_path: Path) -> None:
-    config = _named_config("config.pangenie.example.yaml")
+    config = _example_config()
     config["pangenome"]["pangenie_private_context"] = {}
     config_path = tmp_path / "tool-specific-core-config.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -150,7 +150,7 @@ def test_core_schema_rejects_tool_specific_pangenome_configuration(tmp_path: Pat
 
 
 def test_plugin_technology_must_match_sample(tmp_path: Path) -> None:
-    config = _named_config("config.pangenie.example.yaml")
+    config = _example_config()
     config["sample"]["technology"] = "unsupported_technology"
     config_path = tmp_path / "technology.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")

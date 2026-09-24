@@ -46,7 +46,7 @@ sv_match:
 
 semantics:
   primary_vote: detection
-  # Formal ME-F1 is invalid when representation mapping leaves more than one
+  # Formal PG-F1 is invalid when representation mapping leaves more than one
   # percent of submitted events unresolved.
   maximum_unresolved_mapping_fraction: 0.01
   # vcfdist standardizes all query variants in one supercluster and does not

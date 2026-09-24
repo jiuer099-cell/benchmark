@@ -11,6 +11,6 @@ allowed_modes:
     parameters_frozen_before_test: true
 forbidden:
   tune_on_hg002_truth: true
-  tune_on_final_me_f1: true
+  tune_on_final_pgf1: true
   choose_parameters_after_viewing_final_test_score: true
 required_result_fields: [tuning_mode, parameter_source, parameter_hash]
