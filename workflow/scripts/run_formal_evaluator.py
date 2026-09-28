@@ -760,6 +760,7 @@ def native_evaluator_cache_key(
     prefix: list[str],
     extra_args: list[str],
     threads: int,
+    query_identity: Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Key expensive native execution independently from parser code.
 
@@ -770,9 +771,8 @@ def native_evaluator_cache_key(
     """
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2 if query_identity is not None else 1,
         "evaluator": evaluator,
-        "prepared_query_sha256": sha256_file(prepared_query),
         "truth_sha256": sha256_file(truth),
         "reference_sha256": sha256_file(reference),
         "regions_sha256": sha256_file(regions),
@@ -781,8 +781,18 @@ def native_evaluator_cache_key(
         "extra_args": extra_args,
         "threads": threads,
     }
+    if query_identity is None:
+        payload["prepared_query_sha256"] = sha256_file(prepared_query)
+    else:
+        # bcftools appends the temporary output path and current date to its
+        # compressed VCF header.  The input VCF before compression carries the
+        # same biological records and header definitions on every retry.
+        payload["query_content_sha256"] = sha256_file(query_identity)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), payload
+    manifest = dict(payload)
+    if query_identity is not None:
+        manifest["prepared_query_sha256"] = sha256_file(prepared_query)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), manifest
 
 
 def store_native_cache(source_artifacts: Path, source_log: Path, cache: Path, manifest: dict[str, Any]) -> None:
@@ -879,6 +889,7 @@ def recover_vcfdist_unresolved_events(
             prefix=vcfdist_prefix,
             extra_args=vcfdist_extra_args,
             threads=threads,
+            query_identity=plain,
         )
         cache = cache_root / native_key
         cache_hit = False
@@ -1355,6 +1366,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
                 prefix=prefix,
                 extra_args=list(evaluator_profile.get("extra_args", [])),
                 threads=args.threads,
+                query_identity=plain if args.evaluator == "vcfdist" else None,
             )
             native_cache = (
                 args.output_dir.parent

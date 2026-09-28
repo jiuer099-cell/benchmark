@@ -19,6 +19,42 @@ import run_formal_evaluator as evaluator  # noqa: E402
 
 
 class IsolatedVcfdistParallelRecoveryTest(unittest.TestCase):
+    def test_cache_key_ignores_volatile_compression_header(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plain = root / "query.vcf"
+            plain.write_text("chr1\t1\tevent\tA\tT\n", encoding="utf-8")
+            first = root / "first.vcf.gz"
+            second = root / "second.vcf.gz"
+            first.write_bytes(b"first compression header")
+            second.write_bytes(b"second compression header")
+            for name in ("truth", "reference", "regions"):
+                (root / name).write_text(name, encoding="utf-8")
+
+            def key(prepared_query: Path, query_identity: Path | None):
+                return evaluator.native_evaluator_cache_key(
+                    evaluator="vcfdist",
+                    prepared_query=prepared_query,
+                    query_identity=query_identity,
+                    truth=root / "truth",
+                    reference=root / "reference",
+                    regions=root / "regions",
+                    version_sha256="version",
+                    prefix=["vcfdist"],
+                    extra_args=["--largest-variant", "10000"],
+                    threads=4,
+                )
+
+            stable_first, manifest_first = key(first, plain)
+            stable_second, manifest_second = key(second, plain)
+            self.assertEqual(stable_first, stable_second)
+            self.assertEqual(manifest_first["schema_version"], 2)
+            self.assertNotEqual(
+                manifest_first["prepared_query_sha256"],
+                manifest_second["prepared_query_sha256"],
+            )
+            self.assertNotEqual(key(first, None)[0], key(second, None)[0])
+
     def test_cache_reuse_parallelism_and_stable_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
