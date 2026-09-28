@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -818,6 +819,7 @@ def recover_vcfdist_unresolved_events(
     threads: int,
     version_sha256: str,
     credit_threshold: float,
+    isolated_workers: int = 1,
 ) -> tuple[dict[str, bool], list[dict[str, Any]]]:
     """Recover only bulk-unresolved vcfdist events by isolated execution.
 
@@ -834,8 +836,8 @@ def recover_vcfdist_unresolved_events(
             "vcfdist recovery requested IDs absent from the source query: "
             + ", ".join(unknown[:5])
         )
-    recovered: dict[str, bool] = {}
-    details: list[dict[str, Any]] = []
+    if isolated_workers < 1:
+        raise FormalEvaluatorError("isolated vcfdist workers must be positive")
     recovery_root = artifacts / "isolated-unresolved-v1"
     prepared_root = work / "input" / "isolated-unresolved-v1"
     cache_root = (
@@ -845,7 +847,7 @@ def recover_vcfdist_unresolved_events(
     prepared_root.mkdir(parents=True, exist_ok=True)
     cache_root.mkdir(parents=True, exist_ok=True)
 
-    for result_id in sorted(unresolved_ids):
+    def recover_one(result_id: str) -> tuple[str, bool | None, dict[str, Any]]:
         token = hashlib.sha256(result_id.encode("utf-8")).hexdigest()[:20]
         plain = prepared_root / f"{token}.vcf"
         prepared = prepared_root / f"{token}.vcf.gz"
@@ -926,20 +928,39 @@ def recover_vcfdist_unresolved_events(
             raise FormalEvaluatorError(
                 f"isolated vcfdist recovery returned an unexpected event: {order!r}"
             )
-        if result_id in votes:
-            recovered[result_id] = votes[result_id]
-        details.append(
-            {
-                "result_id": result_id,
-                "artifact_token": token,
-                "prepared_query_sha256": sha256_file(prepared),
-                "native_cache_key": native_key,
-                "native_cache_hit": cache_hit,
-                "resolved": result_id in votes,
-                "vote": votes.get(result_id),
-                "diagnostics": event_diagnostics,
-            }
-        )
+        return result_id, votes.get(result_id), {
+            "result_id": result_id,
+            "artifact_token": token,
+            "prepared_query_sha256": sha256_file(prepared),
+            "native_cache_key": native_key,
+            "native_cache_hit": cache_hit,
+            "resolved": result_id in votes,
+            "vote": votes.get(result_id),
+            "diagnostics": event_diagnostics,
+        }
+
+    ordered_ids = sorted(unresolved_ids)
+    by_id: dict[str, tuple[bool | None, dict[str, Any]]] = {}
+    with ThreadPoolExecutor(max_workers=isolated_workers) as executor:
+        futures = {
+            executor.submit(recover_one, result_id): result_id
+            for result_id in ordered_ids
+        }
+        for future in as_completed(futures):
+            result_id, vote, detail = future.result()
+            by_id[result_id] = (vote, detail)
+            print(
+                f"isolated vcfdist recovery: {len(by_id)}/{len(ordered_ids)} "
+                f"completed ({result_id}, cache_hit={detail['native_cache_hit']})",
+                flush=True,
+            )
+
+    recovered = {
+        result_id: by_id[result_id][0]
+        for result_id in ordered_ids
+        if by_id[result_id][0] is not None
+    }
+    details = [by_id[result_id][1] for result_id in ordered_ids]
     return recovered, details
 
 
@@ -1484,6 +1505,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
                             credit_threshold=float(
                                 evaluator_profile["credit_threshold"]
                             ),
+                            isolated_workers=args.isolated_workers,
                         )
                     )
                     duplicate_recovered_ids = set(recovered) & set(evaluator_votes)
@@ -1518,6 +1540,7 @@ def run_evaluator(args: argparse.Namespace) -> None:
                             "contract": recovery["contract"],
                             "selection": recovery["selection"],
                             "aggregation": recovery["aggregation"],
+                            "parallel_workers": args.isolated_workers,
                             "attempted_events": len(isolated_recovery_details),
                             "resolved_events": len(recovered),
                             "unresolved_events": len(unresolved_ids) - len(recovered),
@@ -1642,6 +1665,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--regions", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument(
+        "--isolated-workers",
+        type=int,
+        default=int(os.environ.get("PGBENCH_VCFDIST_ISOLATED_WORKERS", "1")),
+        help="concurrent isolated vcfdist events; each keeps --threads unchanged",
+    )
     return parser.parse_args(argv)
 
 
