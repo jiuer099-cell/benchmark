@@ -179,7 +179,7 @@ external_plugins:
   - id: graphtyper2
     manifest: plugins/graphtyper2/tool.yaml
   - id: varigraph
-    manifest: plugins/varigraph/tool.yaml
+    manifest: ../external_plugins/varigraph/tool.yaml
   - id: bayestyper
     manifest: plugins/bayestyper/tool.yaml
     tool_index: resources/indexes/bayestyper/HG002_LOO_HPRC_GRCh38_SV_v1
