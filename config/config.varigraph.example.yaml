@@ -145,4 +145,4 @@ tools:
 
 external_plugins:
   - id: varigraph
-    manifest: plugins/varigraph/tool.yaml
+    manifest: ../external_plugins/varigraph/tool.yaml
