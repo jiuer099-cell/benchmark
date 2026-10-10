@@ -61,6 +61,7 @@ supported_modes:
       - short_fastq_r1
       - short_fastq_r2
       - reference
+      - reference_index
       - pangenome_manifest
       - pangenome_panel
       - graph_assets
@@ -77,3 +78,4 @@ outputs:
   # The adapter projects vg's native calls onto every frozen
   # canonical candidate. Missing native calls remain explicit ./., never 0/0.
   absence_semantics: no_call
+  native_projection_audit: true

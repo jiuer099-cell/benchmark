@@ -353,6 +353,7 @@ def link_call(
     alleles: list[Allele],
     *,
     allele_index: AlleleIndex | None = None,
+    reference=None,
 ) -> LinkResult:
     if call.svtype == "BND" and ("[" not in call.alt and "]" not in call.alt):
         return LinkResult("unresolved", None, 0, "unpaired_bnd", None)
@@ -380,6 +381,12 @@ def link_call(
             return LinkResult(
                 "in_panel_exact", claimed.allele_id, 1, "claimed_id_exact", 1.0
             )
+        if reference is not None and reference.equivalent(
+            [call.chrom, str(call.pos), "", call.ref, call.alt],
+            [claimed.chrom, str(claimed.pos), "", claimed.ref, claimed.alt],
+        ):
+            return LinkResult("in_panel_equivalent", claimed.allele_id, 1,
+                              "reference_haplotype_verified", 1.0)
         if len(exact) == 1 and exact[0].allele_id != claimed.allele_id:
             return LinkResult(
                 "wrong_link",
@@ -436,6 +443,7 @@ def link_vcf(
     ledger_path: Path,
     output_vcf: Path,
     links_tsv: Path,
+    reference_path: Path | None = None,
 ) -> int:
     calls: list[Call] = []
     declared_info: set[str] = set()
@@ -461,6 +469,14 @@ def link_vcf(
     temporary_tsv = links_tsv.with_name(f".{links_tsv.name}.tmp")
     record_count = 0
     added_headers = False
+    if reference_path is not None:
+        try:
+            from reference_allele import Reference
+        except ModuleNotFoundError:
+            from .reference_allele import Reference
+        reference = Reference(reference_path)
+    else:
+        reference = None
 
     with (
         canonical_vcf.open("r", encoding="utf-8") as source,
@@ -506,6 +522,7 @@ def link_vcf(
                 allele_by_id,
                 alleles,
                 allele_index=allele_index,
+                reference=reference,
             )
             if result.status not in LINK_STATUSES:
                 raise AlleleLinkError(f"unexpected link status {result.status}")
@@ -535,6 +552,8 @@ def link_vcf(
             record_count += 1
     temporary_vcf.replace(output_vcf)
     temporary_tsv.replace(links_tsv)
+    if reference is not None:
+        reference.close()
     return record_count
 
 
@@ -546,6 +565,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--allele-ledger", required=True, type=Path)
     parser.add_argument("--output-vcf", required=True, type=Path)
     parser.add_argument("--links-tsv", required=True, type=Path)
+    parser.add_argument("--reference", type=Path)
     return parser.parse_args(argv)
 
 
@@ -557,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
             args.allele_ledger,
             args.output_vcf,
             args.links_tsv,
+            reference_path=args.reference,
         )
     except (OSError, ValueError, AlleleLinkError) as exc:
         print(f"link_pangenome_alleles: {exc}", file=sys.stderr)

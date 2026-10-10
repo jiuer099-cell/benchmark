@@ -1824,6 +1824,17 @@ def execute_tool(
                 "assigned output VCF appeared during execution; refusing overwrite"
             )
         os.link(attempt_output_vcf, final_output_vcf)
+        if manifest["outputs"].get("native_projection_audit", False):
+            projection_source = attempt_output_vcf.with_suffix(".projection.json")
+            trace_source = attempt_output_vcf.with_suffix(".native-trace.jsonl.gz")
+            projection = json.loads(projection_source.read_text(encoding="utf-8"))
+            if projection.get("output_sha256") != sha256_file(final_output_vcf) or projection.get("trace_sha256") != sha256_file(trace_source):
+                raise ToolExecutionError("Native projection sidecars do not bind tool output")
+            trace_final = final_output_vcf.with_suffix(".native-trace.jsonl.gz")
+            projection_final = final_output_vcf.with_suffix(".projection.json")
+            os.replace(trace_source, trace_final)
+            projection["trace_path"] = str(trace_final.resolve())
+            projection_final.write_text(json.dumps(projection, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         attempt_output_vcf.unlink()
         validation = validate_tool_output(
             output_vcf=final_output_vcf,

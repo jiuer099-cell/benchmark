@@ -53,8 +53,9 @@ def main(argv:list[str]|None=None)->int:
                 if not candidate or info.get("PANGENOME_CANDIDATE_COUNT")!="1" or candidate in seen:raise PGF1Error("CANONICAL_MAPPING_FAILURE")
                 unit_id=f"{candidate}:A1"
                 if unit_id not in units:raise PGF1Error("UNIT_SET_MISMATCH")
-                native_record_id=f[2]; seen.add(candidate); f[2]=candidate
-                suffix=f"PGBENCH_UNIT_TRACE={unit_id};PGBENCH_NATIVE_RECORD_ID={native_record_id}"
+                native_record_id=info.get("PGBENCH_NATIVE_RECORD_ID",f[2]); seen.add(candidate); f[2]=candidate
+                suffix=f"PGBENCH_UNIT_TRACE={unit_id}"
+                if "PGBENCH_NATIVE_RECORD_ID" not in info:suffix+=f";PGBENCH_NATIVE_RECORD_ID={native_record_id}"
                 f[7]=(f[7]+";" if f[7] not in {"","."} else "")+suffix;dst.write("\t".join(f)+"\n")
                 submitted_records+=1
         json_dump(a.audit_json,{
@@ -69,6 +70,7 @@ def main(argv:list[str]|None=None)->int:
             "unit_trace_complete":True,
             "native_record_trace_complete":True,
             "caller_representation_rewritten":False,
+            "representation_check_scope":"linked_input_to_evaluator_query; upstream adapter must supply its own audit",
         })
     except (OSError,PGF1Error,ValueError) as e:print(f"materialize_pgf1_evaluator_query: {e}",file=sys.stderr);return 2
     return 0

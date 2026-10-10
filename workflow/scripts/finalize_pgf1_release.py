@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import tempfile
+import yaml
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -78,6 +79,9 @@ def seal(
     output_package: Path,
     output_audit: Path,
     output_seal: Path,
+    projection_audit: Path | None = None,
+    projection_vcf: Path | None = None,
+    require_projection_audit: bool = False,
 ) -> dict[str, Any]:
     score_data = load_json(score, label="PG-F1 score")
     score_audit_data = load_json(score_audit, label="PG-F1 score audit")
@@ -135,6 +139,35 @@ def seal(
         "normalized_evidence": {name: artifact(evidence[name]) for name in sorted(evidence)},
         "raw_evaluator_ledgers": {name: artifact(raw_ledgers[name]) for name in sorted(raw_ledgers)},
     }
+    if require_projection_audit or projection_audit is not None:
+        if projection_audit is None or projection_vcf is None:
+            raise PGF1SealError("Native requires an independently traceable native projection audit")
+        projection = load_json(projection_audit, label="Native native projection audit")
+        if (projection.get("contract") != "pgbench-native-projection-v2"
+            or projection.get("truth_used") is not False
+            or projection.get("reference_equivalence_checked") is not True
+            or projection.get("caller_alleles_preserved") is not True
+            or projection.get("quality_and_filter_preserved") is not True):
+            raise PGF1SealError("Native projection contract not satisfied")
+        if projection.get("output_sha256") != sha256_file(projection_vcf):
+            raise PGF1SealError("Native projection audit does not bind current raw output")
+        if projection.get("candidate_sha256") != invariants_data.get("canonical_panel_sha256"):
+            raise PGF1SealError("Native projection audit uses a different frozen panel")
+        if projection.get("reference_sha256") != invariants_data.get("reference_sha256"):
+            raise PGF1SealError("Native projection audit uses a different reference")
+        for name, path_key, hash_key in (("native_vcf", "native_vcf", "native_sha256"), ("native_trace", "trace_path", "trace_sha256")):
+            value = artifact(Path(projection[path_key]))
+            if value["sha256"] != projection.get(hash_key):
+                raise PGF1SealError("Native native lineage hash mismatch: " + name)
+            artifacts[name] = value
+        artifacts["native_projection_audit"] = artifact(projection_audit)
+        artifacts["native_projected_vcf"] = artifact(projection_vcf)
+    release_config = yaml.safe_load(config.read_text(encoding="utf-8"))
+    contract = release_config.get("benchmark_contract", {}) if isinstance(release_config, dict) else {}
+    qualifiers = {key: contract.get(key, "not_declared") for key in
+                  ("score_status", "conclusion_scope", "independent_samples_status")}
+    if projection_audit is not None:
+        qualifiers["native_execution_policy"] = projection.get("native_execution_policy", "not_declared")
     tuple_data = score_data.get("tuple")
     if not isinstance(tuple_data, dict):
         raise PGF1SealError("PG-F1 score lacks a run/sample/tool/track tuple")
@@ -155,6 +188,8 @@ def seal(
             "three_normalized_evidence_files_hashed": True,
         },
         "artifacts": artifacts,
+        "biological_performance_validated": False,
+        "release_qualifiers": qualifiers,
     }
     package = {
         "package_schema_version": "pgbench_pgf1_release_package_v1",
@@ -164,6 +199,7 @@ def seal(
         "admission": admission_data,
         "provenance_audit": {"path": str(output_audit), "sha256": None},
         "artifact_hashes": artifacts,
+        "release_qualifiers": qualifiers,
     }
     atomic_json(output_audit, audit)
     package["provenance_audit"]["sha256"] = sha256_file(output_audit)
@@ -190,6 +226,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-package", required=True, type=Path)
     parser.add_argument("--output-audit", required=True, type=Path)
     parser.add_argument("--output-seal", required=True, type=Path)
+    parser.add_argument("--projection-audit", type=Path)
+    parser.add_argument("--projection-vcf", type=Path)
+    parser.add_argument("--require-projection-audit", action="store_true")
     return parser
 
 
@@ -206,6 +245,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_context=args.run_context, config=args.config,
             output_package=args.output_package, output_audit=args.output_audit,
             output_seal=args.output_seal,
+            projection_audit=args.projection_audit, projection_vcf=args.projection_vcf,
+            require_projection_audit=args.require_projection_audit,
         )
     except (OSError, PGF1SealError) as error:
         print(f"finalize_pgf1_release: {error}", file=__import__("sys").stderr)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,20 @@ def _prepare_workspace(root: Path) -> dict[str, Path]:
         paths["upstream"],
         {"manifest_id": sha256_bytes(b"upstream-manifest")},
     )
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
     return paths
+
+
+def test_resumed_rule_records_live_git_not_frozen_context(tmp_path):
+    paths = _prepare_workspace(tmp_path)
+    command = [sys.executable, paths["producer"].name, paths["input"].name, paths["output"].name]
+    assert rule_exec_main([*_base_argv(tmp_path, paths), "--", *command]) == 0
+    manifest = json.loads(paths["manifest"].read_text())
+    head = subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True).strip()
+    assert manifest["git_head"] == head
+    assert manifest["origin_run_git_head"] == "1" * 40
 
 
 def _base_argv(root: Path, paths: dict[str, Path]) -> list[str]:

@@ -104,7 +104,14 @@ def _load_or_capture_context(
     if run_context is not None:
         resolved = _resolve_path(repo_root, run_context)
         if resolved.is_file():
-            return _load_mapping(resolved, "run context")
+            frozen = _load_mapping(resolved, "run context")
+            live = capture_run_context(
+                repo_root=repo_root, score_profile=score_profile,
+                random_seed=random_seed, snakemake_version=snakemake_version,
+                execution_profile=execution_profile,
+            )
+            return {**frozen, **live, "origin_run_git_head": frozen.get("git_head"),
+                    "origin_run_context_path": str(resolved)}
     return capture_run_context(
         repo_root=repo_root,
         score_profile=_resolve_path(repo_root, score_profile),
@@ -513,6 +520,7 @@ def execute_and_manifest(args: argparse.Namespace) -> int:
         "container_uri": args.container_uri,
         "container_digest": args.container_digest,
         "git_head": context.get("git_head"),
+        "origin_run_git_head": context.get("origin_run_git_head"),
         "git_dirty": context.get("git_dirty"),
         "git_diff_sha256": context.get("git_diff_sha256"),
         "snakemake_version": context.get("snakemake_version", args.snakemake_version),

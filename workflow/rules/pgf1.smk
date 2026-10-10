@@ -78,8 +78,16 @@ if PGF1_ENABLED:
         shell:
             "python workflow/scripts/validate_leaderboard_admission.py --score {input.score:q} --invariants {input.invariants:q} --output {output.admission:q}"
 
+    PROJECTION_TOOLS = set()
+    for settings in EXTERNAL_SETTINGS:
+        with open(settings["tool_manifest"], encoding="utf-8") as source:
+            if yaml.safe_load(source)["outputs"].get("native_projection_audit", False):
+                PROJECTION_TOOLS.add(settings["tool_id"])
+
     rule finalize_pgf1_release:
         input:
+            projection_audit=lambda wc: [f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.projection.json"] if wc.tool in PROJECTION_TOOLS else [],
+            projection_vcf=lambda wc: [f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in PROJECTION_TOOLS else [],
             score=PGF1_ROOT + "/{tool}/evaluation/consensus/score.json",
             score_audit=PGF1_ROOT + "/{tool}/evaluation/consensus/pgf1_audit.json",
             ledger=PGF1_ROOT + "/{tool}/evaluation/consensus/pgf1_evidence.tsv.gz",
@@ -123,6 +131,9 @@ if PGF1_ENABLED:
             BENCHMARK_ROOT + "/rules/finalize_pgf1_release/" + f"{SAMPLE_ID}." + "{tool}." + OFFICIAL_MODE + ".jsonl",
         conda:
             "../envs/core.yaml"
+        params:
+            projection_inputs=lambda wc: ["--input", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.projection.json", "--input", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in PROJECTION_TOOLS else [],
+            projection_args=lambda wc: ["--require-projection-audit", "--projection-audit", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.projection.json", "--projection-vcf", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in PROJECTION_TOOLS else [],
         shell:
             """
             {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \\
@@ -143,6 +154,7 @@ if PGF1_ENABLED:
               --input {input.truvari_raw:q} --input {input.aardvark_raw:q} --input {input.vcfdist_raw:q} \\
               --input {input.invariants:q} --input {input.admission:q} --input {input.context:q} \\
               --input {input.config:q} --input {input.rule_source:q} --input {input.rule_executor:q} \\
+              {params.projection_inputs:q} \\
               --input {input.script:q} --input {input.environment:q} --input {input.provenance_library:q} \\
               --output {output.package:q} --output {output.audit:q} --output {output.seal:q} \\
               --upstream-manifest {input.link_manifest:q} --upstream-manifest {input.truvari_manifest:q} \\
@@ -157,5 +169,6 @@ if PGF1_ENABLED:
                 --invariants {input.invariants:q} --admission {input.admission:q} \\
                 --run-context {input.context:q} --config {input.config:q} \\
                 --output-package {output.package:q} --output-audit {output.audit:q} --output-seal {output.seal:q} \\
+                {params.projection_args:q} \\
               > {log:q} 2>&1
             """

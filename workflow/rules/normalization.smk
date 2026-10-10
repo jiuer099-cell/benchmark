@@ -54,6 +54,8 @@ rule link_pangenome_alleles:
         config=CONFIG_PATH,
         score_profile=config["catalogs"]["score_weights"],
         reference=config["reference"]["fasta"],
+        reference_index=config["reference"]["fai"],
+        reference_helper="workflow/scripts/reference_allele.py",
         rule_source="workflow/rules/normalization.smk",
         rule_executor=RULE_EXECUTOR,
         script="workflow/scripts/link_pangenome_alleles.py",
@@ -84,12 +86,13 @@ rule link_pangenome_alleles:
           --input {input.reference:q} --input {input.rule_source:q} \
           --input {input.rule_executor:q} --input {input.script:q} \
           --input {input.environment:q} --input {input.provenance_library:q} \
+          --input {input.reference_index:q} --input {input.reference_helper:q} \
           --output {output.vcf:q} --output {output.links:q} \
           --upstream-manifest {input.upstream:q} --upstream-manifest {input.pangenome_upstream:q} \
           --manifest-output {output.rule_manifest:q} -- \
           {PYTHON_EXECUTABLE:q} {input.script:q} --canonical-vcf {input.canonical:q} \
             --allele-ledger {input.ledger:q} --output-vcf {output.vcf:q} \
-            --links-tsv {output.links:q} > {log:q} 2>&1
+            --links-tsv {output.links:q} --reference {input.reference:q} > {log:q} 2>&1
         """
 
 

@@ -28,6 +28,7 @@ NATIVE_STATUSES = {
     "index_build_failure",
     "linking_failure",
     "ambiguous_mapping",
+    "not_observed",
 }
 
 
@@ -118,6 +119,7 @@ def materialize(
 
     mapped: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     off_panel_records = 0
+    embedded_statuses = {}
     with open_text(linked_query, "rt") as handle:
         for line in handle:
             if not line.strip() or line.startswith("#"):
@@ -136,10 +138,20 @@ def materialize(
             if candidate_id is None:
                 off_panel_records += 1
                 continue
+            native_status = info.get("PGBENCH_NATIVE_STATUS")
+            if native_status is not None:
+                if native_status not in NATIVE_STATUSES:
+                    raise AllSitesError("invalid embedded native status")
+                previous = embedded_statuses.get(candidate_id)
+                if previous is not None and previous != native_status:
+                    raise AllSitesError("conflicting embedded native statuses")
+                embedded_statuses[candidate_id] = native_status
             raw_gt = genotype(fields)
             mapped[candidate_id].append((fields[2], raw_gt, normalize_gt(raw_gt)))
 
     overrides = load_status_overrides(adapter_status)
+    for candidate_id, status in embedded_statuses.items():
+        overrides.setdefault(candidate_id, (status, "no verified native allele" if status == "not_observed" else ""))
     unknown_overrides = sorted(set(overrides) - set(candidates))
     if unknown_overrides:
         raise AllSitesError(
@@ -266,6 +278,9 @@ def materialize(
         "explicit_no_call_count": counts["explicit_no_call"],
         "missing_output_count": counts["missing_output"],
         "addressability_rate": addressable / len(candidates),
+        "native_status_observed": bool(embedded_statuses),
+        "not_observed_count": counts["native_not_observed"],
+        "off_panel_count_scope": "linked_input_only_not_pre_adapter_native_vcf",
         "off_panel_native_record_count": off_panel_records,
         "denominator_policy": "canonical_panel_fail_closed",
         "silent_candidate_deletion_count": 0,

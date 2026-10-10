@@ -20,6 +20,9 @@ SHARD_COUNT = 8
 FRAGMENT_MEAN = "596.974"
 FRAGMENT_STDEV = "153.29"
 CHECKPOINT_VERSION = 1
+GIRAFFE_RECIPE = ["vg", "giraffe", "-Z", "{gbz}", "-d", "{distance}", "-m", "{minimizer}", "-z", "{zipcodes}", "-f", "{r1}", "-f", "{r2}", "-t", "{threads}", "-p", "--fragment-mean", "{mean}", "--fragment-stdev", "{stdev}"]
+# Immutable recipe of the completed 20261009 checkpoints; never broaden this.
+LEGACY_GIRAFFE_RECIPE = ["vg", "giraffe", "-Z", "{gbz}", "-d", "{distance}", "-m", "{minimizer}", "-z", "{zipcodes}", "-f", "{r1}", "-f", "{r2}", "-t", "{threads}", "-p", "--fragment-mean", "{mean}", "--fragment-stdev", "{stdev}"]
 
 
 def required(name: str) -> str:
@@ -33,8 +36,27 @@ def run(command: list[str], *, stdout: Path | None = None) -> None:
     if stdout is None:
         subprocess.run(command, check=True)
         return
-    with stdout.open("wb") as handle:
-        subprocess.run(command, check=True, stdout=handle)
+    temporary = stdout.with_name(stdout.name + ".tmp")
+    wait_for_memory()
+    with temporary.open("wb") as handle:
+        process = subprocess.Popen(command, stdout=handle)
+        while process.poll() is None:
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                if available_memory_gib() < 96:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    raise RuntimeError("available memory fell below 96 GiB during " + " ".join(command[:2]))
+        if process.returncode:
+            raise RuntimeError(f"{command[:2]} failed: {process.returncode}")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, stdout)
 
 
 def sha256_file(path: Path) -> str:
@@ -229,10 +251,10 @@ def map_shard(
     started = time.monotonic()
     with temporary.open("wb") as output:
         giraffe = subprocess.Popen(
-            ["vg", "giraffe", "-Z", str(gbz), "-d", str(distance), "-m", str(minimizer),
-             "-z", str(zipcodes), "-f", str(reads[0]), "-f", str(reads[1]),
-             "-t", str(mapping_threads), "-p", "--fragment-mean", FRAGMENT_MEAN,
-             "--fragment-stdev", FRAGMENT_STDEV],
+            [token.format(gbz=gbz, distance=distance, minimizer=minimizer,
+                          zipcodes=zipcodes, r1=reads[0], r2=reads[1],
+                          threads=mapping_threads, mean=FRAGMENT_MEAN,
+                          stdev=FRAGMENT_STDEV) for token in GIRAFFE_RECIPE],
             stdout=output,
         )
         while giraffe.poll() is None:
@@ -242,7 +264,11 @@ def map_shard(
                 if available_memory_gib() < 96:
                     print("vg map: aborting current shard to avoid global OOM", flush=True)
                     giraffe.terminate()
-                    giraffe.wait()
+                    try:
+                        giraffe.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        giraffe.kill()
+                        giraffe.wait()
                     raise RuntimeError("available memory fell below 96 GiB")
         if giraffe.returncode != 0:
             raise RuntimeError(f"vg shard {index + 1} failed: giraffe={giraffe.returncode}")
@@ -278,6 +304,17 @@ def cached_final_pack(roots: list[Path], pack_key: str) -> Path | None:
     return None
 
 
+def gam_fingerprint(path: Path) -> dict:
+    # cached_gam has already verified this digest; map_shard writes it after exit 0.
+    # Avoid rereading 256 GB multiple times solely to build the pack cache key.
+    manifest = path.with_suffix(".json")
+    if manifest.is_file():
+        data = json.loads(manifest.read_text())
+        if data.get("size") == path.stat().st_size and len(data.get("sha256", "")) == 64:
+            return {"sha256": data["sha256"], "size": data["size"]}
+    return {"sha256": sha256_file(path), "size": path.stat().st_size}
+
+
 def pack_gams(gams: list[Path], gbz: Path, work: Path, pack_key: str) -> Path:
     wait_for_memory()
     directory = work / "final-pack"
@@ -286,7 +323,7 @@ def pack_gams(gams: list[Path], gbz: Path, work: Path, pack_key: str) -> Path:
     pack = directory / "HG002.pack"
     print("vg pack: processing all completed GAM shards once", flush=True)
     process = subprocess.Popen(
-        ["vg", "pack", "-x", str(gbz), "-g", "-", "-o", str(temporary), "-t", "4"],
+        ["vg", "pack", "-x", str(gbz), "-g", "-", "-o", str(temporary), "-t", "4", "-Q", "5"],
         stdin=subprocess.PIPE,
     )
     assert process.stdin is not None
@@ -326,6 +363,8 @@ def pack_gams(gams: list[Path], gbz: Path, work: Path, pack_key: str) -> Path:
     os.replace(temporary, pack)
     write_json_atomic(directory / "HG002.pack.json", {
         "pack_key": pack_key,
+        "source_gams": [gam_fingerprint(path) for path in gams],
+        "min_quality": 5,
         "size": pack.stat().st_size,
         "sha256": sha256_file(pack),
     })
@@ -371,68 +410,16 @@ def _genotype(fields: list[str]) -> str:
 
 
 def project_all_sites(native: Path, candidates: Path, destination: Path, sample: str) -> tuple[int, int, int]:
-    """Project vg calls onto the complete frozen panel with explicit no-calls."""
-
-    order: list[str] = []
-    records: dict[str, list[str]] = {}
-    by_allele: dict[str, str] = {}
-    by_key: dict[tuple[str, str, str, str], str] = {}
-    meta: list[str] = []
-    with open_text(candidates, "rt") as handle:
-        for line in handle:
-            if line.startswith("##"):
-                meta.append(line)
-                continue
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8 or not fields[2]:
-                raise RuntimeError("candidate panel contains a malformed record")
-            candidate_id = fields[2]
-            if candidate_id in records:
-                raise RuntimeError(f"candidate panel duplicates {candidate_id}")
-            records[candidate_id] = fields
-            order.append(candidate_id)
-            by_key[(fields[0], fields[1], fields[3], fields[4])] = candidate_id
-            allele_id = _allele_id(fields[7])
-            if allele_id:
-                by_allele[allele_id] = candidate_id
-    if not order:
-        raise RuntimeError("candidate panel contains no records")
-    calls: dict[str, str] = {}
-    outside = 0
-    with open_text(native, "rt") as handle:
-        for line in handle:
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8:
-                raise RuntimeError("vg output contains a malformed record")
-            candidate_id = fields[2] if fields[2] in records else None
-            if candidate_id is None:
-                allele_id = _allele_id(fields[7])
-                candidate_id = by_allele.get(allele_id) if allele_id else None
-            if candidate_id is None:
-                candidate_id = by_key.get((fields[0], fields[1], fields[3], fields[4]))
-            if candidate_id is None:
-                outside += 1
-                continue
-            if candidate_id in calls:
-                raise RuntimeError(f"vg output duplicates {candidate_id}")
-            calls[candidate_id] = _genotype(fields)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with open_text(destination, "wt") as output:
-        output.write("##fileformat=VCFv4.2\n")
-        for line in meta:
-            if not line.startswith("##fileformat") and not line.startswith("##FORMAT=<ID=GT,"):
-                output.write(line)
-        output.write("##source=PGBench-vg-all-sites-adapter\n")
-        output.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-        output.write(f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n")
-        for candidate_id in order:
-            output.write("\t".join(records[candidate_id][:8] + ["GT", calls.get(candidate_id, "./.")]) + "\n")
-    return len(calls), len(order) - len(calls), outside
-
+    # Import by file path as tests load this adapter outside its package.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("vg_native_projection", Path(__file__).with_name("projection.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.project(
+        native, candidates, destination, sample,
+        reference=Path(required("PGBENCH_REFERENCE_FASTA")),
+        native_policy="official_pack_q5_all_reference_snarls_v1",
+    )
 
 def main() -> int:
     reads_r1 = Path(required("PGBENCH_INPUT_FASTQ_R1"))
@@ -474,7 +461,7 @@ def main() -> int:
         "strategy": "paired-round-robin",
     })
     vg_version = subprocess.check_output(["vg", "version"], text=True).splitlines()[0]
-    mapping_key = identity({
+    mapping_identity = {
         "format": CHECKPOINT_VERSION,
         "split_key": split_key,
         "graph": input_hashes["graph_assets"],
@@ -483,17 +470,28 @@ def main() -> int:
         "fragment_mean": FRAGMENT_MEAN,
         "fragment_stdev": FRAGMENT_STDEV,
         "giraffe_preset": "default",
-    })
+    }
+    legacy_mapping_key = identity(mapping_identity)
+    mapping_key = identity({**mapping_identity, "argv_recipe": GIRAFFE_RECIPE})
     pack_key = identity({
-        "format": CHECKPOINT_VERSION,
+        "format": 2,
+        "pack_command_recipe": ["vg", "pack", "-x", "{gbz}", "-g", "-", "-o", "{pack}", "-t", "4", "-Q", "5"],
         "mapping_key": mapping_key,
         "graph": input_hashes["graph_assets"],
         "pack_threads": 4,
     })
+    # Recipe changes cannot silently reuse the pre-Q5 pack. Mapping is unchanged.
     roots = prior_work_roots(output_dir)
-    pack = cached_final_pack(roots, pack_key)
+    gams = [cached_gam(roots, index, mapping_key) for index in range(SHARD_COUNT)]
+    if GIRAFFE_RECIPE == LEGACY_GIRAFFE_RECIPE:
+        gams = [path or cached_gam(roots, index, legacy_mapping_key)
+                for index, path in enumerate(gams)]
+    pack = None
+    if all(gams):
+        source_gams = [gam_fingerprint(path) for path in gams]
+        pack_key = identity({"recipe_identity": pack_key, "source_gams": source_gams})
+        pack = cached_final_pack(roots, pack_key)
     if pack is None:
-        gams = [cached_gam(roots, index, mapping_key) for index in range(SHARD_COUNT)]
         if any(path is None for path in gams):
             shards = None
             for root in roots:
@@ -512,6 +510,11 @@ def main() -> int:
                     )
         if any(path is None for path in gams):
             raise RuntimeError("not every vg shard has a verified GAM")
+        if not all(gams):
+            raise RuntimeError("pack requires all source GAMs")
+        # Compute the same source-bound identity whether shards were cached or new.
+        recipe_key = identity({"format": 2, "pack_command_recipe": ["vg", "pack", "-x", "{gbz}", "-g", "-", "-o", "{pack}", "-t", "4", "-Q", "5"], "mapping_key": mapping_key, "graph": input_hashes["graph_assets"], "pack_threads": 4})
+        pack_key = identity({"recipe_identity": recipe_key, "source_gams": [gam_fingerprint(path) for path in gams]})
         pack = pack_gams(gams, gbz, work, pack_key)
     if frozen_snarls is None:
         run(["vg", "snarls", str(gbz), "-t", str(threads)], stdout=snarls)
@@ -529,6 +532,8 @@ def main() -> int:
             "-z",
             "--ref-sample",
             reference_path,
+            "-t", str(threads),
+            "-a",
         ],
         stdout=native_vcf,
     )

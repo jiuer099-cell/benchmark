@@ -112,7 +112,10 @@ def _set_runner_environment(
         str(output_dir / "raw" / "calls.vcf"),
     )
     monkeypatch.setenv("PGBENCH_SAMPLE_ID", "HG002")
-    monkeypatch.setenv("PGBENCH_THREADS", "4")
+    monkeypatch.setenv("PGBENCH_THREADS", "8")
+    resolved = tmp_path / "resolved.json"
+    resolved.write_text('{"inputs":[{"name":"short_fastq_r1","sha256":"r1"},{"name":"short_fastq_r2","sha256":"r2"},{"name":"graph_assets","sha256":"graph"}]}')
+    monkeypatch.setenv("PGBENCH_RESOLVED_INPUTS", str(resolved))
     monkeypatch.setenv("PGBENCH_CANDIDATE_VCF", str(candidates))
     if reference_path is None:
         monkeypatch.delenv("PGBENCH_GRAPH_REFERENCE_PATH", raising=False)
@@ -134,6 +137,9 @@ def test_vg_call_is_restricted_to_frozen_reference_sample(
             stdout.write_bytes(b"synthetic\n")
 
     monkeypatch.setattr(MODULE, "run", fake_run)
+    monkeypatch.setattr(MODULE.subprocess, "check_output", lambda *args, **kwargs: "vg version test\n")
+    monkeypatch.setattr(MODULE, "cached_gam", lambda *args: RUNNER)
+    monkeypatch.setattr(MODULE, "cached_final_pack", lambda *args: RUNNER)
     monkeypatch.setattr(MODULE, "project_all_sites", lambda *args: (1, 0, 0))
     assert MODULE.main() == 0
 
@@ -141,12 +147,9 @@ def test_vg_call_is_restricted_to_frozen_reference_sample(
     selector_index = call.index("--ref-sample")
     assert call[selector_index + 1] == "GRCh38"
 
-    giraffe = next(
-        command for command in commands if command[:2] == ["vg", "giraffe"]
-    )
-    assert giraffe.count("-f") == 2
-    assert "graph.shortread.withzip.min" in giraffe[giraffe.index("-m") + 1]
-    assert "graph.shortread.zipcodes" in giraffe[giraffe.index("-z") + 1]
+    assert "-a" in call
+    assert call[call.index("-t") + 1] == "8"
+    assert MODULE.GIRAFFE_RECIPE.count("-f") == 2
 
 
 def test_vg_runner_fails_closed_without_reference_selector(

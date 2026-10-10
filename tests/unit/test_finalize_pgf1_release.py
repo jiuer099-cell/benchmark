@@ -64,7 +64,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
     return paths
 
 
-def _seal(paths: dict[str, Path]) -> dict:
+def _seal(paths: dict[str, Path], *, require_projection=False) -> dict:
     return finalizer.seal(
         score=paths["score"], score_audit=paths["score_audit"], ledger=paths["ledger"],
         canonical_units=paths["units"], unit_sha_file=paths["unit_sha"],
@@ -74,6 +74,7 @@ def _seal(paths: dict[str, Path]) -> dict:
         invariants=paths["invariants"], admission=paths["admission"],
         run_context=paths["context"], config=paths["config"],
         output_package=paths["output_package"], output_audit=paths["output_audit"], output_seal=paths["output_seal"],
+        require_projection_audit=require_projection,
     )
 
 
@@ -85,6 +86,16 @@ def test_seal_writes_complete_hashed_pgf1_release(tmp_path: Path) -> None:
     assert audit["hash_lineage_complete"] is True
     assert set(audit["artifacts"]["raw_evaluator_ledgers"]) == {"truvari", "aardvark", "vcfdist"}
     assert paths["output_seal"].is_file()
+
+
+def test_vg_cannot_seal_without_native_projection_lineage(tmp_path):
+    paths = _fixture(tmp_path)
+    score = json.loads(paths["score"].read_text())
+    score["tuple"]["tool"] = "vg"
+    _json(paths["score"], score)
+    _json(paths["admission"], {"status": "PASS", "score_sha256": _sha(paths["score"])})
+    with pytest.raises(finalizer.PGF1SealError, match="native projection audit"):
+        _seal(paths, require_projection=True)
 
 
 def test_seal_rejects_admission_for_a_different_score(tmp_path: Path) -> None:
