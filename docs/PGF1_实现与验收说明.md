@@ -47,7 +47,9 @@ unit、改分母或扩大 `UNSCORABLE`。
   BED/reference、PG-F1 contract、evaluator bundle、query construction 和
   normalizer contract；未 PASS 的 score 不可入榜。
 - `validate_adapter_conformance.py` 定义 schema、真实 runtime、mini-panel、
-  canonical mapping、PG-F1 evidence、real input 六项全部 PASS 才可 production。
+  canonical mapping、PG-F1 evidence、real input 六项门禁。新版模板实际执行六项
+  命令并绑定新生成的证据、日志、参数与源码哈希；手填 PASS、过期证据不可用于
+  production。通用执行器在正式启动前强制校验新版 receipt；开发探针不入正式封存。
 - `tests/conformance/fixed-mini-panel/` 覆盖 C01–C15，且固定 voter、GT、
   missing-evidence 和 complex-mapping 失败语义。
 
@@ -57,3 +59,10 @@ unit、改分母或扩大 `UNSCORABLE`。
 gzip / SHA256 / read-count 或共享 BAM 的通用完整性检查；这保证所有 adapter
 复用同一份 Core immutable input-validation cache。模板还修复了实际注入环境
 变量名，并拒绝 duplicate candidate/allele mapping，避免静默选一个匹配。
+
+2026-10-11 新版通用模板保留原生变异表示和 QUAL/FILTER/INFO/FORMAT，按名称
+选择样本，以冻结参考验证 ID 映射；多等位及不支持的表示必须经声明的官方转换，
+不可静默补成 no-call。trace 流式写出，原生输出、命令、参数和门禁证据均接入
+最新封存。所有工具预先冻结官方默认或推荐配置，仅允许输入兼容、资源限制、
+必要格式转换的已声明例外，不额外分型过滤或拒判；每工具/比较上下文一个正式
+PG-F1，不挑选较高分数。新版门禁为显式 opt-in，既有冻结任务不被隐式改写。

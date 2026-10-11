@@ -11,7 +11,7 @@ bias, and read selection are held fixed across tools.
 - `information_inputs` must include `benchmark_supplied_shared_alignment`
 - `supported_modes.end_to_end_from_reads.required_inputs`:
   `[shared_shortread_alignment, shared_shortread_alignment_index, reference,
-  pangenome_manifest, pangenome_panel, candidate_panel]`
+  reference_index, pangenome_manifest, pangenome_panel, candidate_panel]`
 - `billable_stages` typically `[genotype, postprocess]` (mapping is shared
   and not re-billed).
 
@@ -33,9 +33,10 @@ replace or bypass the Core validation contract.
 
 ## Pitfalls learned in this repo
 
-- If your tool builds genome-wide graphs from the candidate panel, CHUNK the
-  panel (one contig per chunk) — the whole-genome single-invocation approach
-  OOM-killed at 389 GB.
+- Choose a reviewed method-valid memory strategy; chunking must preserve
+  complete evidence and be declared as a resource exception before execution.
+- Freeze official defaults/recommendations. Do not introduce extra genotype
+  filtering/rejection or select among multiple scores; one formal PG-F1 only.
 - Do not re-map or re-filter the shared reads; if your tool needs different
   alignment parameters, that is a different benchmark question and must be
   declared, not improvised.

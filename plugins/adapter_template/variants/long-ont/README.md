@@ -19,7 +19,7 @@ Every ONT adapter consumes this exact release, declared in
 - `paradigm: long_read_pangenome_genotyping`
 - `capabilities.read_class: long`, `capabilities.technology: [ont]`
 - `required_inputs`: `[long_reads_fastq, reference, pangenome_manifest,
-  pangenome_panel, candidate_panel]`
+    reference_index, pangenome_panel, candidate_panel]`
 
 ## Environment variables
 
@@ -29,6 +29,9 @@ Every ONT adapter consumes this exact release, declared in
 | others | same plumbing as the other long-read variants |
 
 ## ONT-specific notes
+
+- Use the root kit's frozen official configuration, both native audit flags,
+  executed conformance gates and single formal PG-F1 policy.
 
 - NEVER re-filter, trim, or subset the pass reads inside the adapter. The
   official fail partition is a benchmark-level decision; merging pass+fail or

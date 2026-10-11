@@ -170,6 +170,8 @@ def seal(
         if native_output_audit is None or native_output_vcf is None:
             raise PGF1SealError("native output audit and VCF are required")
         native = load_json(native_output_audit, label="native output audit")
+        if native.get("execution_purpose", "formal") != "formal":
+            raise PGF1SealError("development/conformance native output cannot become a formal release")
         if (native.get("contract") != "pgbench-native-output-audit-v1"
                 or native.get("truth_used") is not False
                 or native.get("output_sha256") != sha256_file(native_output_vcf)

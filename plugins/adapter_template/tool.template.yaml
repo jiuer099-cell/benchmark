@@ -37,10 +37,36 @@ information_contract:
   target_assembly_used: false
   target_family_genotypes_used: false
   target_specific_external_callset: false
-  # official_default | official_recommended_sv_config | validation_tuned
+  # Formal primary: official_default | official_recommended_sv_config only.
   tuning_mode: official_default
-  # official_default | official_documentation | independent_validation_sample
+  # Formal primary: official_default | official_documentation only.
   parameter_source: official_default
+
+# Frozen before any production score is observed. Never select the higher run.
+formal_primary_policy:
+  configuration_frozen_before_execution: true
+  allowed_configuration_sources: [official_default, official_documentation]
+  allowed_adapter_exceptions: [input_compatibility, resource_limits, necessary_format_conversion]
+  extra_genotype_filtering_or_rejection: forbidden
+  primary_scores_per_tool_and_comparison_context: 1
+  select_highest_score_across_configurations: false
+  superseded_runs: historical_archive_only_not_official_leaderboard
+
+# REQUIRED for this kit. Replace release placeholders with authenticated facts;
+# record all explicit switches and relevant native implicit defaults.
+parameter_contract:
+  contract: pgbench_tool_parameters_v1
+  source_release:
+    tag: REPLACE_WITH_OFFICIAL_RELEASE
+    commit: "0000000000000000000000000000000000000000"
+    source_url: REPLACE_WITH_OFFICIAL_SOURCE_URL
+    archive_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  explicit:
+    threads: "PGBENCH_THREADS"
+  implicit:
+    output_policy: official_default_without_extra_genotype_filtering
+  # Each exception: {category: resource_limits, rationale: ..., parameters: {...}}
+  adapter_exceptions: []
 
 # tasks:      prepare_assets | index | mapping | calling | genotyping | postprocess
 tasks:
@@ -86,6 +112,8 @@ execution:
   trust_level: untrusted
   # none (dev only) | apptainer | bwrap
   sandbox_backend: none
+  adapter_contract: pgbench-reviewed-adapter-v1
+  conformance_report: conformance/report.json
 
 supported_modes:
   end_to_end_from_reads:
@@ -106,6 +134,7 @@ supported_modes:
       - short_fastq_r1
       - short_fastq_r2
       - reference
+      - reference_index
       - pangenome_manifest
       - pangenome_panel
       - candidate_panel
@@ -119,7 +148,9 @@ supported_modes:
 
 outputs:
   # Where run.py's projected all-sites VCF is expected (relative to run dir).
-  vcf: raw/calls.vcf.gz
+  vcf: raw/calls.vcf
   # Both are fixed benchmark policy — do not change:
   candidate_output_contract: all_sites
   absence_semantics: no_call
+  native_projection_audit: true
+  native_output_audit: true

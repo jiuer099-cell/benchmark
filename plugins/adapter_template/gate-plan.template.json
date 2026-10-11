@@ -1,0 +1,11 @@
+{
+  "contract": "pgbench-adapter-gate-plan-v2",
+  "gates": {
+    "schema": {"command": ["REPLACE_WITH_SCHEMA_ASSERTION_COMMAND"], "evidence": ["conformance/schema.assertions.json"]},
+    "environment": {"command": ["REPLACE_WITH_NATIVE_VERSION_AND_DEPENDENCY_PROBE"], "evidence": ["conformance/environment.assertions.json"]},
+    "fixed_mini_panel": {"command": ["REPLACE_WITH_REAL_TOOL_MINI_PANEL_TEST"], "evidence": ["conformance/mini-panel.assertions.json", "conformance/mini-panel.native.vcf"]},
+    "canonical_mapping": {"command": ["REPLACE_WITH_MAPPING_AND_DOSAGE_ASSERTIONS"], "evidence": ["conformance/mapping.assertions.json"]},
+    "pgf1_evidence": {"command": ["REPLACE_WITH_THREE_EVALUATOR_AND_PGF1_TEST"], "evidence": ["conformance/pgf1.assertions.json"]},
+    "real_input": {"command": ["REPLACE_WITH_BOUNDED_REAL_INPUT_PILOT"], "evidence": ["conformance/real-input.assertions.json"]}
+  }
+}

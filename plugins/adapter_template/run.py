@@ -1,221 +1,72 @@
 #!/usr/bin/env python3
-"""PGBench generic adapter template — copy this directory, fill in YOUR tool.
+"""External adapter scaffold. Implement run_tool(), then pass reviewed gates.
 
-The benchmark core knows nothing about your tool.  It only:
-  1. injects benchmark-supplied inputs as PGBENCH_* environment variables
-     (driven by the ``required_inputs`` you declare in ``tool.yaml``),
-  2. executes this ``run.py`` inside the declared sandbox/environment, and
-  3. scores the all-sites VCF you produce at ``PGBENCH_OUTPUT_VCF``.
-
-Your only mandatory code change is ``run_tool()``.  Everything else — input
-preflight, the all-sites output contract, no-call semantics — is provided so
-you cannot accidentally violate the benchmark contract.
-
-INPUT MODES (auto-detected from which environment variables the core injected):
-  - shared_bam : the benchmark's frozen shared alignment (BAM+BAI), e.g.
-                 Paragraph / GraphTyper2 style short-read graph genotypers.
-  - short_fastq: paired Illumina FASTQ (R1/R2), e.g. vg / BayesTyper style.
-  - long_fastq : one long-read FASTQ (PacBio CLR / HiFi, or the frozen ONT
-                 R9.4.1 Guppy5 SUP pass dataset), e.g. long-read callers.
-
-HARD RULES (violations invalidate the run):
-  - Output must cover EVERY candidate in PGBENCH_CANDIDATE_VCF (all_sites).
-  - A candidate your tool did not genotype is ``./.`` — never ``0/0``.
-  - Never read truth VCFs, assemblies, relatives, or undeclared callsets.
-  - If your tool builds genome-wide graphs in memory, CHUNK your input (see
-    plugins/paragraph/README.md for the 389 GB OOM lesson) and keep peak RSS
-    inside the memory you declare in the run config.
-  - Never subset or re-filter the frozen ONT pass reads (read selection belongs
-    to the benchmark: official_qscore_pass_only).
+Core owns public-input validation, scoring, admission and final sealing.
+This stdlib-only runner never imports native Python extensions into Core's
+interpreter. Use native_python() to invoke helpers in the tool environment.
 """
-
 from __future__ import annotations
 
 import dataclasses
 import json
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
-from typing import Any, TextIO
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from adapter_projection import digest, open_text, project_all_sites  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Environment plumbing (the stable core -> adapter transport contract)
-# ---------------------------------------------------------------------------
 def required(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        raise RuntimeError(f"required environment variable is absent: {name}")
+        raise RuntimeError("required environment variable is absent: " + name)
     return value
 
 
-def optional(name: str) -> str | None:
-    return os.environ.get(name) or None
-
-
-def open_text(path: Path, mode: str) -> TextIO:
-    import gzip
-    return gzip.open(path, mode, encoding="utf-8") if path.name.endswith(".gz") else path.open(mode, encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# Input boundary helpers
-# ---------------------------------------------------------------------------
 def require_readonly_input(path: Path, label: str) -> None:
-    """Check injection only; Core owns content validation and its cache.
-
-    Do not add SHA256, gzip passes, read counting, `samtools quickcheck`, or
-    generic read-group validation here. Those public-input semantics are
-    performed once by Core before this external adapter starts.
-    """
+    """Injection check only: do not repeat Core read-count/hash validation."""
     if not path.exists() or (path.is_file() and path.stat().st_size == 0):
         raise RuntimeError(f"Core injected missing/empty validated {label}: {path}")
 
 
-# ---------------------------------------------------------------------------
-# All-sites projection — the output contract, provided for you
-# ---------------------------------------------------------------------------
-def _allele_id(info: str) -> str | None:
-    for item in info.split(";"):
-        if item.startswith("PANGENOME_ALLELE_ID="):
-            return item.split("=", 1)[1]
-    return None
+def detect_input_mode() -> str:
+    modes = {
+        "shared_bam": bool(os.environ.get("PGBENCH_SHARED_ALIGNMENT_BAM")),
+        "short_fastq": bool(os.environ.get("PGBENCH_INPUT_FASTQ_R1")),
+        "long_fastq": bool(os.environ.get("PGBENCH_INPUT_LONG_READS_FASTQ")),
+    }
+    selected = [name for name, present in modes.items() if present]
+    if len(selected) != 1:
+        raise RuntimeError("no primary read mode or more than one primary read evidence mode")
+    return selected[0]
 
 
-def _genotype(fields: list[str]) -> str:
-    if len(fields) < 10:
-        return "./."
-    names = fields[8].split(":")
-    values = fields[9].split(":")
-    if "GT" not in names or names.index("GT") >= len(values):
-        return "./."
-    value = values[names.index("GT")]
-    return value if value not in {"", "."} else "./."
+def injected_inputs() -> dict[str, Path]:
+    payload = json.loads(Path(required("PGBENCH_RESOLVED_INPUTS")).read_text(encoding="utf-8"))
+    entries = payload.get("inputs") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        raise RuntimeError("Core resolved-input manifest has no input list")
+    inputs = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise RuntimeError("malformed Core resolved input")
+        name, variable = entry.get("contract_name"), entry.get("environment_variable")
+        if not isinstance(name, str) or not isinstance(variable, str) or name in inputs:
+            raise RuntimeError("missing/duplicate Core input binding")
+        path = Path(required(variable))
+        if entry.get("path") is not None and path != Path(entry["path"]):
+            raise RuntimeError("injected path differs from the Core resolved-input binding")
+        require_readonly_input(path, name)
+        inputs[name] = path
+    return inputs
 
 
-def project_all_sites(native: Path, candidates: Path, destination: Path, sample: str) -> tuple[int, int]:
-    """Project your tool's native VCF onto every frozen candidate.
-
-    Matching precedence: blinded candidate ID -> PANGENOME_ALLELE_ID ->
-    (CHROM, POS, REF, ALT).  Unmatched candidates are emitted as ``./.``.
-    Returns (matched, no_call) for your run log.
-    """
-
-    order: list[str] = []
-    records: dict[str, list[str]] = {}
-    by_allele: dict[str, str] = {}
-    by_key: dict[tuple[str, str, str, str], str] = {}
-    meta: list[str] = []
-    with open_text(candidates, "rt") as handle:
-        for line in handle:
-            if line.startswith("##"):
-                meta.append(line)
-                continue
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8 or not fields[2]:
-                raise RuntimeError("candidate panel contains a malformed record")
-            candidate_id = fields[2]
-            if candidate_id in records:
-                raise RuntimeError(f"candidate panel duplicates {candidate_id}")
-            order.append(candidate_id)
-            records[candidate_id] = fields
-            key = (fields[0], fields[1], fields[3], fields[4])
-            if key in by_key:
-                raise RuntimeError(f"ambiguous duplicate canonical allele key: {key}")
-            by_key[key] = candidate_id
-            allele_id = _allele_id(fields[7])
-            if allele_id:
-                if allele_id in by_allele:
-                    raise RuntimeError(f"ambiguous duplicate pangenome allele ID: {allele_id}")
-                by_allele[allele_id] = candidate_id
-    if not order:
-        raise RuntimeError("candidate panel contains no records")
-    calls: dict[str, str] = {}
-    trace_rows: list[tuple[int, str, str, str, str, str, str, str]] = []
-    with open_text(native, "rt") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 8:
-                raise RuntimeError("tool output contains a malformed record")
-            candidate_id = fields[2] if fields[2] in records else None
-            match_strategy = "candidate_id" if candidate_id is not None else None
-            if candidate_id is None:
-                allele_id = _allele_id(fields[7])
-                candidate_id = by_allele.get(allele_id) if allele_id else None
-                if candidate_id is not None:
-                    match_strategy = "pangenome_allele_id"
-            if candidate_id is None:
-                candidate_id = by_key.get((fields[0], fields[1], fields[3], fields[4]))
-                if candidate_id is not None:
-                    match_strategy = "exact_variant_key"
-            if candidate_id is None or match_strategy is None:
-                # A tool-native panel/graph may contain calls outside the fixed
-                # canonical scoring universe. Retain that fact in the trace,
-                # but never manufacture a candidate link or score it.
-                trace_rows.append(
-                    (
-                        line_number,
-                        "",
-                        "outside_canonical_universe",
-                        fields[0],
-                        fields[1],
-                        fields[3],
-                        fields[4],
-                        _genotype(fields),
-                    )
-                )
-                continue
-            if candidate_id in calls:
-                raise RuntimeError(f"tool output duplicates {candidate_id}")
-            genotype = _genotype(fields)
-            calls[candidate_id] = genotype
-            trace_rows.append(
-                (
-                    line_number,
-                    candidate_id,
-                    match_strategy,
-                    fields[0],
-                    fields[1],
-                    fields[3],
-                    fields[4],
-                    genotype,
-                )
-            )
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with open_text(destination, "wt") as output:
-        output.write("##fileformat=VCFv4.2\n")
-        for line in meta:
-            if not line.startswith("##fileformat") and not line.startswith("##FORMAT=<ID=GT,"):
-                output.write(line)
-        output.write("##source=PGBench-adapter-template-all-sites\n")
-        output.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-        output.write(f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n")
-        for candidate_id in order:
-            output.write(
-                "\t".join(records[candidate_id][:8] + ["GT", calls.get(candidate_id, "./.")]) + "\n"
-            )
-    trace_path = destination.parent / "tool-work" / "native-to-canonical-projection.tsv"
-    trace_path.parent.mkdir(parents=True, exist_ok=True)
-    with trace_path.open("w", encoding="utf-8", newline="\n") as trace:
-        trace.write(
-            "native_record_line\tcandidate_id\tmatch_strategy\tnative_chrom\t"
-            "native_pos\tnative_ref\tnative_alt\tnative_gt\n"
-        )
-        for row in trace_rows:
-            trace.write("\t".join(str(value) for value in row) + "\n")
-    return len(calls), len(order) - len(calls)
-
-
-# ---------------------------------------------------------------------------
-# The part YOU implement
-# ---------------------------------------------------------------------------
 @dataclasses.dataclass(frozen=True)
 class AdapterContext:
-    input_mode: str                 # "shared_bam" | "short_fastq" | "long_fastq"
+    input_mode: str
     sample: str
     threads: int
     reference: Path
@@ -223,11 +74,8 @@ class AdapterContext:
     output_dir: Path
     output_vcf: Path
     work_dir: Path
-    # Every declared Core input is keyed by its contract token, e.g.
-    # ``context.inputs[\"pangenome_manifest\"]`` or
-    # ``context.inputs[\"adapter_asset.my_index\"]``.
     inputs: dict[str, Path] = dataclasses.field(default_factory=dict)
-    # populated per input mode:
+    parameters: dict = dataclasses.field(default_factory=dict)
     bam: Path | None = None
     bai: Path | None = None
     fastq_r1: Path | None = None
@@ -236,130 +84,136 @@ class AdapterContext:
     optional_inputs: dict[str, Path] = dataclasses.field(default_factory=dict)
 
 
-def run_tool(context: AdapterContext) -> Path:
-    """Invoke YOUR tool and return the path of its native VCF.
+def native_python(tool_executable: str) -> Path:
+    """Use the interpreter beside an executable in the frozen native env."""
+    executable = shutil.which(tool_executable)
+    if not executable:
+        raise RuntimeError("native executable missing from declared environment: " + tool_executable)
+    interpreter = Path(executable).parent / "python"
+    if not interpreter.is_file():
+        raise RuntimeError("native helper requires a declared Python beside " + executable)
+    return interpreter
 
-    TODO: replace the body of this function.
 
-    Guidance:
-      - Keep every artifact inside ``context.work_dir``.
-      - Pass ``context.threads`` to your tool; do not hardcode thread counts.
-      - If your tool builds genome-wide graphs in memory, chunk your input
-        (one contig per chunk) and merge before projecting — see
-        plugins/paragraph/run.py for a worked, memory-safe example.
-      - If your tool needs a tool-specific index/asset, declare it in
-        tool.yaml as ``adapter_asset.<name>`` so the core manifests it.
+def run_native(context: AdapterContext, argv: list[str]) -> None:
+    """Record real invocations; errors are fatal, never successful no-calls.
+
+    Build argv from the pre-reviewed parameter contract. Generic code cannot
+    identify the biological meaning of arbitrary tool flags: conformance and
+    human review must check official defaults/recommendations and exceptions.
     """
-
-    raise NotImplementedError(
-        "adapter_template is a scaffold: implement run_tool() for your tool"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Wiring — you normally do not need to change anything below
-# ---------------------------------------------------------------------------
-def detect_input_mode() -> str:
-    modes = {
-        "shared_bam": bool(os.environ.get("PGBENCH_SHARED_ALIGNMENT_BAM")),
-        "short_fastq": bool(os.environ.get("PGBENCH_INPUT_FASTQ_R1")),
-        "long_fastq": bool(os.environ.get("PGBENCH_INPUT_LONG_READS_FASTQ")),
-    }
-    selected = [name for name, present in modes.items() if present]
-    if len(selected) == 1:
-        return selected[0]
-    if not selected:
-        raise RuntimeError(
-            "no benchmark read input was injected; check supported_modes."
-            "required_inputs in tool.yaml"
-        )
-    raise RuntimeError(
-        "Core injected more than one primary read evidence mode: " + ", ".join(selected)
-    )
+    if not argv or not all(isinstance(value, str) and value for value in argv):
+        raise ValueError("native command must be a nonempty argv list")
+    log = context.work_dir / "native-commands.jsonl"
+    with log.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"argv": argv, "state": "started"}) + "\n")
+    result = subprocess.run(argv, cwd=context.work_dir, check=False)
+    with log.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"argv": argv, "state": "finished", "returncode": result.returncode}) + "\n")
+    result.check_returncode()
 
 
-def injected_inputs() -> dict[str, Path]:
-    """Expose only the Core-resolved input set, including adapter assets."""
+def run_tool(context: AdapterContext) -> Path:
+    """Implement the official frozen native chain using run_native().
 
-    manifest_path = Path(required("PGBENCH_RESOLVED_INPUTS"))
-    try:
-        payload: Any = json.loads(manifest_path.read_text(encoding="utf-8"))
-        entries = payload["inputs"]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise RuntimeError(f"cannot read Core resolved-input manifest: {manifest_path}") from exc
-    if not isinstance(entries, list):
-        raise RuntimeError("Core resolved-input manifest has no input list")
-    inputs: dict[str, Path] = {}
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise RuntimeError("Core resolved-input manifest contains a malformed input entry")
-        name = entry.get("contract_name")
-        variable = entry.get("environment_variable")
-        if not isinstance(name, str) or not isinstance(variable, str):
-            raise RuntimeError("Core resolved-input manifest lacks a transport binding")
-        path = Path(required(variable))
-        require_readonly_input(path, name)
-        if name in inputs:
-            raise RuntimeError(f"Core resolved-input manifest duplicates {name}")
-        inputs[name] = path
-    return inputs
+    Return a nonempty, newly owned biallelic sequence-resolved native VCF inside
+    work_dir. If necessary, use an official ALT-specific converter and retain
+    BOTH original input and converted output here. Never copy GT=1/2 into a
+    biallelic record, infer reference calls for silence, tune to truth/score,
+    or add non-default genotype filters/rejection switches. Declare and review
+    compatibility/resource/conversion exceptions before running.
+
+    Tool-specific chunking must preserve its algorithm and complete evidence;
+    do not assume an arbitrary per-contig split is valid for every method.
+    Clean disposable temporary indexes before returning, but retain all native
+    outputs and conversion/mapping evidence needed to reproduce the calls.
+    """
+    raise NotImplementedError("implement and review run_tool() for the external tool")
 
 
 def main() -> int:
-    input_mode = detect_input_mode()
-    sample = required("PGBENCH_SAMPLE_ID")
-    threads = int(required("PGBENCH_THREADS"))
+    mode = detect_input_mode()
+    sample, threads = required("PGBENCH_SAMPLE_ID"), int(required("PGBENCH_THREADS"))
+    if threads < 1:
+        raise ValueError("thread budget must be positive")
     output_dir = Path(required("PGBENCH_OUTPUT_DIR")).resolve()
-    output_vcf = Path(required("PGBENCH_OUTPUT_VCF")).resolve()
-    output_vcf.relative_to(output_dir)  # refuse to escape the run directory
-    work_dir = output_dir / "tool-work"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    context = AdapterContext(
-        input_mode=input_mode,
-        sample=sample,
-        threads=threads,
-        reference=Path(required("PGBENCH_REFERENCE_FASTA")),
-        candidates=Path(required("PGBENCH_CANDIDATE_VCF")),
-        output_dir=output_dir,
-        output_vcf=output_vcf,
-        work_dir=work_dir,
-        inputs=injected_inputs(),
-    )
-    if input_mode == "shared_bam":
-        context = dataclasses.replace(
-            context,
-            bam=Path(required("PGBENCH_SHARED_ALIGNMENT_BAM")),
-            bai=Path(required("PGBENCH_SHARED_ALIGNMENT_BAI")),
-        )
-        require_readonly_input(context.bam, "shared BAM")  # type: ignore[arg-type]
-        require_readonly_input(context.bai, "shared BAM index")  # type: ignore[arg-type]
-    elif input_mode == "short_fastq":
-        context = dataclasses.replace(
-            context,
-            fastq_r1=Path(required("PGBENCH_INPUT_FASTQ_R1")),
-            fastq_r2=Path(required("PGBENCH_INPUT_FASTQ_R2")),
-        )
-        require_readonly_input(context.fastq_r1, "R1 FASTQ")  # type: ignore[arg-type]
-        require_readonly_input(context.fastq_r2, "R2 FASTQ")  # type: ignore[arg-type]
-    elif input_mode == "long_fastq":
-        context = dataclasses.replace(
-            context,
-            long_fastq=Path(required("PGBENCH_INPUT_LONG_READS_FASTQ")),
-        )
-        require_readonly_input(context.long_fastq, "long-read FASTQ")  # type: ignore[arg-type]
-    optional_variables = {
-        "reference_index": "PGBENCH_REFERENCE_INDEX",
-        "graph_assets": "PGBENCH_GRAPH_DIR",
-        "tool_index": "PGBENCH_INDEX_DIR",
+    output = Path(required("PGBENCH_OUTPUT_VCF")).resolve()
+    output.relative_to(output_dir)
+    if output.suffix != ".vcf":
+        raise ValueError("template emits plain .vcf; do not declare .vcf.gz")
+    inputs = injected_inputs()
+    purpose = required("PGBENCH_EXECUTION_PURPOSE")
+    if purpose not in {"formal", "development_only"}:
+        raise ValueError("invalid Core execution purpose")
+    parameters = json.loads(required("PGBENCH_TOOL_PARAMETERS"))
+    policy = json.loads(required("PGBENCH_FORMAL_PRIMARY_POLICY"))
+    tool_id = required("PGBENCH_TOOL_ID")
+    report_path = None
+    report = None
+    if purpose == "formal":
+        report_path = Path(required("PGBENCH_CONFORMANCE_REPORT"))
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if (report.get("contract") != "pgbench-adapter-conformance-v2"
+                or report.get("production_eligibility") != "PASS" or report.get("tool_id") != tool_id
+                or report.get("parameter_contract") != parameters or report.get("formal_primary_policy") != policy):
+            raise ValueError("a Core-verified reviewed conformance receipt is required")
+    work = output_dir / "tool-work"
+    work.mkdir(parents=True, exist_ok=True)
+    context = AdapterContext(mode, sample, threads, inputs["reference"], inputs["candidate_panel"],
+        output_dir, output, work, inputs=inputs, parameters=parameters)
+    bindings = {
+        "shared_bam": {"bam": "shared_shortread_alignment", "bai": "shared_shortread_alignment_index"},
+        "short_fastq": {"fastq_r1": "short_fastq_r1", "fastq_r2": "short_fastq_r2"},
+        "long_fastq": {"long_fastq": "long_reads_fastq"},
     }
-    for name, variable in optional_variables.items():
-        value = optional(variable)
-        if value:
-            context.optional_inputs[name] = Path(value)
-
-    native = run_tool(context)
-    matched, no_call = project_all_sites(native, context.candidates, context.output_vcf, sample)
-    print(f"adapter-template projection: matched={matched} no_call={no_call}")
+    context = dataclasses.replace(context, **{name: inputs[token] for name, token in bindings[mode].items()})
+    context.optional_inputs.update({name: inputs[name] for name in ("reference_index", "graph_assets", "tool_index") if name in inputs})
+    native_path = run_tool(context)
+    if native_path.is_symlink():
+        raise ValueError("native output must not be a symlink")
+    native = native_path.resolve(strict=True)
+    native.relative_to(work.resolve())
+    if not native.is_file() or native.stat().st_size == 0 or native.stat().st_nlink != 1:
+        raise ValueError("native output must be a newly owned nonempty file under tool-work")
+    commands = work / "native-commands.jsonl"
+    entries = [json.loads(line) for line in commands.read_text().splitlines() if line.strip()]
+    starts = [row["argv"] for row in entries if row.get("state") == "started"]
+    finishes = [row for row in entries if row.get("state") == "finished"]
+    if not starts or [row.get("argv") for row in finishes] != starts or any(row.get("returncode") != 0 for row in finishes):
+        raise ValueError("native invocations are incomplete or failed")
+    matched, no_call = project_all_sites(native, context.candidates, output, sample,
+        reference=context.reference, reference_index=inputs["reference_index"])
+    # tool-work remains retained in this attempt; Core and the final seal bind it.
+    frozen = work / "frozen-native-policy.json"
+    frozen.write_text(json.dumps({"tool_id": tool_id, "parameters": parameters,
+        "formal_primary_policy": policy, "execution_purpose": purpose}, sort_keys=True) + "\n", encoding="utf-8")
+    artifacts = {"native_commands": commands, "frozen_parameters": frozen}
+    if report_path is not None:
+        artifacts["conformance_receipt"] = report_path
+        plan = report["gate_plan"]
+        plan_path = Path(plan["path"])
+        if digest(plan_path) != plan["sha256"]:
+            raise ValueError("reviewed gate plan changed during native execution")
+        artifacts["conformance_gate_plan"] = plan_path
+    for gate, row in (report["gates"] if report else {}).items():
+        for index, entry in enumerate([row["log"], *row["evidence"]]):
+            path = Path(entry["path"])
+            if digest(path) != entry["sha256"]:
+                raise ValueError("conformance evidence changed during native execution")
+            artifacts[f"conformance/{gate}/{index}"] = path
+    for path in work.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("retained native artifacts must not be symlinks")
+        if path.is_file():
+            artifacts["tool_work/" + path.relative_to(work).as_posix()] = path
+    audit = {"contract": "pgbench-native-output-audit-v1", "truth_used": False,
+        "tool_id": tool_id, "output_sha256": digest(output),
+        "execution_policy": ("pre_frozen_official_defaults_or_recommendations_no_extra_genotype_filtering_one_formal_pgf1"
+                             if purpose == "formal" else "development_only_unsealed_conformance_probe"),
+        "execution_purpose": purpose, "formal_primary_policy": policy, "parameter_contract": context.parameters,
+        "artifacts": {name: {"path": str(path.resolve()), "sha256": digest(path)} for name, path in artifacts.items()}}
+    output.with_suffix(".native-audit.json").write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"adapter projection: mapped={matched} no_call={no_call}", flush=True)
     return 0
 
 

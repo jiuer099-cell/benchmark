@@ -408,6 +408,11 @@ BASE_PGBENCH_ENVIRONMENT = {
     "PGBENCH_RANDOM_SEED",
     "PGBENCH_ALIGNMENT_KIND",
     "PGBENCH_GRAPH_REFERENCE_PATH",
+    "PGBENCH_CONFORMANCE_REPORT",
+    "PGBENCH_EXECUTION_PURPOSE",
+    "PGBENCH_TOOL_ID",
+    "PGBENCH_TOOL_PARAMETERS",
+    "PGBENCH_FORMAL_PRIMARY_POLICY",
 }
 OUTPUT_INDEX_SUFFIXES = (".tbi", ".csi", ".idx")
 GRAPH_ASSET_LOCK_NAME = "graph-assets.lock.yaml"
@@ -900,6 +905,8 @@ def build_tool_environment(
     cache_policy: str = "isolated_empty_tool_cache",
     attempt_work_dir: Path,
     random_seed: int = 0,
+    conformance_report: Path | None = None,
+    execution_purpose: str = "development_only",
 ) -> dict[str, str]:
     """Build a minimal deterministic environment with PGBENCH values scrubbed."""
 
@@ -954,6 +961,20 @@ def build_tool_environment(
     for item in resolved_inputs:
         if item.environment_variable is not None:
             pgbench_values[item.environment_variable] = item.path
+    reviewed_execution = manifest.get("execution", {})
+    if reviewed_execution.get("adapter_contract") == "pgbench-reviewed-adapter-v1":
+        # The receipt is part of the registered read-only plugin, not an input
+        # supplied by the adapter or inherited from the host environment.
+        if conformance_report is None and execution_purpose == "formal":
+            raise ToolContractError("reviewed adapter requires a Core-verified conformance report")
+        if conformance_report is not None:
+            pgbench_values["PGBENCH_CONFORMANCE_REPORT"] = str(conformance_report.resolve(strict=True))
+        pgbench_values.update({
+            "PGBENCH_EXECUTION_PURPOSE": execution_purpose,
+            "PGBENCH_TOOL_ID": cast(str, manifest["id"]),
+            "PGBENCH_TOOL_PARAMETERS": json.dumps(manifest["parameter_contract"], sort_keys=True),
+            "PGBENCH_FORMAL_PRIMARY_POLICY": json.dumps(manifest["formal_primary_policy"], sort_keys=True),
+        })
     graph_reference_path = _locked_graph_reference_path(resolved_inputs)
     if graph_reference_path is not None:
         pgbench_values["PGBENCH_GRAPH_REFERENCE_PATH"] = graph_reference_path
@@ -1594,6 +1615,24 @@ def execute_tool(
             "apptainer is required for every plugin, including locally "
             "reviewed plugins"
         )
+    conformance_report = None
+    if execution_contract.get("adapter_contract") == "pgbench-reviewed-adapter-v1":
+        try:
+            try:
+                from validate_adapter_conformance import verify_receipt, validate_primary_configuration
+            except ModuleNotFoundError:
+                from .validate_adapter_conformance import verify_receipt, validate_primary_configuration
+            plugin_root = tool_manifest_path.resolve().parent
+            validate_primary_configuration(manifest)
+            if execution_purpose == "formal":
+                receipt_path = (plugin_root / cast(str, execution_contract["conformance_report"])).resolve(strict=True)
+                receipt_path.relative_to(plugin_root / "conformance")
+                verify_receipt(receipt_path, tool_manifest_path)
+                conformance_report = receipt_path
+                if trust_level != "trusted_reviewed":
+                    raise ValueError("formal reviewed-adapter execution requires trusted_reviewed")
+        except (OSError, ValueError, jsonschema.ValidationError) as exc:
+            raise ToolContractError("PRODUCTION_NOT_ELIGIBLE: " + str(exc)) from exc
     isolation_status = (
         "development_only_contract_enforcement"
         if sandbox_backend == "none"
@@ -1660,6 +1699,8 @@ def execute_tool(
         cache_policy=cache_policy,
         attempt_work_dir=attempt_work_dir,
         random_seed=random_seed,
+        conformance_report=conformance_report,
+        execution_purpose=execution_purpose,
     )
     command = _sandbox_command(
         tool_command=tool_command,

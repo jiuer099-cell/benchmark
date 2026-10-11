@@ -8,7 +8,7 @@ Track: `lr_hifi` (config/track_registry.yaml), release `PGBench-LR-HiFi-v1.0`.
 - `capabilities.read_class: long`, `capabilities.technology: [pacbio_hifi]`
 - `information_inputs` includes `target_long_reads`
 - `required_inputs`: `[long_reads_fastq, reference, pangenome_manifest,
-  pangenome_panel, candidate_panel]`
+  reference_index, pangenome_panel, candidate_panel]`
 - `billable_stages` typically `[index, map, call, genotype, postprocess]`.
 
 ## Environment variables
@@ -19,6 +19,9 @@ Track: `lr_hifi` (config/track_registry.yaml), release `PGBench-LR-HiFi-v1.0`.
 | others | same plumbing as the short-read variants |
 
 ## HiFi-specific notes
+
+- Use the root kit's frozen official configuration, both native audit flags,
+  executed conformance gates and single formal PG-F1 policy.
 
 - HiFi callers (e.g. pbsv, DeepVariant) want a per-run alignment; align the
   frozen FASTQ yourself with the official preset (`minimap2 -x map-hifi` or

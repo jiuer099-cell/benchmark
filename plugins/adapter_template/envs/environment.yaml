@@ -8,4 +8,6 @@ dependencies:
   # Example shims — replace with your tool's real requirements:
   # - samtools >=1.19
   # - your-tool ==X.Y.Z
-  - python >=3.10
+  # Stdlib scaffold runs in Core Python; this is for tool-native helper scripts.
+  # Replace with the exact version required by your reviewed tool release.
+  - python=3.11.9

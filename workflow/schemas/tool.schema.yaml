@@ -4,6 +4,31 @@ title: PGBench external benchmark adapter manifest
 type: object
 additionalProperties: false
 required: [interface_version, id, version, source, paradigm, comparison_task, information_inputs, information_contract, tasks, inputs, capabilities, execution, native_assets, supported_modes, outputs]
+allOf:
+  # Opt-in versioning: existing frozen production adapters retain their contract.
+  - if:
+      properties:
+        execution:
+          required: [adapter_contract]
+          properties:
+            adapter_contract: {const: pgbench-reviewed-adapter-v1}
+    then:
+      required: [parameter_contract, formal_primary_policy]
+      properties:
+        execution:
+          required: [conformance_report]
+        outputs:
+          required: [native_projection_audit, native_output_audit]
+          properties:
+            vcf: {pattern: '\.vcf$'}
+            native_projection_audit: {const: true}
+            native_output_audit: {const: true}
+        supported_modes:
+          properties:
+            end_to_end_from_reads:
+              properties:
+                required_inputs:
+                  contains: {const: reference_index}
 properties:
   # Adapter API v2 is deliberately tool-agnostic.  Core only understands this
   # contract; tool-private assets are carried through adapter_asset.* inputs.
@@ -94,6 +119,8 @@ properties:
       rule_registry: {$ref: "#/$defs/nonEmptyPath"}
       trust_level: {enum: [untrusted, trusted_reviewed]}
       sandbox_backend: {enum: [none, apptainer, bwrap]}
+      adapter_contract: {const: pgbench-reviewed-adapter-v1}
+      conformance_report: {$ref: "#/$defs/nonEmptyPath"}
   native_assets:
     type: object
     additionalProperties: false
@@ -123,6 +150,28 @@ properties:
           archive_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
       explicit: {type: object, minProperties: 1}
       implicit: {type: object, minProperties: 1}
+      adapter_exceptions:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [category, rationale, parameters]
+          properties:
+            category: {enum: [input_compatibility, resource_limits, necessary_format_conversion]}
+            rationale: {type: string, minLength: 1}
+            parameters: {type: object, minProperties: 1}
+  formal_primary_policy:
+    type: object
+    additionalProperties: false
+    required: [configuration_frozen_before_execution, allowed_configuration_sources, allowed_adapter_exceptions, extra_genotype_filtering_or_rejection, primary_scores_per_tool_and_comparison_context, select_highest_score_across_configurations, superseded_runs]
+    properties:
+      configuration_frozen_before_execution: {const: true}
+      allowed_configuration_sources: {const: [official_default, official_documentation]}
+      allowed_adapter_exceptions: {const: [input_compatibility, resource_limits, necessary_format_conversion]}
+      extra_genotype_filtering_or_rejection: {const: forbidden}
+      primary_scores_per_tool_and_comparison_context: {const: 1}
+      select_highest_score_across_configurations: {const: false}
+      superseded_runs: {const: historical_archive_only_not_official_leaderboard}
   supported_modes:
     type: object
     additionalProperties: false

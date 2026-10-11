@@ -64,6 +64,11 @@ if not isinstance(TOOL_MANIFEST, dict):
 PLUGIN_EXECUTION = TOOL_MANIFEST.get("execution")
 if not isinstance(PLUGIN_EXECUTION, dict):
     raise ValueError("generic external tool manifest must declare execution")
+CONFORMANCE_VALIDATION_INPUTS = (
+    ["workflow/scripts/validate_adapter_conformance.py"]
+    if PLUGIN_EXECUTION.get("adapter_contract") == "pgbench-reviewed-adapter-v1"
+    else []
+)
 PLUGIN_RUNNER = resolve_plugin_execution_path(PLUGIN_EXECUTION.get("runner"))
 if PLUGIN_RUNNER is None:
     raise ValueError("generic external tool manifest must declare a runner")
@@ -144,6 +149,7 @@ PROVENANCE_INPUTS = [
     CORE_ENVIRONMENT,
     PROVENANCE_LIBRARY,
     *PLUGIN_CODE_INPUTS,
+    *CONFORMANCE_VALIDATION_INPUTS,
     SETTINGS["config_snapshot"],
     SETTINGS["score_profile"],
     SETTINGS["run_context"],
@@ -203,6 +209,7 @@ rule generic_external_tool:
             else []
         ),
         plugin_package=PLUGIN_PACKAGE_EXTRA_INPUTS,
+        conformance_validator=CONFORMANCE_VALIDATION_INPUTS,
         replay_sources=REPLAY_SOURCES,
     output:
         vcf=update(OUTPUT_VCF),

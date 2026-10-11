@@ -125,3 +125,11 @@ def test_native_audit_binds_policy_and_retained_artifacts(tmp_path):
 def test_required_native_audit_cannot_be_omitted(tmp_path):
     with pytest.raises(finalizer.PGF1SealError, match="required"):
         _seal(_fixture(tmp_path), require_native_output_audit=True)
+
+
+def test_development_native_probe_cannot_be_formally_sealed(tmp_path):
+    paths = _fixture(tmp_path)
+    audit = tmp_path / "native-audit.json"
+    _json(audit, {"execution_purpose": "development_only"})
+    with pytest.raises(finalizer.PGF1SealError, match="development/conformance"):
+        _seal(paths, native_output_audit=audit, native_output_vcf=paths["all_sites"], require_native_output_audit=True)

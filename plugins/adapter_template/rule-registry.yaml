@@ -7,7 +7,7 @@ rules:
     kind: plugin
     # Mirror supported_modes.end_to_end_from_reads.required_inputs here
     # (minus reference/pangenome/candidate inputs already carried globally).
-    inputs: [short_fastq_r1, short_fastq_r2, reference, candidate_panel]
+    inputs: [short_fastq_r1, short_fastq_r2, reference, reference_index, candidate_panel]
     outputs: [raw_tool_vcf]
     upstream: ["tool__{tool}__execute"]
     audit_scope: pre_score
