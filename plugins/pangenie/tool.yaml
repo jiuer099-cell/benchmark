@@ -19,8 +19,8 @@ information_contract:
   target_assembly_used: false
   target_family_genotypes_used: false
   target_specific_external_callset: false
-  tuning_mode: official_recommended_sv_config
-  parameter_source: official_documentation
+  tuning_mode: official_default
+  parameter_source: official_default
 
 tasks: [prepare_assets, index, genotyping, postprocess]
 

@@ -173,7 +173,7 @@ def test_information_contract_is_hash_frozen(tmp_path: Path) -> None:
     )
     assert documents["allowed_inputs"]["status"] == "valid"
     assert documents["training_or_tuning_status"]["target_truth_inspected"] is False
-    assert documents["training_or_tuning_status"]["tuning_mode"] == "official_recommended_sv_config"
+    assert documents["training_or_tuning_status"]["tuning_mode"] == "official_default"
     assert documents["allowed_inputs"]["undeclared_information"] == []
     assert len(documents["parameter_manifest"]["parameter_sha256"]) == 64
 

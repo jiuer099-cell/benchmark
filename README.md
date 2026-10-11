@@ -15,6 +15,23 @@ exact phase-insensitive genotype comparison. The resulting TP/FP/FN ledger
 produces PG-F1, precision, and recall. Missing evidence or complex mappings
 fail closed; no partial score is published.
 
+## Official primary-run policy
+
+Every tool uses a pre-frozen official default or explicitly recommended
+configuration. Only declared input-compatibility, resource-limit and necessary
+format-conversion exceptions are allowed; adapters must not add genotype
+quality filtering or conservative rejection beyond native behavior.
+There is exactly one official PG-F1 per tool and frozen comparison context.
+When a configuration is corrected, the designated replacement is accepted
+regardless of whether its score rises or falls. Superseded scores remain in
+immutable history, never competing entries in the official leaderboard.
+No second primary score or ablation is required. See `config/tuning_policy.yaml`.
+
+PanGenie 4.2.1's designated primary configuration does not supply `-u` and does
+not filter UK=0 records. Panel preparation, native inputs and the frozen PG-F1
+scoring contract are unchanged. The prior `-u` result (62.99 for the existing
+HG002 SR run) is historical only, not the designated official result.
+
 ## Frozen channel scope
 
 - **SR channel:** HG002 Illumina paired-end reads only.

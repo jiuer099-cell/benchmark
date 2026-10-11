@@ -14,3 +14,11 @@ forbidden:
   tune_on_final_pgf1: true
   choose_parameters_after_viewing_final_test_score: true
 required_result_fields: [tuning_mode, parameter_source, parameter_hash]
+formal_primary_policy:
+  configuration_frozen_before_execution: true
+  allowed_configuration_sources: [official_default, official_documentation]
+  allowed_adapter_exceptions: [input_compatibility, resource_limits, necessary_format_conversion]
+  extra_genotype_filtering_or_rejection: forbidden
+  primary_scores_per_tool_and_comparison_context: 1
+  select_highest_score_across_configurations: forbidden
+  superseded_runs: historical_archive_only_not_official_leaderboard

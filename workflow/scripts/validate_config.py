@@ -375,6 +375,15 @@ def validate_configuration(
         raise ConfigValidationError("unsupported allowed-information policy")
     if catalogues["tuning_policy"].get("contract") != "pgbench_tuning_policy_v1":
         raise ConfigValidationError("unsupported tuning policy")
+    primary_policy = catalogues["tuning_policy"].get("formal_primary_policy", {})
+    allowed_sources = primary_policy.get("allowed_configuration_sources")
+    if allowed_sources:
+        for plugin_id, manifest in plugins.items():
+            information = manifest["information_contract"]
+            if information.get("parameter_source") not in allowed_sources:
+                raise ConfigValidationError(
+                    f"tool {plugin_id} primary configuration must use official defaults or documentation"
+                )
     panel_status = catalogues["panel_provenance"].get("status")
     if panel_status not in {"verified", "unverified_information"}:
         raise ConfigValidationError("invalid panel provenance status")
