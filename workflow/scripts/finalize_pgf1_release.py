@@ -82,6 +82,9 @@ def seal(
     projection_audit: Path | None = None,
     projection_vcf: Path | None = None,
     require_projection_audit: bool = False,
+    native_output_audit: Path | None = None,
+    native_output_vcf: Path | None = None,
+    require_native_output_audit: bool = False,
 ) -> dict[str, Any]:
     score_data = load_json(score, label="PG-F1 score")
     score_audit_data = load_json(score_audit, label="PG-F1 score audit")
@@ -162,12 +165,42 @@ def seal(
             artifacts[name] = value
         artifacts["native_projection_audit"] = artifact(projection_audit)
         artifacts["native_projected_vcf"] = artifact(projection_vcf)
+    native_policy = None
+    if require_native_output_audit or native_output_audit is not None:
+        if native_output_audit is None or native_output_vcf is None:
+            raise PGF1SealError("native output audit and VCF are required")
+        native = load_json(native_output_audit, label="native output audit")
+        if (native.get("contract") != "pgbench-native-output-audit-v1"
+                or native.get("truth_used") is not False
+                or native.get("output_sha256") != sha256_file(native_output_vcf)
+                or not isinstance(native.get("execution_policy"), str)
+                or not native["execution_policy"]
+                or not isinstance(native.get("artifacts"), dict)
+                or not native["artifacts"]):
+            raise PGF1SealError("native output audit contract/binding failed")
+        score_tuple = score_data.get("tuple", {})
+        if native.get("tool_id") != score_tuple.get("tool"):
+            raise PGF1SealError("native output audit belongs to a different tool")
+        bound = {}
+        for name, entry in native["artifacts"].items():
+            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                raise PGF1SealError("invalid native artifact entry")
+            value = artifact(Path(entry["path"]))
+            if value["sha256"] != entry.get("sha256"):
+                raise PGF1SealError("native artifact lineage hash mismatch: " + name)
+            bound[name] = value
+        artifacts["native_output_audit"] = artifact(native_output_audit)
+        artifacts["native_output_vcf"] = artifact(native_output_vcf)
+        artifacts["native_output_lineage"] = bound
+        native_policy = native["execution_policy"]
     release_config = yaml.safe_load(config.read_text(encoding="utf-8"))
     contract = release_config.get("benchmark_contract", {}) if isinstance(release_config, dict) else {}
     qualifiers = {key: contract.get(key, "not_declared") for key in
                   ("score_status", "conclusion_scope", "independent_samples_status")}
     if projection_audit is not None:
         qualifiers["native_execution_policy"] = projection.get("native_execution_policy", "not_declared")
+    if native_policy is not None:
+        qualifiers["native_execution_policy"] = native_policy
     tuple_data = score_data.get("tuple")
     if not isinstance(tuple_data, dict):
         raise PGF1SealError("PG-F1 score lacks a run/sample/tool/track tuple")
@@ -229,6 +262,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--projection-audit", type=Path)
     parser.add_argument("--projection-vcf", type=Path)
     parser.add_argument("--require-projection-audit", action="store_true")
+    parser.add_argument("--native-output-audit", type=Path)
+    parser.add_argument("--native-output-vcf", type=Path)
+    parser.add_argument("--require-native-output-audit", action="store_true")
     return parser
 
 
@@ -247,6 +283,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_seal=args.output_seal,
             projection_audit=args.projection_audit, projection_vcf=args.projection_vcf,
             require_projection_audit=args.require_projection_audit,
+            native_output_audit=args.native_output_audit,
+            native_output_vcf=args.native_output_vcf,
+            require_native_output_audit=args.require_native_output_audit,
         )
     except (OSError, PGF1SealError) as error:
         print(f"finalize_pgf1_release: {error}", file=__import__("sys").stderr)

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -268,7 +270,16 @@ def sample_genotype(fields: list[str]) -> str:
     return sample_values[gt_index]
 
 
-def project_calls(candidate: Path, generated: list[Path], output: Path, sample: str) -> None:
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def project_calls(candidate: Path, generated: list[Path], output: Path, sample: str,
+                  quality_trace: Path | None = None) -> None:
     order, key_to_id = candidate_keys(candidate)
     candidate_ids = set(order)
     headers: list[str] = []
@@ -276,6 +287,44 @@ def project_calls(candidate: Path, generated: list[Path], output: Path, sample: 
     # Keep only model rank and GT: the output must retain the blinded panel's
     # exact REF/ALT representation rather than GraphTyper's symbolic alleles.
     by_candidate: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    trace = gzip.open(quality_trace, "wt", encoding="utf-8") if quality_trace else None
+    try:
+        _read_calls(generated, headers, candidate_ids, key_to_id, by_candidate, trace)
+    finally:
+        if trace:
+            trace.close()
+
+    candidate_records: dict[str, list[str]] = {}
+    with open_text(candidate, "rt") as handle:
+        for line in handle:
+            if line.strip() and not line.startswith("#"):
+                fields = line.rstrip("\n").split("\t")
+                candidate_records[fields[2]] = fields
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    matched = conflicts = no_calls = 0
+    with output.open("w", encoding="utf-8") as handle:
+        handle.write("##fileformat=VCFv4.2\n")
+        for header in headers:
+            if not header.startswith("##fileformat") and not header.startswith("##FORMAT=<ID=GT,"):
+                handle.write(header if header.endswith("\n") else header + "\n")
+        handle.write("##source=PGBench-GraphTyper2-2.7.7-adapter\n")
+        handle.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
+        handle.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + sample + "\n")
+        for candidate_id in order:
+            records = by_candidate.get(candidate_id, [])
+            best_rank = min((rank for rank, _gt in records), default=None)
+            genotypes = {gt for rank, gt in records if best_rank is not None and rank == best_rank}
+            base = candidate_records[candidate_id]
+            genotype = next(iter(genotypes)) if len(genotypes) == 1 else "./."
+            handle.write("\t".join(base[:8] + ["GT", genotype]) + "\n")
+            matched += len(genotypes) == 1
+            no_calls += genotype in {".", "./.", ".|."}
+            conflicts += len(genotypes) > 1
+    print(f"GraphTyper2 candidate projection: matched={matched} no_call={no_calls} conflicts={conflicts}", flush=True)
+
+
+def _read_calls(generated, headers, candidate_ids, key_to_id, by_candidate, trace):
     for source in generated:
         with open_text(source, "rt") as handle:
             for line in handle:
@@ -301,50 +350,21 @@ def project_calls(candidate: Path, generated: list[Path], output: Path, sample: 
                     by_candidate[candidate_id].append(
                         (model_rank, sample_genotype(fields))
                     )
+                    if trace:
+                        trace.write(json.dumps({"candidate_id": candidate_id, "model_rank": model_rank,
+                            "source": str(source.resolve()), "native_fields": fields,
+                            "quality": fields[5], "filter": fields[6],
+                            "sample_fields": dict(zip(fields[8].split(":"), fields[9].split(":")))}, sort_keys=True) + "\n")
 
-    candidate_records: dict[str, list[str]] = {}
-    with open_text(candidate, "rt") as handle:
-        for line in handle:
-            if line.strip() and not line.startswith("#"):
-                fields = line.rstrip("\n").split("\t")
-                candidate_records[fields[2]] = fields
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    matched = conflicts = no_calls = 0
-    with output.open("w", encoding="utf-8") as handle:
-        handle.write("##fileformat=VCFv4.2\n")
-        for header in headers:
-            if not header.startswith("##fileformat") and not header.startswith(
-                "##FORMAT=<ID=GT,"
-            ):
-                handle.write(header if header.endswith("\n") else header + "\n")
-        handle.write("##source=PGBench-GraphTyper2-2.7.7-adapter\n")
-        handle.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-        handle.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + sample + "\n")
-        for candidate_id in order:
-            records = by_candidate.get(candidate_id, [])
-            best_rank = min((rank for rank, _gt in records), default=None)
-            genotypes = {
-                gt for rank, gt in records
-                if best_rank is not None and rank == best_rank
-            }
-            base = candidate_records[candidate_id]
-            if len(genotypes) == 1:
-                genotype = next(iter(genotypes))
-                handle.write("\t".join(base[:8] + ["GT", genotype]) + "\n")
-                matched += 1
-                if genotype in {".", "./.", ".|."}:
-                    no_calls += 1
-                continue
-            handle.write("\t".join(base[:8] + ["GT", "./."]) + "\n")
-            no_calls += 1
-            if len(genotypes) > 1:
-                conflicts += 1
-    print(
-        f"GraphTyper2 candidate projection: matched={matched} "
-        f"no_call={no_calls} conflicts={conflicts}",
-        flush=True,
-    )
+def write_native_audit(output: Path, artifacts: dict[str, Path], policy: str) -> None:
+    output.with_suffix(".native-audit.json").write_text(json.dumps({
+        "contract": "pgbench-native-output-audit-v1", "tool_id": "graphtyper2",
+        "truth_used": False, "execution_policy": policy,
+        "quality_filter_policy": "retain_in_sidecar_no_filtering_no_genotype_change",
+        "output_sha256": sha256_file(output),
+        "artifacts": {k: {"path": str(p.resolve()), "sha256": sha256_file(p)} for k, p in artifacts.items()},
+    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -365,12 +385,38 @@ def main() -> int:
     sample = required("PGBENCH_SAMPLE_ID")
     threads = required("PGBENCH_THREADS")
 
+    work = output_dir / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    trace = work / "native-quality.jsonl.gz"
+    replay = os.environ.get("PGBENCH_ADAPTER_ASSET_NATIVE_REPLAY_VCF")
+    metadata = os.environ.get("PGBENCH_ADAPTER_ASSET_NATIVE_REPLAY_MANIFEST")
+    source_manifest = os.environ.get("PGBENCH_ADAPTER_ASSET_NATIVE_TOOL_MANIFEST")
+    if any((replay, metadata, source_manifest)):
+        if not all((replay, metadata, source_manifest)):
+            raise RuntimeError("native audit replay requires all three declared assets")
+        replay_path, metadata_path, source_path = map(Path, (replay, metadata, source_manifest))
+        source = json.loads(source_path.read_text())
+        meta = json.loads(metadata_path.read_text())
+        original_hashes = [v for p, v in source.get("output_sha256", {}).items() if p.endswith("/raw/calls.vcf")]
+        if (source.get("status") != "success" or source.get("rule_name") != "tool__graphtyper2__execute"
+                or len(original_hashes) != 1 or meta.get("contract") != "graphtyper2-native-audit-replay-v1"
+                or meta.get("source_manifest_sha256") != sha256_file(source_path)
+                or meta.get("native_replay_sha256") != sha256_file(replay_path)
+                or meta.get("candidate_sha256") != sha256_file(candidate)
+                or meta.get("original_output_sha256") != original_hashes[0]):
+            raise RuntimeError("native audit replay source authentication failed")
+        project_calls(candidate, [replay_path], output, sample, trace)
+        if sha256_file(output) != original_hashes[0]:
+            raise RuntimeError("audit-only replay changed the original scoring VCF")
+        write_native_audit(output, {"quality_trace": trace, "native_replay": replay_path,
+            "replay_manifest": metadata_path, "original_tool_manifest": source_path},
+            "audit_only_frozen_genotypes_no_filtering")
+        return 0
+
     if not bai.is_file() or bai.stat().st_size == 0:
         raise RuntimeError("GraphTyper2 requires the frozen shared BAM index")
     run(["samtools", "quickcheck", "-v", str(bam)])
     validate_bam_sample_read_group(bam, sample)
-    work = output_dir / "work"
-    work.mkdir(parents=True, exist_ok=True)
     staged_candidate = work / "candidate.vcf.gz"
     stage_candidate(candidate, staged_candidate)
     regions = work / "regions.txt"
@@ -386,7 +432,10 @@ def main() -> int:
         graphtyper_output,
         int(threads),
     )
-    project_calls(candidate, generated_vcfs(graphtyper_output), output, sample)
+    natives = generated_vcfs(graphtyper_output)
+    project_calls(candidate, natives, output, sample, trace)
+    write_native_audit(output, {"quality_trace": trace, **{f"native_{i:04d}": p for i, p in enumerate(natives)}},
+                       "native_sv_genotyping_no_quality_filtering")
     return 0
 
 

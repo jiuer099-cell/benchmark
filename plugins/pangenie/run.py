@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -18,6 +20,25 @@ from typing import TextIO
 # into PanGenie's native fully-missing spelling (``.|.``); it never fills in
 # an unknown allele or phase.
 MAX_MISSING_HAPLOTYPE_FRACTION = 0.20
+NATIVE_OUTPUT_POLICY = "official_default_allow_haplotype_inference"
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def genotype_command(index: Path, reads: Path, sample: str, threads: str, output: Path) -> list[str]:
+    """Use upstream default HMM output; do not suppress UK=0 genotypes.
+
+    This concerns target-sample inference, not filling missing panel GTs.
+    Population-panel phase/missingness gates remain unchanged.
+    """
+    return ["PanGenie", "-f", str(index), "-i", str(reads), "-s", sample,
+            "-j", threads, "-t", threads, "-o", str(output)]
 
 
 def required(name: str) -> str:
@@ -438,24 +459,8 @@ def main() -> int:
                 str(index_prefix),
             ]
         )
-        run(
-            [
-                "PanGenie",
-                "-f",
-                str(index_prefix),
-                "-i",
-                str(staged_reads),
-                "-s",
-                sample,
-                "-j",
-                threads,
-                "-t",
-                threads,
-                "-u",
-                "-o",
-                str(result_prefix),
-            ]
-        )
+        print(f"PanGenie native output policy: {NATIVE_OUTPUT_POLICY}; suppress_UK0=false", flush=True)
+        run(genotype_command(index_prefix, staged_reads, sample, threads, result_prefix))
         generated = Path(f"{result_prefix}_genotyping.vcf")
         if not generated.is_file():
             raise RuntimeError(f"PanGenie did not create expected VCF: {generated}")
@@ -479,6 +484,28 @@ def main() -> int:
             flush=True,
         )
         os.replace(remapped, output)
+        # Keep native calls outside TemporaryDirectory for reproducible audits.
+        # Same-filesystem moves avoid copying the population-scale VCFs.
+        native_dir = Path(required("PGBENCH_OUTPUT_DIR")) / "native"
+        native_dir.mkdir(exist_ok=True)
+        artifacts = {}
+        for label, source in (("bubble_genotypes", generated), ("biallelic_genotypes", converted)):
+            if label == "biallelic_genotypes" and converted == generated:
+                continue
+            destination = native_dir / (label + ".vcf")
+            if destination.exists():
+                raise RuntimeError(f"refusing to overwrite native calls: {destination}")
+            shutil.move(str(source), str(destination))
+            artifacts[label] = {"path": str(destination.resolve()), "sha256": sha256_file(destination)}
+        audit = {
+            "contract": "pgbench-native-output-audit-v1", "tool_id": "pangenie",
+            "truth_used": False, "execution_policy": NATIVE_OUTPUT_POLICY,
+            "suppress_UK0": False, "panel_missing_haplotype_threshold": MAX_MISSING_HAPLOTYPE_FRACTION,
+            "output_sha256": sha256_file(output), "artifacts": artifacts,
+            "candidate_projection": {"matched": matched, "outside": outside, "no_call": no_call},
+            "official_source": "https://pangenie.readthedocs.io/en/latest/usage.html",
+        }
+        output.with_suffix(".native-audit.json").write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
 
 

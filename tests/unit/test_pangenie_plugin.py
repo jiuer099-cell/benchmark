@@ -14,6 +14,12 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def test_native_policy_uses_default_haplotype_inference():
+    command = MODULE.genotype_command(Path("index"), Path("reads"), "HG002", "16", Path("out"))
+    assert "-u" not in command
+    assert command[0] == "PanGenie"
+
+
 def write_panel(path: Path, *, sample: str = "PANEL1", gt: str = "0|1") -> Path:
     path.write_text(
         "##fileformat=VCFv4.2\n"

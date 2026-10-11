@@ -208,6 +208,7 @@ rule generic_external_tool:
         vcf=update(OUTPUT_VCF),
         projection_audit=(update(str(Path(OUTPUT_VCF).with_suffix(".projection.json"))) if TOOL_MANIFEST["outputs"].get("native_projection_audit", False) else []),
         native_trace=(update(str(Path(OUTPUT_VCF).with_suffix(".native-trace.jsonl.gz"))) if TOOL_MANIFEST["outputs"].get("native_projection_audit", False) else []),
+        native_output_audit=(update(str(Path(OUTPUT_VCF).with_suffix(".native-audit.json"))) if TOOL_MANIFEST["outputs"].get("native_output_audit", False) else []),
         resolved_inputs=update(SETTINGS["resolved_inputs"]),
         attempt_record=update(SETTINGS["attempt_record"]),
         import_audit=(update(IMPORT_AUDIT) if REPLAY_MODE else []),
@@ -243,7 +244,10 @@ rule generic_external_tool:
             "cache_policy", "isolated_empty_tool_cache"
         ),
         semantic_rule_name=SETTINGS["semantic_rule_name"],
-        projection_output_arguments=(["--output", str(Path(OUTPUT_VCF).with_suffix(".projection.json")), "--output", str(Path(OUTPUT_VCF).with_suffix(".native-trace.jsonl.gz"))] if TOOL_MANIFEST["outputs"].get("native_projection_audit", False) else []),
+        projection_output_arguments=(
+            (["--output", str(Path(OUTPUT_VCF).with_suffix(".projection.json")), "--output", str(Path(OUTPUT_VCF).with_suffix(".native-trace.jsonl.gz"))] if TOOL_MANIFEST["outputs"].get("native_projection_audit", False) else [])
+            + (["--output", str(Path(OUTPUT_VCF).with_suffix(".native-audit.json"))] if TOOL_MANIFEST["outputs"].get("native_output_audit", False) else [])
+        ),
         job_key=SETTINGS["job_key"],
         tool_id=SETTINGS["tool_id"],
         tool_log=SETTINGS["tool_log"],

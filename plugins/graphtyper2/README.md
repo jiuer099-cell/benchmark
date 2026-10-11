@@ -23,3 +23,14 @@ The aggregate worker count remains bounded by the benchmark resource contract.
 
 The narrowly scoped immutable-output recovery utility is adapter-owned as
 `recover_projection.py`; it is not part of Core orchestration or scoring.
+# Native quality audit
+
+Native QUAL, FILTER and all FORMAT fields are retained in a compressed audit
+trace, alongside hashed native VCF inputs. They are not silently relabeled as
+PASS or used to remove calls. Canonical panel projection and GT selection are
+unchanged. The final release requires `calls.native-audit.json`.
+
+An explicit native-audit replay authenticates the successful original adapter
+manifest and merged native VCF bundle, then requires the projected scoring VCF
+to be byte-identical to that frozen output. Native genotyping and evaluator
+evidence need not be rerun for this audit-only policy.

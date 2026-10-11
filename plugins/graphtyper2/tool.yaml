@@ -60,13 +60,17 @@ supported_modes:
       - reference
       - reference_index
       - candidate_panel
-    optional_inputs: []
+    optional_inputs:
+      - adapter_asset.native_replay_vcf
+      - adapter_asset.native_replay_manifest
+      - adapter_asset.native_tool_manifest
     billable_stages:
       - prepare_assets
       - genotype
       - postprocess
 
 outputs:
+  native_output_audit: true
   vcf: raw/calls.vcf
   candidate_output_contract: all_sites
   absence_semantics: no_call

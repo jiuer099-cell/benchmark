@@ -13,6 +13,12 @@ uncompressed k-mer stream.
 
 Formal attempts run without network access in the configured `bwrap` sandbox.
 
+Target-sample output follows PanGenie 4.2.1's default HMM inference: `-u` is
+not supplied. A lack of unique k-mers does not itself force a missing target
+GT; this must not be confused with guessing missing genotypes in the source
+population panel. The selected policy and unprojected native VCFs are retained
+and hash-bound by `calls.native-audit.json` in the final release.
+
 Native-panel provenance/phase gating is adapter-owned in this directory. A
 partial-missing panel GT is conservatively downgraded to PanGenie's native
 fully-missing `.|.` spelling, never imputed; records above PanGenie's official

@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -32,6 +33,27 @@ DEFAULT_CHUNK_PARALLELISM = 2
 # incomplete consensus evidence.
 MAX_EVALUATOR_ALLELE_LENGTH = 10_000
 FROZEN_REPLAY_PROJECTION = "frozen_native_evaluator_length_ceiling_v1"
+# Read-acquisition cap is not sample coverage; keep the native documented cap.
+DEFAULT_MAX_READS_PER_EVENT = 10_000
+
+
+def parse_idxdepth(value: dict) -> tuple[float, int]:
+    """Use native autosomal coverage, not an unweighted mean over contigs."""
+    depth = float(value["autosome"]["depth"])
+    read_length = int(round(float(value["read_length"])))
+    if not math.isfinite(depth) or depth <= 0 or read_length <= 0:
+        raise RuntimeError("idxdepth returned invalid autosomal depth/read length")
+    return depth, read_length
+
+
+def write_native_audit(output: Path, artifacts: dict[str, Path], policy: str, **details) -> None:
+    output.with_suffix(".native-audit.json").write_text(json.dumps({
+        "contract": "pgbench-native-output-audit-v1", "tool_id": "paragraph",
+        "truth_used": False, "execution_policy": policy,
+        "output_sha256": _sha256_file(output),
+        "artifacts": {k: {"path": str(p.resolve()), "sha256": _sha256_file(p)} for k, p in artifacts.items()},
+        **details,
+    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def required(name: str) -> str:
@@ -523,7 +545,11 @@ def main() -> int:
     output_vcf.relative_to(output_dir)
     frozen_source = os.environ.get("PGBENCH_ADAPTER_ASSET_FROZEN_NATIVE_VCF")
     frozen_manifest = os.environ.get("PGBENCH_ADAPTER_ASSET_FROZEN_NATIVE_TOOL_MANIFEST")
-    if bool(frozen_source) != bool(frozen_manifest):
+    count_bundle = os.environ.get("PGBENCH_ADAPTER_ASSET_COUNT_REPLAY_BUNDLE")
+    count_metadata = os.environ.get("PGBENCH_ADAPTER_ASSET_COUNT_REPLAY_MANIFEST")
+    if count_bundle and frozen_source:
+        raise RuntimeError("count replay and frozen projection are mutually exclusive")
+    if bool(frozen_source or count_bundle) != bool(frozen_manifest) or bool(count_bundle) != bool(count_metadata):
         raise RuntimeError(
             "Paragraph frozen scoring replay requires both source VCF and source tool manifest assets"
         )
@@ -541,6 +567,8 @@ def main() -> int:
             f"matched={matched} forced_no_call={forced_no_calls} "
             f"max_allele_length={MAX_EVALUATOR_ALLELE_LENGTH}"
         )
+        write_native_audit(output_vcf, {"frozen_native_vcf": Path(frozen_source),
+            "original_tool_manifest": Path(frozen_manifest)}, "frozen_native_projection_only_legacy_depth")
         return 0
     work = output_dir / "paragraph-work"
     work.mkdir(parents=True, exist_ok=True)
@@ -562,18 +590,43 @@ def main() -> int:
     if not bai.is_file() or bai.stat().st_size == 0:
         raise RuntimeError("Paragraph requires the frozen shared BAM index")
     subprocess.run(["samtools", "quickcheck", "-v", str(bam)], check=True)
-    coverage = subprocess.check_output(
-        ["samtools", "coverage", str(bam)], text=True
-    ).splitlines()
-    depths = [float(line.split("\t")[6]) for line in coverage if line and not line.startswith("#")]
-    depth = sum(depths) / len(depths) if depths else 1.0
-    max_depth = max(20, round(depth * 20))
+    depth_json = work / "bam.idxdepth.json"
+    subprocess.run(["idxdepth", "-b", str(bam), "--bam-index", str(bai),
+                    "-r", str(reference), "--threads", str(threads),
+                    "--log-level", "error", "-o", str(depth_json)], check=True)
+    depth, read_length = parse_idxdepth(json.loads(depth_json.read_text()))
+    max_depth = DEFAULT_MAX_READS_PER_EVENT
     manifest = work / "sample.tsv"
     manifest.write_text(
-        "id\tpath\tread length\tdepth\n"
-        f"{sample}\t{bam}\t{read_length_from_bam(bam)}\t{depth:.6f}\n",
+        "id\tpath\tindex_path\tread length\tdepth\n"
+        f"{sample}\t{bam}\t{bai}\t{read_length}\t{depth:.6f}\n",
         encoding="utf-8",
     )
+
+    if count_bundle:
+        bundle_path, metadata_path, source_path = map(Path, (count_bundle, count_metadata, frozen_manifest))
+        meta = json.loads(metadata_path.read_text())
+        if (meta.get("contract") != "paragraph-count-replay-manifest-v1"
+                or meta.get("bundle_sha256") != _sha256_file(bundle_path)
+                or meta.get("source_manifest_sha256") != _sha256_file(source_path)
+                or meta.get("candidate_sha256") != _sha256_file(candidates)
+                or meta.get("original_output_sha256") != _source_manifest_vcf_sha256(source_path)):
+            raise RuntimeError("Paragraph replay source authentication failed")
+        with open_text(bundle_path, "rt") as h:
+            bundle = json.load(h)
+        from replay_counts import run as replay_counts
+        native_paths, replay_stats = replay_counts(bundle, panel_ids=set(panel.order), work=work,
+            bam=bam, bai=bai, reference=reference, sample=sample, depth=depth,
+            read_length=read_length, workers=min(threads, 16))
+        matched, no_call = project_all_sites(native_paths, panel, output_vcf, sample)
+        write_native_audit(output_vcf, {"idxdepth": depth_json, "sample_manifest": manifest,
+            "replay_bundle": bundle_path, "replay_manifest": metadata_path,
+            "original_tool_manifest": source_path,
+            **{f"native_vcf_{i:03d}": p for i, p in enumerate(native_paths)},
+            **{f"native_json_{i:03d}": p.parent / "genotypes.json.gz" for i, p in enumerate(native_paths)}},
+            "idxdepth_autosome_validated_breakpoint_count_replay", replay_statistics=replay_stats,
+            candidate_projection={"matched": matched, "no_call": no_call})
+        return 0
 
     prepared_records, left_anchored = paragraph_compatible_records(panel, reference)
     chunks = write_chunks(
@@ -625,6 +678,11 @@ def main() -> int:
             "The output covers only the pilot contigs; it must not be used for a formal score."
         )
     print(f"Paragraph candidate projection: matched={matched} no_call={no_call}")
+    write_native_audit(output_vcf, {"idxdepth": depth_json, "sample_manifest": manifest,
+        **{f"native_vcf_{i:03d}": p for i, p in enumerate(native_paths)},
+        **{f"native_json_{i:03d}": p.parent / "genotypes.json.gz" for i, p in enumerate(native_paths)}},
+        "idxdepth_autosome_native_chunked_genotyping", depth=depth, read_length=read_length,
+        max_reads_per_event=max_depth)
     return 0
 
 

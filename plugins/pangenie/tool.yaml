@@ -79,3 +79,4 @@ outputs:
   vcf: raw/calls.vcf
   candidate_output_contract: all_sites
   absence_semantics: no_call
+  native_output_audit: true

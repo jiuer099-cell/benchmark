@@ -1823,7 +1823,28 @@ def execute_tool(
             raise ToolExecutionError(
                 "assigned output VCF appeared during execution; refusing overwrite"
             )
+        native_audit_source = attempt_output_vcf.with_suffix(".native-audit.json")
+        if manifest["outputs"].get("native_output_audit", False):
+            native_audit = json.loads(native_audit_source.read_text(encoding="utf-8"))
+            if (not isinstance(native_audit, dict)
+                    or native_audit.get("contract") != "pgbench-native-output-audit-v1"
+                    or native_audit.get("truth_used") is not False
+                    or native_audit.get("tool_id") != manifest["id"]
+                    or native_audit.get("output_sha256") != sha256_file(attempt_output_vcf)
+                    or not isinstance(native_audit.get("execution_policy"), str)
+                    or not native_audit.get("execution_policy")
+                    or not isinstance(native_audit.get("artifacts"), dict)
+                    or not native_audit.get("artifacts")):
+                raise ToolExecutionError("Native output audit does not bind tool output")
+            for entry in native_audit["artifacts"].values():
+                if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                    raise ToolExecutionError("Native output audit artifact entry is invalid")
+                path = Path(entry["path"])
+                if not path.is_absolute() or not path.is_file() or sha256_file(path) != entry.get("sha256"):
+                    raise ToolExecutionError("Native output audit artifact mismatch")
         os.link(attempt_output_vcf, final_output_vcf)
+        if manifest["outputs"].get("native_output_audit", False):
+            os.replace(native_audit_source, final_output_vcf.with_suffix(".native-audit.json"))
         if manifest["outputs"].get("native_projection_audit", False):
             projection_source = attempt_output_vcf.with_suffix(".projection.json")
             trace_source = attempt_output_vcf.with_suffix(".native-trace.jsonl.gz")

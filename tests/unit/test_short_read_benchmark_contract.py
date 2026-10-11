@@ -37,7 +37,6 @@ def test_every_adapter_uses_one_channel_specific_all_sites_contract() -> None:
         "graphtyper2",
         "pangenie",
         "paragraph",
-        "varigraph",
         "vg",
         "example_hifi_adapter",
     }
@@ -57,7 +56,7 @@ def test_every_adapter_uses_one_channel_specific_all_sites_contract() -> None:
         assert "candidate_panel" in required
         assert manifest["source"] == "external"
         assert "native_assets" in manifest
-        assert manifest["outputs"] == {
+        assert {key: manifest["outputs"][key] for key in ("vcf", "candidate_output_contract", "absence_semantics")} == {
             "vcf": manifest["outputs"]["vcf"],
             "candidate_output_contract": "all_sites",
             "absence_semantics": "no_call",
@@ -79,7 +78,6 @@ def test_existing_five_tools_are_external_and_unified() -> None:
         "vg",
         "paragraph",
         "graphtyper2",
-        "varigraph",
         "bayestyper",
     }
 

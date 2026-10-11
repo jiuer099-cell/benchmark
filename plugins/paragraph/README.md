@@ -64,3 +64,16 @@ projection deterministically covers every canonical candidate. Knobs:
   `##PGBENCH_Paragraph_PilotContigs=` header, and warns that the output must
   not be used for a formal score. Use a pilot to measure real peak RSS before
   choosing the production chunk budget.
+# Native depth and restart policy
+
+The adapter uses upstream `idxdepth` autosomal coverage and read length. It never
+averages contig coverages or derives a read-acquisition cap from coverage.
+Native VCF/JSON quality, filters and likelihoods are retained and hash-bound in
+`calls.native-audit.json`; the final seal requires this audit.
+
+An explicitly declared count-replay bundle can re-genotype retained native edge
+counts. Every site must first reproduce its saved native genotype, filters,
+likelihoods and breakpoint counts at the original depth. Non-equivalent or
+incomplete sites are freshly genotyped against the same frozen BAM; command
+failures are fatal, never converted into successful no-calls. This optimization
+does not read truth, and preserves the original read-acquisition cap.

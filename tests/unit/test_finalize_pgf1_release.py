@@ -64,7 +64,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
     return paths
 
 
-def _seal(paths: dict[str, Path], *, require_projection=False) -> dict:
+def _seal(paths: dict[str, Path], *, require_projection=False, **kwargs) -> dict:
     return finalizer.seal(
         score=paths["score"], score_audit=paths["score_audit"], ledger=paths["ledger"],
         canonical_units=paths["units"], unit_sha_file=paths["unit_sha"],
@@ -75,6 +75,7 @@ def _seal(paths: dict[str, Path], *, require_projection=False) -> dict:
         run_context=paths["context"], config=paths["config"],
         output_package=paths["output_package"], output_audit=paths["output_audit"], output_seal=paths["output_seal"],
         require_projection_audit=require_projection,
+        **kwargs,
     )
 
 
@@ -103,3 +104,24 @@ def test_seal_rejects_admission_for_a_different_score(tmp_path: Path) -> None:
     _json(paths["admission"], {"status": "PASS", "score_sha256": "0" * 64})
     with pytest.raises(finalizer.PGF1SealError, match="does not bind"):
         _seal(paths)
+
+
+def test_native_audit_binds_policy_and_retained_artifacts(tmp_path):
+    paths = _fixture(tmp_path)
+    native = tmp_path / "native.vcf"
+    native.write_text("native\n")
+    audit = tmp_path / "native-audit.json"
+    _json(audit, {"contract": "pgbench-native-output-audit-v1", "tool_id": "tool", "truth_used": False,
+        "execution_policy": "default", "output_sha256": _sha(paths["all_sites"]),
+        "artifacts": {"native": {"path": str(native), "sha256": _sha(native)}}})
+    kwargs = dict(native_output_audit=audit, native_output_vcf=paths["all_sites"], require_native_output_audit=True)
+    package = _seal(paths, **kwargs)
+    assert package["release_qualifiers"]["native_execution_policy"] == "default"
+    native.write_text("changed\n")
+    with pytest.raises(finalizer.PGF1SealError, match="lineage hash mismatch"):
+        _seal(paths, **kwargs)
+
+
+def test_required_native_audit_cannot_be_omitted(tmp_path):
+    with pytest.raises(finalizer.PGF1SealError, match="required"):
+        _seal(_fixture(tmp_path), require_native_output_audit=True)

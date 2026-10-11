@@ -83,15 +83,21 @@ if PGF1_ENABLED:
             "python workflow/scripts/validate_leaderboard_admission.py --score {input.score:q} --invariants {input.invariants:q} --output {output.admission:q}"
 
     PROJECTION_TOOLS = set()
+    NATIVE_AUDIT_TOOLS = set()
     for settings in EXTERNAL_SETTINGS:
         with open(settings["tool_manifest"], encoding="utf-8") as source:
-            if yaml.safe_load(source)["outputs"].get("native_projection_audit", False):
+            declared_outputs = yaml.safe_load(source)["outputs"]
+            if declared_outputs.get("native_projection_audit", False):
                 PROJECTION_TOOLS.add(settings["tool_id"])
+            if declared_outputs.get("native_output_audit", False):
+                NATIVE_AUDIT_TOOLS.add(settings["tool_id"])
 
     rule finalize_pgf1_release:
         input:
             projection_audit=lambda wc: [f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.projection.json"] if wc.tool in PROJECTION_TOOLS else [],
             projection_vcf=lambda wc: [f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in PROJECTION_TOOLS else [],
+            native_audit=lambda wc: [f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.native-audit.json"] if wc.tool in NATIVE_AUDIT_TOOLS else [],
+            native_audit_vcf=lambda wc: [f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in NATIVE_AUDIT_TOOLS else [],
             score=PGF1_ROOT + "/{tool}/evaluation/consensus/score.json",
             score_audit=PGF1_ROOT + "/{tool}/evaluation/consensus/pgf1_audit.json",
             ledger=PGF1_ROOT + "/{tool}/evaluation/consensus/pgf1_evidence.tsv.gz",
@@ -138,6 +144,8 @@ if PGF1_ENABLED:
         params:
             projection_inputs=lambda wc: ["--input", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.projection.json", "--input", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in PROJECTION_TOOLS else [],
             projection_args=lambda wc: ["--require-projection-audit", "--projection-audit", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.projection.json", "--projection-vcf", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in PROJECTION_TOOLS else [],
+            native_audit_inputs=lambda wc: ["--input", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.native-audit.json", "--input", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in NATIVE_AUDIT_TOOLS else [],
+            native_audit_args=lambda wc: ["--require-native-output-audit", "--native-output-audit", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.native-audit.json", "--native-output-vcf", f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{wc.tool}/raw/calls.vcf"] if wc.tool in NATIVE_AUDIT_TOOLS else [],
         shell:
             """
             {PYTHON_EXECUTABLE:q} {input.rule_executor:q} \\
@@ -159,6 +167,7 @@ if PGF1_ENABLED:
               --input {input.invariants:q} --input {input.admission:q} --input {input.context:q} \\
               --input {input.config:q} --input {input.rule_source:q} --input {input.rule_executor:q} \\
               {params.projection_inputs:q} \\
+              {params.native_audit_inputs:q} \\
               --input {input.script:q} --input {input.environment:q} --input {input.provenance_library:q} \\
               --output {output.package:q} --output {output.audit:q} --output {output.seal:q} \\
               --upstream-manifest {input.link_manifest:q} --upstream-manifest {input.truvari_manifest:q} \\
@@ -174,5 +183,6 @@ if PGF1_ENABLED:
                 --run-context {input.context:q} --config {input.config:q} \\
                 --output-package {output.package:q} --output-audit {output.audit:q} --output-seal {output.seal:q} \\
                 {params.projection_args:q} \\
+                {params.native_audit_args:q} \\
               > {log:q} 2>&1
             """

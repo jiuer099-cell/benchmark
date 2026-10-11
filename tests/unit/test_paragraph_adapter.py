@@ -11,6 +11,27 @@ sys.path.insert(0, str(PLUGIN))
 
 import run as paragraph_adapter  # noqa: E402
 
+
+def test_idxdepth_uses_autosomal_depth():
+    assert paragraph_adapter.parse_idxdepth({"autosome": {"depth": 49.769}, "read_length": 148}) == (49.769, 148)
+    with pytest.raises(RuntimeError):
+        paragraph_adapter.parse_idxdepth({"autosome": {"depth": float("nan")}, "read_length": 148})
+
+
+def test_breakpoint_count_roundtrip_must_preserve_discrete_results():
+    import replay_counts
+    graph = {"ID": "site"}
+    native = {"graphinfo": {"ID": "site"}, "samples": {"HG002": {
+        "gt": {"GT": "REF/ALT", "GQ": 50},
+        "breakpoints": {"bp": {"counts": {"edges": {"a_b": 10}}, "gt": {"GT": "REF/ALT"}}}}}}
+    assert replay_counts.restore_alignment(graph, native, "HG002")["read_counts_by_edge"] == {"a_b": 10}
+    replay_counts.assert_roundtrip(native, native, "HG002")
+    import copy
+    changed = copy.deepcopy(native)
+    changed["samples"]["HG002"]["gt"]["GT"] = "REF/REF"
+    with pytest.raises(ValueError, match="roundtrip mismatch"):
+        replay_counts.assert_roundtrip(native, changed, "HG002")
+
 META = [
     "##fileformat=VCFv4.2\n",
     '##INFO=<ID=PANGENOME_ALLELE_ID,Number=1,Type=String,Description="x">\n',

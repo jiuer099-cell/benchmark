@@ -141,6 +141,7 @@ properties:
       candidate_output_contract: {const: all_sites}
       absence_semantics: {const: no_call}
       native_projection_audit: {type: boolean}
+      native_output_audit: {type: boolean}
 
 $defs:
   identifier:

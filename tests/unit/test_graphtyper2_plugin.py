@@ -15,6 +15,23 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def test_quality_sidecar_retains_native_filter_without_changing_projection(tmp_path):
+    import json
+    candidate = tmp_path / "candidate.vcf"
+    _candidate(candidate)
+    native = tmp_path / "native.vcf"
+    native.write_text('##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002\n'
+        'chr1\t10\tmodel\tA\t<DEL>\t7\tLowQual\tOLD_VARIANT_ID=CAND_1;SVMODEL=AGGREGATED\tGT:FT:GQ\t0/1:LowQual:3\n')
+    plain, audited, trace = [tmp_path / p for p in ("plain.vcf", "audited.vcf", "trace.gz")]
+    MODULE.project_calls(candidate, [native], plain, "HG002")
+    MODULE.project_calls(candidate, [native], audited, "HG002", trace)
+    assert plain.read_bytes() == audited.read_bytes()
+    with gzip.open(trace, "rt") as h:
+        record = json.loads(h.readline())
+    assert record["quality"] == "7" and record["filter"] == "LowQual"
+    assert record["sample_fields"] == {"GT": "0/1", "FT": "LowQual", "GQ": "3"}
+
+
 def test_manifest_requires_adjacent_reference_index() -> None:
     manifest = (ROOT / "plugins" / "graphtyper2" / "tool.yaml").read_text(
         encoding="utf-8"
