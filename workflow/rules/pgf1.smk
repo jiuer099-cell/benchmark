@@ -31,6 +31,10 @@ if PGF1_ENABLED:
             units=PGF1_UNITS,
             all_sites=f"{RESULTS_ROOT}/{SAMPLE_ID}/{OFFICIAL_MODE}/{{tool}}/canonical/all-sites.vcf.gz",
             ledger=RESULTS_ROOT + "/evaluation/{tool}/{evaluator}/votes.tsv",
+            query=PGF1_ROOT + "/{tool}/evaluation/evaluator-query.vcf.gz",
+            evaluator_profile=config["catalogs"]["evaluator_profile"],
+            script="workflow/scripts/normalize_evaluator_evidence.py",
+            scope_script="workflow/scripts/sv_matching.py",
         output:
             evidence=PGF1_ROOT + "/{tool}/evaluation/normalized/{evaluator}.evidence.tsv.gz",
         params:
@@ -39,7 +43,7 @@ if PGF1_ENABLED:
         wildcard_constraints:
             evaluator="truvari|aardvark|vcfdist"
         shell:
-            "python workflow/scripts/normalize_evaluator_evidence.py --units {input.units:q} --all-sites {input.all_sites:q} --raw-ledger {input.ledger:q} --evaluator {wildcards.evaluator:q} --release-id {params.release:q} --run-id {RUN_ID:q} --sample-id {SAMPLE_ID:q} --tool-id {wildcards.tool:q} --output {output.evidence:q}"
+            "python {input.script:q} --units {input.units:q} --all-sites {input.all_sites:q} --raw-ledger {input.ledger:q} --query {input.query:q} --evaluator-profile {input.evaluator_profile:q} --evaluator {wildcards.evaluator:q} --release-id {params.release:q} --run-id {RUN_ID:q} --sample-id {SAMPLE_ID:q} --tool-id {wildcards.tool:q} --output {output.evidence:q}"
 
     rule materialize_pg_f1:
         input:
