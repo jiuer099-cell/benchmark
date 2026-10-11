@@ -155,9 +155,10 @@ def run(bundle: dict, *, panel_ids: set[str], work: Path, bam: Path, bai: Path,
     native_runner = shutil.which("multigrmpy.py")
     if native_runner is None:
         raise RuntimeError("native Paragraph environment is unavailable")
-    sys.path.insert(0, str(Path(native_runner).resolve().parent))
-    import findgrm  # provided by the exact Paragraph environment
-    from grm.vcfgraph import vcfupdate
+    native_bin = Path(native_runner).resolve().parent
+    native_python = native_bin / "python"
+    if not native_python.is_file():
+        raise RuntimeError("native Paragraph Python interpreter is unavailable")
     result_paths = []
     for ci, chunk in enumerate(chunks):
         out = work / f"replayed-chunk-{ci:03d}"
@@ -168,7 +169,13 @@ def run(bundle: dict, *, panel_ids: set[str], work: Path, bam: Path, bai: Path,
         source_vcf = out / "variants.vcf"
         source_vcf.write_text(chunk["vcf_header"] + "".join(e["vcf_record"].rstrip("\n") + "\n" for e in chunk["events"]))
         result_vcf = out / "genotypes.vcf.gz"
-        vcfupdate.update_vcf_from_grmpy(str(source_vcf), vcfupdate.read_grmpy(str(native_json)), str(result_vcf), [sample])
+        # Core may use Python 3.12 while native pysam is built for 3.11.
+        # Execute the released writer in its own declared native environment.
+        subprocess.run([str(native_python), "-B", "-c",
+            "import sys; sys.path.insert(0,sys.argv[1]); import findgrm; "
+            "from grm.vcfgraph import vcfupdate; "
+            "vcfupdate.update_vcf_from_grmpy(sys.argv[2],vcfupdate.read_grmpy(sys.argv[3]),sys.argv[4],[sys.argv[5]])",
+            str(native_bin), str(source_vcf), str(native_json), str(result_vcf), sample], check=True)
         result_paths.append(result_vcf)
     return result_paths, {**counts, "old_depth_roundtrip_required": True,
                           "legacy_depth": legacy_depth, "new_depth": depth,
