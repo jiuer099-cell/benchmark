@@ -173,6 +173,105 @@ def test_template_preserves_equivalent_native_indel_position(tmp_path):
     assert audit["reference_equivalence_checked"] and audit["caller_alleles_preserved"]
 
 
+@pytest.mark.parametrize("ref,alt", [("AA", "A"), ("A", "AA")])
+def test_reference_mapping_finds_shifted_indels_without_candidate_ids(tmp_path, ref, alt):
+    count, records, output = _project(tmp_path,
+        f"chr1\t11\tnative_id\t{ref}\t{alt}\t23\tLowQual\tUK=0\tGT:GQ\t0|1:8\n",
+        candidate_record=f"chr1\t10\tPGSV_1\t{ref}\t{alt}\t.\tPASS\t.\tGT\t./.\n", reference=True)
+    assert count == (1, 0)
+    assert records[0][:7] == ["chr1", "11", "PGSV_1", ref, alt, "23", "LowQual"]
+    assert records[0][8:] == ["GT:GQ", "0|1:8"]
+    with gzip.open(output.with_suffix(".native-trace.jsonl.gz"), "rt") as stream:
+        trace = json.loads(stream.readline())
+    assert trace["match_strategy"] == "reference_normalized_sequence"
+    assert trace["native_record"][2] == "native_id"
+
+
+def test_reference_mapping_does_not_match_non_equivalent_indels(tmp_path):
+    count, records, _ = _project(tmp_path,
+        "chr1\t11\tnative\tA\tAT\t23\tPASS\t.\tGT\t0/1\n",
+        candidate_record="chr1\t10\tPGSV_1\tA\tAA\t.\tPASS\t.\tGT\t./.\n", reference=True)
+    assert count == (0, 1) and records[0][9] == "./."
+
+
+def test_reference_mapping_rejects_multiple_equivalent_candidates_even_with_claim(tmp_path):
+    with pytest.raises(ValueError, match="ambiguous native-to-candidate"):
+        _project(tmp_path, "chr1\t11\tPGSV_1\tAA\tA\t23\tPASS\t.\tGT\t0/1\n",
+            candidate_record="chr1\t10\tPGSV_1\tAA\tA\t.\tPASS\t.\tGT\t./.\n"
+                             "chr1\t12\tPGSV_2\tAA\tA\t.\tPASS\t.\tGT\t./.\n", reference=True)
+
+
+def test_reference_normalization_rotates_tandem_repeat_and_handles_contig_start(tmp_path):
+    from adapter_projection import Reference
+    fasta = tmp_path / "reference.fa"
+    fasta.write_text(">chr1\nATATATC\n")
+    fai = tmp_path / "reference.fa.fai"
+    fai.write_text("chr1\t7\t6\t7\t8\n")
+    reference = Reference(fasta, fai)
+    try:
+        # Different anchors and payload rotations describe the same haplotype.
+        deletion1 = ["chr1", "1", ".", "ATA", "A"]
+        deletion2 = ["chr1", "2", ".", "TAT", "T"]
+        insertion1 = ["chr1", "1", ".", "A", "ATA"]
+        insertion2 = ["chr1", "2", ".", "T", "TAT"]
+        for first, second in ((deletion1, deletion2), (insertion1, insertion2)):
+            assert reference.equivalent(first, second)
+            assert reference.normalized_edit(first) == reference.normalized_edit(second)
+            assert reference.normalized_edit(first)[1] == 0
+        assert reference.normalized_edit(["chr1", "7", ".", "C", "CT"])[1] == 7
+    finally:
+        reference.stream.close()
+
+
+def test_reference_normalization_uses_bounded_blocks_for_long_repeats(tmp_path, monkeypatch):
+    from adapter_projection import Reference
+    fasta = tmp_path / "reference.fa"
+    fasta.write_text(">chr1\n" + "A" * 20000 + "\n")
+    fai = tmp_path / "reference.fa.fai"
+    fai.write_text("chr1\t20000\t6\t20000\t20001\n")
+    reference = Reference(fasta, fai)
+    fetch = reference.fetch
+    intervals = []
+    def counted(chrom, start, end):
+        intervals.append(end - start)
+        return fetch(chrom, start, end)
+    monkeypatch.setattr(reference, "fetch", counted)
+    try:
+        assert reference.normalized_edit(["chr1", "19999", ".", "AA", "A"]) == ("chr1", 0, "A", "")
+        assert len(intervals) <= 5 and max(intervals) <= 4096
+    finally:
+        reference.stream.close()
+
+
+@pytest.mark.parametrize("sequence", ["ATATATCAAA", "ACACAC", "AAAAAAAAAAAA"])
+def test_reference_edit_keys_agree_with_exact_small_haplotype_equivalence(tmp_path, sequence):
+    from adapter_projection import Reference
+    fasta = tmp_path / "reference.fa"
+    fasta.write_text(">chr1\n" + sequence + "\n")
+    fai = tmp_path / "reference.fa.fai"
+    fai.write_text(f"chr1\t{len(sequence)}\t6\t{len(sequence)}\t{len(sequence)+1}\n")
+    reference = Reference(fasta, fai)
+    by_haplotype, by_key = {}, {}
+    try:
+        for start in range(len(sequence)):
+            for end in range(start, min(len(sequence), start + 3) + 1):
+                for inserted in ("", "A", "T", "C", "AA", "AT", "TA", "ACA"):
+                    haplotype = sequence[:start] + inserted + sequence[end:]
+                    if haplotype == sequence:
+                        continue
+                    if start:
+                        fields = ["chr1", str(start), ".", sequence[start-1:end], sequence[start-1] + inserted]
+                    elif end < len(sequence):
+                        fields = ["chr1", "1", ".", sequence[:end+1], inserted + sequence[end]]
+                    else:
+                        continue
+                    normalized = reference.normalized_edit(fields)
+                    assert by_haplotype.setdefault(haplotype, normalized) == normalized
+                    assert by_key.setdefault(normalized, haplotype) == haplotype
+    finally:
+        reference.stream.close()
+
+
 def test_template_rejects_ref_disagreeing_with_frozen_fasta(tmp_path):
     with pytest.raises(ValueError, match="REF disagrees"):
         _project(tmp_path, "chr1\t10\tPGSV_1\tG\tGT\t.\tPASS\t.\tGT\t0/1\n",

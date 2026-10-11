@@ -140,6 +140,93 @@ def test_gate_cannot_reuse_stale_evidence_with_a_noop_command(tmp_path):
     assert not out.exists()
 
 
+def test_gate_plan_cannot_change_while_tests_execute(tmp_path):
+    root, manifest, checks, out = _kit(tmp_path)
+    plan = json.loads(checks.read_text())
+    plan["gates"]["schema"]["command"] = [sys.executable, "-c",
+        "from pathlib import Path; Path('conformance/schema.json').write_text('proof'); "
+        "Path('conformance/plan.json').write_text('{}')"]
+    checks.write_text(json.dumps(plan))
+    with pytest.raises(AdapterConformanceError, match="plan changed while running"):
+        validate(checks, out, tool_manifest=manifest, execute=True)
+    assert not out.exists()
+    assert not (root / "conformance/environment.json").exists()
+
+
+@pytest.mark.parametrize("field", ["command", "evidence", "timeout_seconds", "log"])
+def test_receipt_rows_must_match_the_frozen_execution_plan(tmp_path, field):
+    _, manifest, checks, out = _kit(tmp_path)
+    validate(checks, out, tool_manifest=manifest, execute=True)
+    receipt = json.loads(out.read_text())
+    row = receipt["gates"]["schema"]
+    if field == "command":
+        row[field] = [sys.executable, "-c", "print('different')"]
+    elif field == "timeout_seconds":
+        row[field] = 1
+    elif field == "evidence":
+        row[field] = receipt["gates"]["environment"]["evidence"]
+    else:
+        row[field] = receipt["gates"]["environment"]["log"]
+    out.write_text(json.dumps(receipt))
+    with pytest.raises(AdapterConformanceError, match="differs from frozen plan"):
+        verify_receipt(out, manifest)
+
+
+@pytest.mark.parametrize("proof", ["conformance/plan.json", "conformance/report.json", "conformance/schema.log", "conformance/environment.json"])
+def test_gate_proofs_cannot_alias_plan_receipt_logs_or_other_proofs(tmp_path, proof):
+    _, manifest, checks, out = _kit(tmp_path)
+    plan = json.loads(checks.read_text())
+    plan["gates"]["schema"]["evidence"] = [proof]
+    checks.write_text(json.dumps(plan))
+    with pytest.raises(AdapterConformanceError, match="aliases"):
+        validate(checks, out, tool_manifest=manifest, execute=True)
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("filename", ["test-data.json", "test-helper.js"])
+def test_conformance_fixtures_and_non_python_helpers_are_frozen(tmp_path, filename):
+    root, manifest, checks, out = _kit(tmp_path)
+    helper = root / "conformance" / filename
+    helper.write_text("original fixture")
+    validate(checks, out, tool_manifest=manifest, execute=True)
+    helper.write_text("changed fixture")
+    with pytest.raises(AdapterConformanceError, match="stale/unbound"):
+        verify_receipt(out, manifest)
+
+
+def test_no_pass_receipt_is_left_if_a_later_gate_changes_previous_evidence(tmp_path):
+    _, manifest, checks, out = _kit(tmp_path)
+    plan = json.loads(checks.read_text())
+    plan["gates"]["environment"]["command"] = [sys.executable, "-c",
+        "from pathlib import Path; Path('conformance/environment.json').write_text('proof'); "
+        "Path('conformance/schema.json').write_text('tampered')"]
+    checks.write_text(json.dumps(plan))
+    with pytest.raises(AdapterConformanceError, match="changed conformance evidence"):
+        validate(checks, out, tool_manifest=manifest, execute=True)
+    assert not out.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink fixture requires Linux")
+@pytest.mark.parametrize("target", ["plan", "proof", "parent"])
+def test_conformance_rejects_symlink_plans_proofs_and_parent_directories(tmp_path, target):
+    root, manifest, checks, out = _kit(tmp_path)
+    if target == "plan":
+        original = checks.with_name("original.json")
+        checks.rename(original)
+        checks.symlink_to(original)
+    elif target == "proof":
+        actual = root / "conformance/original.json"
+        actual.write_text("fixture")
+        (root / "conformance/schema.json").symlink_to(actual)
+    else:
+        actual = root / "original-conformance"
+        (root / "conformance").rename(actual)
+        (root / "conformance").symlink_to(actual, target_is_directory=True)
+    with pytest.raises(AdapterConformanceError, match="symlink|escapes"):
+        validate(checks, out, tool_manifest=manifest, execute=True)
+    assert not out.exists()
+
+
 def test_primary_policy_rejects_validation_tuning_and_release_placeholders(tmp_path):
     _, manifest, _, _ = _kit(tmp_path)
     value = yaml.safe_load(manifest.read_text())

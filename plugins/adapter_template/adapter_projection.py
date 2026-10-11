@@ -111,6 +111,69 @@ class Reference:
             haplotypes.append(seq[:offset] + f[4].upper() + seq[offset + len(f[3]):])
         return haplotypes[0] == haplotypes[1]
 
+    def normalized_edit(self, fields: list[str]) -> tuple[str, int, str, str]:
+        """Reference-left-align a sequence edit without rewriting caller alleles.
+
+        Empty deleted/inserted strings are allowed in this internal key only.
+        Pure indels rotate through repeat sequence; delins retain their minimal
+        edit. Read preceding bases in bounded blocks rather than one seek/base.
+        REF agreement is checked separately for every proposed mapping.
+        """
+        chrom, pos = fields[0], int(fields[1]) - 1
+        deleted, inserted = fields[3].upper(), fields[4].upper()
+        suffix = 0
+        while suffix < min(len(deleted), len(inserted)) and deleted[-suffix-1] == inserted[-suffix-1]:
+            suffix += 1
+        if suffix:
+            deleted, inserted = deleted[:-suffix], inserted[:-suffix]
+        prefix = 0
+        while prefix < min(len(deleted), len(inserted)) and deleted[prefix] == inserted[prefix]:
+            prefix += 1
+        pos += prefix
+        deleted, inserted = deleted[prefix:], inserted[prefix:]
+        if bool(deleted) != bool(inserted):
+            sequence = deleted or inserted
+            # An offset avoids repeatedly copying a large inserted SV sequence.
+            rotation = 0
+            block_start, block = pos, ""
+            while pos > 0:
+                if not block_start <= pos - 1 < block_start + len(block):
+                    block_start = max(0, pos - 4096)
+                    block = self.fetch(chrom, block_start, pos)
+                previous = block[pos - 1 - block_start]
+                if previous != sequence[(rotation - 1) % len(sequence)]:
+                    break
+                rotation = (rotation - 1) % len(sequence)
+                pos -= 1
+            sequence = sequence[rotation:] + sequence[:rotation]
+            deleted, inserted = (sequence, "") if deleted else ("", sequence)
+        return chrom, pos, deleted, inserted
+
+
+class CandidateEditIndex:
+    """O(candidate count) exact edit lookup, with conservative proposal pruning.
+
+    A minimal edit starts within or at the end of the original REF interval. The
+    index skips contigs/sizes absent from the candidate panel, and edits that
+    precede every left-normalized candidate of that group. It never caps repeat
+    shifts by a heuristic distance or prunes a potentially equivalent record.
+    """
+    def __init__(self):
+        self.hits: dict[tuple[str, int, str, str], set[str]] = {}
+        self.earliest: dict[tuple[str, int], int] = {}
+
+    def add(self, fields: list[str], normalized: tuple[str, int, str, str], cid: str) -> None:
+        self.hits.setdefault(normalized, set()).add(cid)
+        group = fields[0], len(fields[4]) - len(fields[3])
+        # Indels may shift right beyond the candidate REF, so no upper bound is
+        # assumed here. Use the earliest left-normalized start to skip only
+        # records provably preceding all equivalent edits of this group.
+        self.earliest[group] = min(self.earliest.get(group, normalized[1]), normalized[1])
+
+    def possible(self, fields: list[str]) -> bool:
+        start = self.earliest.get((fields[0], len(fields[4]) - len(fields[3])))
+        return start is not None and start <= int(fields[1]) - 1 + len(fields[3])
+
 
 def _headers(lines: list[str]) -> list[str]:
     """Merge native-first definitions without silently changing field types."""
@@ -146,6 +209,7 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
     panel: dict[str, list[str]] = {}
     by_key: dict[tuple[str, int, str, str], str] = {}
     by_allele: dict[str, str] = {}
+    edit_index = CandidateEditIndex()
     panel_headers: list[str] = []
     native_headers: list[str] = []
     selected: dict[str, tuple[list[str], str]] = {}
@@ -172,6 +236,7 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
                     raise ValueError("candidate IDs and normalized allele keys must be unique")
                 if ref:
                     ref.verify_ref(f)
+                    edit_index.add(f, ref.normalized_edit(f), cid)
                 panel[cid] = f
                 by_key[key(f)] = cid
                 allele = info(f[7]).get("PANGENOME_ALLELE_ID")
@@ -211,18 +276,22 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
                 if allele in by_allele:
                     claimed.add(by_allele[allele])
                 sequence_hit = by_key.get(key(f))
+                equivalent_hits = (edit_index.hits.get(ref.normalized_edit(f), set())
+                                   if ref and edit_index.possible(f) else set())
                 # Validate only candidate proposals, not millions of outside
                 # records. Their full native evidence is still streamed to trace.
-                if ref and (claimed or sequence_hit is not None):
+                if ref and (claimed or sequence_hit is not None or equivalent_hits):
                     ref.verify_ref(f)
                 for cid in claimed:
                     if not (ref.equivalent(f, panel[cid]) if ref else key(f) == key(panel[cid])):
                         raise ValueError("claimed candidate ID conflicts with its native allele: " + cid)
                 hits = claimed | ({sequence_hit} if sequence_hit is not None else set())
+                hits |= equivalent_hits
                 if len(hits) > 1:
                     raise ValueError("ambiguous native-to-candidate mapping")
                 cid = next(iter(hits), None)
-                method = "verified_identity" if claimed else "normalized_sequence"
+                method = ("verified_identity" if claimed else "normalized_sequence" if sequence_hit is not None
+                          else "reference_normalized_sequence")
                 if cid is None:
                     outside += 1
                     method = "outside_canonical_universe"
@@ -268,6 +337,7 @@ def project_all_sites(native: Path, candidates: Path, destination: Path, sample:
         audit = {"contract": "pgbench-native-projection-v2", "truth_used": False,
             "reference_equivalence_checked": ref is not None, "caller_alleles_preserved": True,
             "reference_equivalence_scope": "mapped_candidate_alleles",
+            "mapping_normalization": "minimal_sequence_edit_and_reference_left_alignment_native_alleles_retained",
             "quality_and_filter_preserved": True, "candidate_count": len(panel),
             "matched_candidates": len(selected), "no_call_candidates": no_call,
             "not_observed_candidates": len(panel) - len(selected), "native_records": native_count,

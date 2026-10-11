@@ -10,9 +10,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,7 @@ GATES = ("schema", "environment", "fixed_mini_panel", "canonical_mapping", "pgf1
 CONTRACT = "pgbench-adapter-conformance-v2"
 ADAPTER_CONTRACT = "pgbench-reviewed-adapter-v1"
 SCHEMA = Path(__file__).resolve().parents[1] / "schemas/tool.schema.yaml"
+VALIDATOR = Path(__file__).resolve()
 PRIMARY_POLICY = {
     "configuration_frozen_before_execution": True,
     "allowed_configuration_sources": ["official_default", "official_documentation"],
@@ -52,16 +55,16 @@ def artifact(path: Path) -> dict[str, Any]:
     return {"path": str(path.resolve()), "sha256": sha(path), "size_bytes": path.stat().st_size}
 
 
-def source_inventory(root: Path) -> dict[str, str]:
+def source_inventory(root: Path, mutable_artifacts: set[Path] | None = None) -> dict[str, str]:
     excluded = {"__pycache__", ".git", ".pytest_cache"}
     result = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
         if any(part in excluded for part in relative.parts):
             continue
-        # Evidence/receipts are mutable while gates run; executable gate helpers
-        # are still reviewed source and must never disappear from the inventory.
-        if "conformance" in relative.parts and path.suffix not in {".py", ".sh", ".bash", ".yaml", ".yml", ".toml"}:
+        # Exclude only plan-declared generated artifacts, not whole file types.
+        # JSON fixtures and JS/native gate helpers are reviewed source too.
+        if path in (mutable_artifacts or set()):
             continue
         if path.is_symlink():
             raise AdapterConformanceError("reviewed plugin source must not contain symlinks")
@@ -100,25 +103,82 @@ def _manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def conformance_path(path: Path, root: Path) -> Path:
+    """Reject escapes and symlink parents before resolving an evidence path."""
+    path = path.absolute()
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root / "conformance")
+    except ValueError as exc:
+        raise AdapterConformanceError("conformance artifact escapes adapter: " + str(path)) from exc
+    for component in (path, *path.parents):
+        if component.is_symlink():
+            raise AdapterConformanceError("conformance artifacts must not use symlinks: " + str(component))
+        if component == root:
+            break
+    return resolved
+
+
+def load_plan(checks: Path, root: Path, out: Path) -> tuple[dict, dict]:
+    checks = conformance_path(checks, root)
+    frozen = artifact(checks)
+    spec = json.loads(checks.read_text(encoding="utf-8"))
+    if artifact(checks) != frozen:
+        raise AdapterConformanceError("conformance execution plan changed while being read")
+    gates = spec.get("gates", {}) if isinstance(spec, dict) else {}
+    if (not isinstance(spec, dict) or spec.get("contract") != "pgbench-adapter-gate-plan-v2"
+            or not isinstance(gates, dict) or set(gates) != set(GATES)):
+        raise AdapterConformanceError("a reviewed six-gate execution plan is required")
+    reserved = {checks, out, *(out.parent / (name + ".log") for name in GATES)}
+    proofs = set()
+    for name in GATES:
+        gate = gates[name]
+        argv = gate.get("command") if isinstance(gate, dict) else None
+        evidence = gate.get("evidence") if isinstance(gate, dict) else None
+        timeout = gate.get("timeout_seconds", 600) if isinstance(gate, dict) else None
+        if (not isinstance(argv, list) or not argv or not all(isinstance(arg, str) and arg for arg in argv)
+                or not isinstance(evidence, list) or not evidence
+                or not all(isinstance(item, str) and item for item in evidence)
+                or type(timeout) is not int or not 1 <= timeout <= 3600):
+            raise AdapterConformanceError("malformed gate plan: " + name)
+        if "REPLACE" in json.dumps(argv):
+            raise AdapterConformanceError("replace the gate command placeholder: " + name)
+        for item in evidence:
+            proof = conformance_path(root / item, root)
+            if proof in reserved or proof in proofs:
+                raise AdapterConformanceError("gate evidence aliases a plan, receipt, log or another proof: " + name)
+            proofs.add(proof)
+    return gates, frozen
+
+
+def mutable_gate_artifacts(gates: dict, root: Path, checks: Path, out: Path) -> set[Path]:
+    return {checks, out, *(out.parent / (name + ".log") for name in GATES),
+            *(conformance_path(root / item, root) for gate in gates.values() for item in gate["evidence"])}
+
+
 def verify_receipt(path: Path, tool_manifest: Path) -> dict[str, Any]:
-    if path.is_symlink():
-        raise AdapterConformanceError("conformance receipt must not be a symlink")
     manifest = _manifest(tool_manifest)
     root = tool_manifest.resolve().parent
+    path = conformance_path(path, root)
     value = json.loads(path.read_text(encoding="utf-8"))
+    plan = value.get("gate_plan") if isinstance(value, dict) else None
+    if not isinstance(plan, dict) or not isinstance(plan.get("path"), str):
+        raise AdapterConformanceError("changed/unbound conformance execution plan")
+    checks = conformance_path(Path(plan["path"]), root)
+    expected_gates, frozen_plan = load_plan(checks, root, path)
+    if frozen_plan != plan:
+        raise AdapterConformanceError("changed/unbound conformance execution plan")
     if (not isinstance(value, dict) or value.get("contract") != CONTRACT
             or value.get("production_eligibility") != "PASS"
             or value.get("tool_id") != manifest["id"]
             or value.get("tool_manifest_sha256") != sha(tool_manifest)
             or value.get("schema_sha256") != sha(SCHEMA)
-            or value.get("source_inventory") != source_inventory(root)
+            or value.get("validator_sha256") != sha(VALIDATOR)
+            or value.get("source_inventory") != source_inventory(root, mutable_gate_artifacts(expected_gates, root, checks, path))
             or value.get("parameter_contract") != manifest["parameter_contract"]
             or value.get("formal_primary_policy") != PRIMARY_POLICY):
         raise AdapterConformanceError("stale/unbound adapter conformance receipt")
     gates = value.get("gates", {})
-    plan = value.get("gate_plan")
-    if not isinstance(plan, dict) or not isinstance(plan.get("path"), str) or artifact(Path(plan["path"])) != plan:
-        raise AdapterConformanceError("changed/unbound conformance execution plan")
     if not isinstance(gates, dict) or set(gates) != set(GATES):
         raise AdapterConformanceError("all six conformance gates must be recorded")
     for name in GATES:
@@ -128,14 +188,23 @@ def verify_receipt(path: Path, tool_manifest: Path) -> dict[str, Any]:
                 or not isinstance(row.get("evidence"), list) or not row["evidence"]
                 or not isinstance(row.get("log"), dict)):
             raise AdapterConformanceError("incomplete executed gate: " + name)
+        expected = expected_gates[name]
+        expected_proofs = [str(conformance_path(root / item, root)) for item in expected["evidence"]]
+        if (row["command"] != expected["command"]
+                or row.get("timeout_seconds") != expected.get("timeout_seconds", 600)
+                or [entry.get("path") if isinstance(entry, dict) else None for entry in row["evidence"]] != expected_proofs
+                or row["log"].get("path") != str(path.parent / (name + ".log"))):
+            raise AdapterConformanceError("executed gate differs from frozen plan: " + name)
         for entry in [row["log"], *row["evidence"]]:
             if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
                 raise AdapterConformanceError("invalid conformance artifact: " + name)
-            evidence_path = Path(entry["path"])
-            evidence_path.resolve().relative_to(root / "conformance")
+            evidence_path = conformance_path(Path(entry["path"]), root)
             current = artifact(evidence_path)
             if current != entry:
                 raise AdapterConformanceError("changed conformance evidence: " + name)
+        with Path(row["log"]["path"]).open("rb") as stream:
+            if json.loads(stream.readline()).get("command") != row["command"]:
+                raise AdapterConformanceError("gate command differs from execution log: " + name)
     return value
 
 
@@ -145,55 +214,63 @@ def validate(checks: Path, out: Path, *, tool_manifest: Path, execute: bool = Fa
         raise AdapterConformanceError("PRODUCTION_NOT_ELIGIBLE: generate a receipt with --execute")
     manifest = _manifest(tool_manifest)
     root = tool_manifest.resolve().parent
-    checks.resolve(strict=True).relative_to(root / "conformance")
-    if out.resolve().parent != root / "conformance":
+    checks = conformance_path(checks, root)
+    out = conformance_path(out, root)
+    if out.parent != root / "conformance":
         raise AdapterConformanceError("receipt must live under the adapter conformance/ directory")
     if out.exists():
         raise AdapterConformanceError("refusing to overwrite an existing frozen conformance receipt")
-    spec = json.loads(checks.read_text(encoding="utf-8"))
-    gates = spec.get("gates", {}) if isinstance(spec, dict) else {}
-    if (not isinstance(spec, dict) or spec.get("contract") != "pgbench-adapter-gate-plan-v2"
-            or not isinstance(gates, dict) or set(gates) != set(GATES)):
-        raise AdapterConformanceError("a reviewed six-gate execution plan is required")
-    before = source_inventory(root)
+    gates, frozen_plan = load_plan(checks, root, out)
+    frozen_sources = {"tool_manifest_sha256": (tool_manifest, sha(tool_manifest)),
+                      "schema_sha256": (SCHEMA, sha(SCHEMA)), "validator_sha256": (VALIDATOR, sha(VALIDATOR))}
+    mutable = mutable_gate_artifacts(gates, root, checks, out)
+    before = source_inventory(root, mutable)
     out.parent.mkdir(parents=True, exist_ok=True)
     results = {}
     for name in GATES:
         gate = gates[name]
-        argv = gate.get("command") if isinstance(gate, dict) else None
-        evidence = gate.get("evidence") if isinstance(gate, dict) else None
-        timeout = gate.get("timeout_seconds", 600) if isinstance(gate, dict) else None
-        if (not isinstance(argv, list) or not argv or not all(isinstance(arg, str) and arg for arg in argv)
-                or not isinstance(evidence, list) or not evidence
-                or not all(isinstance(item, str) and item for item in evidence)
-                or not isinstance(timeout, int) or not 1 <= timeout <= 3600):
-            raise AdapterConformanceError("malformed gate plan: " + name)
-        if "REPLACE" in json.dumps(argv):
-            raise AdapterConformanceError("replace the gate command placeholder: " + name)
-        proof_paths = [(root / item).resolve() for item in evidence]
-        for path in proof_paths:
-            path.relative_to(root / "conformance")
-        log = out.parent / (name + ".log")
+        argv, evidence, timeout = gate["command"], gate["evidence"], gate.get("timeout_seconds", 600)
+        if artifact(checks) != frozen_plan:
+            raise AdapterConformanceError("conformance execution plan changed while running gates")
+        proof_paths = [conformance_path(root / item, root) for item in evidence]
+        log = conformance_path(out.parent / (name + ".log"), root)
         started_ns = time.time_ns()
         with log.open("wb") as stream:
             stream.write((json.dumps({"command": argv}) + "\n").encode())
             stream.flush()
             result = subprocess.run(argv, cwd=root, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout, check=False)
+        if artifact(conformance_path(checks, root)) != frozen_plan:
+            raise AdapterConformanceError("conformance execution plan changed while running gates")
         if result.returncode != 0:
             raise AdapterConformanceError("PRODUCTION_NOT_ELIGIBLE: failed executed gate " + name)
         if any(not path.is_file() or path.stat().st_mtime_ns < started_ns for path in proof_paths):
             raise AdapterConformanceError("gate must produce fresh evidence, not reuse stale artifacts: " + name)
-        results[name] = {"status": "PASS", "command": argv, "returncode": result.returncode,
+        proof_paths = [conformance_path(root / item, root) for item in evidence]
+        log = conformance_path(log, root)
+        results[name] = {"status": "PASS", "command": argv, "returncode": result.returncode, "timeout_seconds": timeout,
             "log": artifact(log), "evidence": [artifact(path) for path in proof_paths]}
-    if source_inventory(root) != before:
+    if source_inventory(root, mutable) != before:
         raise AdapterConformanceError("adapter source/parameters changed while running gates")
+    if any(sha(path) != expected for path, expected in frozen_sources.values()):
+        raise AdapterConformanceError("conformance validator/schema/manifest changed while running gates")
     receipt = {"contract": CONTRACT, "tool_id": manifest["id"], "production_eligibility": "PASS",
-        "tool_manifest_sha256": sha(tool_manifest), "schema_sha256": sha(SCHEMA),
+        **{name: expected for name, (_, expected) in frozen_sources.items()},
         "source_inventory": before, "parameter_contract": manifest["parameter_contract"],
-        "formal_primary_policy": PRIMARY_POLICY, "gates": results, "gate_plan": artifact(checks),
+        "formal_primary_policy": PRIMARY_POLICY, "gates": results, "gate_plan": frozen_plan,
         "review_scope": "executed commands and immutable evidence; semantic completeness requires trusted review"}
-    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return verify_receipt(out, tool_manifest)
+    # Verify before publishing any PASS receipt. A failed postcondition must not
+    # leave a superficially successful report for a downstream consumer.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=out.parent, prefix=".receipt-", delete=False) as stream:
+        temporary = Path(stream.name)
+        stream.write(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    try:
+        verify_receipt(temporary, tool_manifest)
+        # Atomic publication with no overwrite: readers cannot observe a partial
+        # PASS report, and a concurrent writer cannot replace an existing one.
+        os.link(temporary, out)
+    finally:
+        temporary.unlink()
+    return receipt
 
 
 def main(argv: list[str] | None = None) -> int:

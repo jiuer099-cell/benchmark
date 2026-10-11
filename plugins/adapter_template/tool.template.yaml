@@ -121,14 +121,14 @@ supported_modes:
     #
     # A) SHORT reads via the benchmark's frozen shared BAM (Paragraph-style):
     #    [shared_shortread_alignment, shared_shortread_alignment_index,
-    #     reference, pangenome_manifest, pangenome_panel, candidate_panel]
+    #     reference, reference_index, pangenome_manifest, pangenome_panel, candidate_panel]
     #
     # B) SHORT reads via raw FASTQ (vg/BayesTyper-style, you map yourself):
-    #    [short_fastq_r1, short_fastq_r2, reference, pangenome_manifest,
+    #    [short_fastq_r1, short_fastq_r2, reference, reference_index, pangenome_manifest,
     #     pangenome_panel, candidate_panel]
     #
     # C) LONG reads via the benchmark's frozen long-read FASTQ (CLR/HiFi/ONT):
-    #    [long_reads_fastq, reference, pangenome_manifest, pangenome_panel,
+    #    [long_reads_fastq, reference, reference_index, pangenome_manifest, pangenome_panel,
     #     candidate_panel]
     required_inputs:
       - short_fastq_r1
@@ -138,7 +138,7 @@ supported_modes:
       - pangenome_manifest
       - pangenome_panel
       - candidate_panel
-    # optional: reference_index, graph_assets, tool_index,
+    # optional: graph_assets, tool_index,
     #           adapter_asset.<your-asset> (tool-private assets)
     optional_inputs: []
     # billable_stages enum: prepare_assets | index | map | call | genotype | postprocess

@@ -88,7 +88,10 @@ disabled by policy (`track_registry.yaml: policy`).
 
    Six real commands must exit successfully and produce fresh nonempty evidence
    under `conformance/`; a no-op command reusing old files is rejected.
-   Each command, log, evidence hash, source inventory, parameters and policy
+   The plan is frozen before execution and checked before/after every gate.
+   Plans, receipts, logs and proofs must be distinct, non-symlink paths under
+   `conformance/`; proofs cannot overwrite a plan or another gate's evidence.
+   Each command, timeout, log, evidence hash, source inventory, parameters and policy
    is bound to the receipt. Hand-written `PASS` labels are rejected. The
    generic executor verifies this receipt before native execution. A changed
    source/env/manifest/evidence invalidates it; re-run gates, never edit a
@@ -96,6 +99,8 @@ disabled by policy (`track_registry.yaml: policy`).
    sandbox **before generating the final receipt**. Conformance execution is
    a development operation; run untrusted tool probes in an isolated test
    environment. Receipt validation does not replace human semantic review.
+   Receipts also bind the validator implementation; a validator upgrade
+   requires rerunning conformance gates, not rerunning existing sealed scores.
 5. **Honest declarations**: `tool_memory_mb` must reflect a measured pilot
    peak, `billable_stages` must include every stage you run, and
    `parameter_contract` must name the exact tool release and parameters.
@@ -144,6 +149,12 @@ reinterpret input identity.
 - Select the target sample by its header name, not the first sample column.
   Claimed IDs must match the sequence or reference-verified haplotype;
   ambiguous/duplicate mappings fail the entire run, never choose by quality.
+- Without a stable candidate ID, minimal sequence edits are left-aligned
+  against the frozen reference for exact lookup, including repeat-shifted
+  insertions/deletions. This only determines linkage: the emitted native
+  POS/REF/ALT and genotype remain unchanged. Multiple equivalent candidates
+  are ambiguous and fail even if a record claims one of their IDs; do not
+  match by distance, overlap, quality, truth or evaluator score.
 - The generic projection accepts **biallelic, sequence-resolved diploid VCF**.
   Multi-ALT, symbolic/breakend and invalid-GT inputs fail explicitly. Supply a
   declared official dosage-aware conversion before projection and retain its
