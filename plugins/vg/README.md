@@ -46,3 +46,15 @@ not a Q5 rerun. Default nested calling is retained pending separate validation.
 VG sealing requires native VCF, full native trace and projection audit hashes.
 A seal validates lineage and scoring consistency, not biological performance.
 Experimental/single-sample qualifications remain separate from score validity.
+# Native VCF validation
+
+Native projection requires a valid `#CHROM` header with the requested single
+sample and GT-bearing records. Empty/headerless VCFs and records preceding the
+header fail before a projected VCF or successful audit is published. A valid
+header-only VCF retains the explicit no-call semantics for unobserved sites.
+
+Called non-sequence ALT alleles (including `*` and symbolic alleles) produce
+`./.` rather than numeric dosage. Uncalled placeholders do not mask ordinary
+sequence calls. The original native GT, quality and filters remain in the
+trace. The pack/call parameters, mapping caches and existing run outputs are
+not changed by this validation repair.

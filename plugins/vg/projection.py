@@ -82,9 +82,14 @@ class Reference:
         return haplotypes[0] == haplotypes[1]
 
 
-def dosage_gt(gt, allele, alt_count):
+def dosage_gt(gt, allele, alt_count, *, alts=None):
     tokens = gt.replace("|", "/").split("/")
     if len(tokens) != 2 or any(not x.isdigit() or int(x) > alt_count for x in tokens):
+        return "./."
+    if alts is not None and any(
+        int(x) > 0 and (not alts[int(x) - 1] or not set(alts[int(x) - 1].upper()) <= set("ACGT"))
+        for x in tokens
+    ):
         return "./."
     dosage = sum(int(x) == allele for x in tokens)
     return ("0/0", "0/1", "1/1")[dosage]
@@ -112,6 +117,7 @@ def project(native, candidates, destination, sample, *, reference=None, audit_pa
     if not panel: raise ValueError("empty candidate panel")
     ref = Reference(reference) if reference else None
     selected = {}; ambiguous = set(); counts = Counter(); native_headers = []
+    seen_header = False
     for p in (destination, audit_path, trace_path): p.parent.mkdir(parents=True, exist_ok=True)
     try:
         with text(native) as stream, gzip.open(trace_path, "wt", encoding="utf-8") as trace:
@@ -119,12 +125,16 @@ def project(native, candidates, destination, sample, *, reference=None, audit_pa
                 if line.startswith("##"):
                     native_headers.append(line); continue
                 if line.startswith("#CHROM"):
-                    if line.rstrip().split("\t")[9:] != [sample]:
+                    expected = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", sample]
+                    if seen_header or line.rstrip("\r\n").split("\t") != expected:
                         raise ValueError("native VCF must contain the requested single sample")
+                    seen_header = True
                     continue
                 if line.startswith("#") or not line.strip(): continue
+                if not seen_header:
+                    raise ValueError("native VCF record precedes #CHROM")
                 f = line.rstrip("\r\n").split("\t")
-                if len(f) != 10: raise ValueError("malformed native VCF record")
+                if len(f) != 10 or "GT" not in f[8].split(":"): raise ValueError("malformed native VCF record")
                 counts["native_records"] += 1
                 data = info(f[7]); alts = f[4].split(","); at = data.get("AT", "").split(",")
                 values = dict(zip(f[8].split(":"), f[9].split(":")))
@@ -144,7 +154,7 @@ def project(native, candidates, destination, sample, *, reference=None, audit_pa
                     if not verified: continue
                     cid = next(iter(verified)); record_matched = True
                     method = "graph_path_and_reference" if cid in path_hits else method
-                    gt = dosage_gt(values.get("GT", "./."), index, len(alts))
+                    gt = dosage_gt(values.get("GT", "./."), index, len(alts), alts=alts)
                     trace_record = {"candidate_id": cid, "native_record": f, "native_alt_index": index, "projected_gt": gt, "method": method}
                     trace.write(json.dumps(trace_record, separators=(",", ":")) + "\n")
                     if cid in selected:
@@ -157,6 +167,8 @@ def project(native, candidates, destination, sample, *, reference=None, audit_pa
                         selected[cid] = (f, index, gt, method)
                         counts[method] += 1
                 if not record_matched: counts["unmatched_native_records"] += 1
+        if not seen_header:
+            raise ValueError("native VCF lacks #CHROM")
         for cid in ambiguous: selected.pop(cid, None)
         output_headers = {}
         for line in headers + native_headers:

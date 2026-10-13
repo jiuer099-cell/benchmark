@@ -66,6 +66,19 @@ projection deterministically covers every canonical candidate. Knobs:
   choosing the production chunk budget.
 # Native depth and restart policy
 
+## Native input and output validation
+
+`reference_index` is required and must resolve to the `.fai` adjacent to the
+reference FASTA. The adapter checks the index before launching native commands.
+Missing or empty chunk VCFs are fatal. Both fresh and frozen-replay VCFs must
+have a valid `#CHROM` header with exactly the requested single sample; records
+before that header or records without GT are rejected. A valid header-only VCF
+retains the existing explicit no-call semantics for unobserved candidates.
+
+These checks leave the output projection, depth policy, read cap and evaluator
+allele-length protection unchanged for valid inputs. Updating the adapter does
+not modify an existing run's VCF or restart its evaluators.
+
 The adapter uses upstream `idxdepth` autosomal coverage and read length. It never
 averages contig coverages or derives a read-acquisition cap from coverage.
 Native VCF/JSON quality, filters and likelihoods are retained and hash-bound in

@@ -22,7 +22,7 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Mapping, Sequence, TextIO
+from typing import Iterator, Mapping, Sequence, TextIO
 
 DEFAULT_MAX_CANDIDATES_PER_CHUNK = 1000
 DEFAULT_CHUNK_PARALLELISM = 2
@@ -111,6 +111,32 @@ def _genotype(fields: list[str]) -> str:
     return value if value not in {"", "."} else "./."
 
 
+def native_records(path: Path, sample: str) -> Iterator[list[str]]:
+    """Validate the requested single sample before accepting native records."""
+
+    if not path.is_file() or path.stat().st_size == 0:
+        raise RuntimeError(f"Paragraph native VCF is missing or empty: {path}")
+    expected = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", sample]
+    seen_header = False
+    with open_text(path, "rt") as handle:
+        for line in handle:
+            if line.startswith("#CHROM"):
+                if seen_header or line.rstrip("\r\n").split("\t") != expected:
+                    raise RuntimeError(f"Paragraph native VCF must contain the requested single sample {sample!r}: {path}")
+                seen_header = True
+                continue
+            if not line.strip() or line.startswith("#"):
+                continue
+            if not seen_header:
+                raise RuntimeError(f"Paragraph native VCF record precedes #CHROM: {path}")
+            fields = line.rstrip("\r\n").split("\t")
+            if len(fields) != 10 or "GT" not in fields[8].split(":"):
+                raise RuntimeError(f"Paragraph native VCF contains a malformed record: {path}")
+            yield fields
+    if not seen_header:
+        raise RuntimeError(f"Paragraph native VCF lacks #CHROM: {path}")
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -194,6 +220,15 @@ def load_fasta_index(reference: Path) -> dict[str, FastaIndexEntry]:
     if not entries:
         raise RuntimeError(f"FASTA index is empty: {index}")
     return entries
+
+
+def validate_reference_index(reference: Path, index: Path) -> None:
+    expected = Path(f"{reference}.fai")
+    if index.resolve() != expected.resolve():
+        raise RuntimeError(f"Paragraph requires reference_index adjacent to the FASTA: expected {expected}, got {index}")
+    if not index.is_file() or index.stat().st_size == 0:
+        raise RuntimeError(f"Paragraph requires a nonempty reference_index: {index}")
+    load_fasta_index(reference)
 
 
 def reference_base(
@@ -353,7 +388,7 @@ def run_chunk(
     work: Path,
     threads: int,
     max_depth: int,
-) -> Path | None:
+) -> Path:
     """Genotype one chunk with multigrmpy; return its native genotypes VCF."""
 
     out = work / f"native-{chunk.stem}"
@@ -366,7 +401,9 @@ def run_chunk(
         check=True,
     )
     genotypes = out / "genotypes.vcf.gz"
-    return genotypes if genotypes.is_file() else None
+    if not genotypes.is_file() or genotypes.stat().st_size == 0:
+        raise RuntimeError(f"Paragraph chunk {chunk.name} produced no nonempty genotypes.vcf.gz")
+    return genotypes
 
 
 def _write_all_sites(
@@ -422,25 +459,21 @@ def project_all_sites(
 ) -> tuple[int, int]:
     """Project native Paragraph genotypes (possibly chunked) onto every candidate."""
 
+    if not native_paths:
+        raise RuntimeError("Paragraph projection requires native VCF output")
     calls: dict[str, str] = {}
     for native in native_paths:
-        with open_text(native, "rt") as handle:
-            for line in handle:
-                if not line.strip() or line.startswith("#"):
-                    continue
-                fields = line.rstrip("\n").split("\t")
-                if len(fields) < 8:
-                    raise RuntimeError("Paragraph output contains a malformed record")
-                candidate_id = fields[2] if fields[2] in panel.records else None
-                if candidate_id is None:
-                    allele_id = _allele_id(fields[7])
-                    candidate_id = panel.by_allele.get(allele_id) if allele_id else None
-                if candidate_id is None:
-                    candidate_id = panel.by_key.get((fields[0], fields[1], fields[3], fields[4]))
-                if candidate_id is not None:
-                    if candidate_id in calls:
-                        raise RuntimeError(f"Paragraph output duplicates {candidate_id}")
-                    calls[candidate_id] = _genotype(fields)
+        for fields in native_records(native, sample):
+            candidate_id = fields[2] if fields[2] in panel.records else None
+            if candidate_id is None:
+                allele_id = _allele_id(fields[7])
+                candidate_id = panel.by_allele.get(allele_id) if allele_id else None
+            if candidate_id is None:
+                candidate_id = panel.by_key.get((fields[0], fields[1], fields[3], fields[4]))
+            if candidate_id is not None:
+                if candidate_id in calls:
+                    raise RuntimeError(f"Paragraph output duplicates {candidate_id}")
+                calls[candidate_id] = _genotype(fields)
     forced_no_calls = _write_all_sites(
         panel, destination, sample, calls, pilot_contigs=pilot_contigs
     )
@@ -500,17 +533,13 @@ def reproject_frozen_all_sites(
     if _sha256_file(source_vcf) != _source_manifest_vcf_sha256(source_manifest):
         raise RuntimeError("frozen Paragraph source VCF SHA-256 does not match its source manifest")
     calls: dict[str, str] = {}
-    with open_text(source_vcf, "rt") as handle:
-        for line in handle:
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) < 10 or fields[2] not in panel.records:
-                raise RuntimeError("frozen Paragraph source VCF is not a complete all-sites panel projection")
-            candidate_id = fields[2]
-            if candidate_id in calls or fields[:8] != panel.records[candidate_id][:8]:
-                raise RuntimeError("frozen Paragraph source VCF does not exactly preserve the canonical panel")
-            calls[candidate_id] = _genotype(fields)
+    for fields in native_records(source_vcf, sample):
+        if fields[2] not in panel.records:
+            raise RuntimeError("frozen Paragraph source VCF is not a complete all-sites panel projection")
+        candidate_id = fields[2]
+        if candidate_id in calls or fields[:8] != panel.records[candidate_id][:8]:
+            raise RuntimeError("frozen Paragraph source VCF does not exactly preserve the canonical panel")
+        calls[candidate_id] = _genotype(fields)
     if set(calls) != set(panel.order):
         raise RuntimeError("frozen Paragraph source VCF does not cover every canonical candidate")
     forced_no_calls = _write_all_sites(
@@ -537,6 +566,8 @@ def main() -> int:
     bam = Path(required("PGBENCH_SHARED_ALIGNMENT_BAM"))
     bai = Path(required("PGBENCH_SHARED_ALIGNMENT_BAI"))
     reference = Path(required("PGBENCH_REFERENCE_FASTA"))
+    reference_index = Path(required("PGBENCH_REFERENCE_INDEX"))
+    validate_reference_index(reference, reference_index)
     candidates = Path(required("PGBENCH_CANDIDATE_VCF"))
     sample = required("PGBENCH_SAMPLE_ID")
     threads = _positive_int_env("PGBENCH_THREADS", 1)
@@ -650,10 +681,7 @@ def main() -> int:
             for chunk in chunks
         ]
         native = [future.result() for future in futures]
-    empty = [chunk for chunk, path in zip(chunks, native) if path is None]
-    native_paths = [path for path in native if path is not None]
-    if empty:
-        print(f"WARNING: {len(empty)} chunk(s) produced no genotypes.vcf.gz: {[c.name for c in empty]}")
+    native_paths = native
 
     pilot_contigs = sorted(contig_filter) if contig_filter else None
     matched, no_call = project_all_sites(native_paths, panel, output_vcf, sample, pilot_contigs)

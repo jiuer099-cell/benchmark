@@ -51,12 +51,12 @@ supported_modes:
       - shared_shortread_alignment
       - shared_shortread_alignment_index
       - reference
+      - reference_index
       - candidate_panel
     # These two assets are supplied only for a formal scoring replay of an
     # already frozen Paragraph all-sites VCF.  They make the adapter
     # authenticate and reproject its own output; no caller is re-run.
     optional_inputs:
-      - reference_index
       - adapter_asset.frozen_native_vcf
       - adapter_asset.frozen_native_tool_manifest
       - adapter_asset.count_replay_bundle

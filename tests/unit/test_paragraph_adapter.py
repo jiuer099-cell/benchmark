@@ -6,10 +6,74 @@ from pathlib import Path
 
 import pytest
 
+import gzip
+
 PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "paragraph"
 sys.path.insert(0, str(PLUGIN))
 
 import run as paragraph_adapter  # noqa: E402
+
+
+@pytest.mark.parametrize("content", [
+    "", "##fileformat=VCFv4.2\n",
+    "chr1\t100\tPGSV_a1\tA\tAT\t.\t.\t.\tGT\t0/1\n",
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tOTHER\n",
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tOTHER\tSAMPLE\n",
+])
+def test_native_output_validation_rejects_missing_header_and_wrong_samples(tmp_path, content):
+    panel = paragraph_adapter.load_candidate_panel(_panel_path(tmp_path, PANEL_LINES))
+    native = tmp_path / "native.vcf.gz"
+    with gzip.open(native, "wt") as handle:
+        handle.write(content)
+    output = tmp_path / "out.vcf"
+    with pytest.raises(RuntimeError):
+        paragraph_adapter.project_all_sites([native], panel, output, "SAMPLE")
+    assert not output.exists()
+
+
+def test_projection_rejects_missing_native_paths(tmp_path):
+    panel = paragraph_adapter.load_candidate_panel(_panel_path(tmp_path, PANEL_LINES))
+    with pytest.raises(RuntimeError, match="requires native"):
+        paragraph_adapter.project_all_sites([], panel, tmp_path / "out.vcf", "SAMPLE")
+
+
+def test_valid_header_without_events_retains_no_call_semantics(tmp_path):
+    panel = paragraph_adapter.load_candidate_panel(_panel_path(tmp_path, PANEL_LINES[:1]))
+    native = _native_path(tmp_path, "native.vcf", [])
+    output = tmp_path / "out.vcf"
+    assert paragraph_adapter.project_all_sites([native], panel, output, "SAMPLE") == (0, 1)
+    assert output.read_text().rstrip().endswith("\tGT\t./.")
+
+
+def test_success_exit_with_missing_chunk_output_is_fatal(tmp_path, monkeypatch):
+    monkeypatch.setattr(paragraph_adapter.subprocess, "run", lambda *a, **kw: None)
+    with pytest.raises(RuntimeError, match="produced no nonempty"):
+        paragraph_adapter.run_chunk(tmp_path / "chunk.vcf", tmp_path / "manifest", tmp_path / "reference", tmp_path, 1, 10000)
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty", "different", "valid"])
+def test_reference_index_preflight(tmp_path, kind):
+    reference = tmp_path / "ref.fa"
+    reference.write_text(">chr1\nAAAA\n")
+    index = Path(str(reference) + ".fai")
+    if kind == "empty": index.write_text("")
+    if kind in {"different", "valid"}: index.write_text("chr1\t4\t6\t4\t5\n")
+    supplied = tmp_path / "other.fai" if kind == "different" else index
+    if kind == "different": supplied.write_text(index.read_text())
+    if kind == "valid":
+        paragraph_adapter.validate_reference_index(reference, supplied)
+    else:
+        with pytest.raises(RuntimeError):
+            paragraph_adapter.validate_reference_index(reference, supplied)
+
+
+def test_frozen_replay_checks_sample_even_with_authentic_hash(tmp_path):
+    panel = paragraph_adapter.load_candidate_panel(_panel_path(tmp_path, PANEL_LINES[:1]))
+    source = _native_path(tmp_path, "source.vcf", [_native_record("chr1", 100, "allele-1", "0/1")])
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"status": "success", "rule_name": "tool__paragraph__execute", "output_sha256": {"old/raw/calls.vcf": paragraph_adapter._sha256_file(source)}}))
+    with pytest.raises(RuntimeError, match="single sample"):
+        paragraph_adapter.reproject_frozen_all_sites(source, manifest, panel, tmp_path / "out.vcf", "OTHER")
 
 
 def test_idxdepth_uses_autosomal_depth():
