@@ -22,7 +22,7 @@ benchmark_contract:
 
 project:
   id: hg002_grch38_sv_benchmark
-  run_id: hg002_illumina_pangenie
+  run_id: hg002_illumina_bayestyper
 
 sample:
   id: HG002
@@ -34,15 +34,15 @@ sample:
   read_count: null
   read_bases: null
   downsampling_seed: null
-  # Formal PanGenie execution consumes the explicit R1/R2 pair below.
+  # BayesTyper consumes the frozen explicit R1/R2 pair below.
   fastq_r1: resources/reads/HG002.Illumina.R1.fastq.gz
   fastq_r2: resources/reads/HG002.Illumina.R2.fastq.gz
 
 reference:
   id: grch38
-  fasta: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta
-  fai: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta.fai
-  dict: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.dict
+  fasta: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.v1/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta
+  fai: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.v1/GRCh38_no_alt_plus_hs38d1_analysis_set.fasta.fai
+  dict: resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.v1/GRCh38_no_alt_plus_hs38d1_analysis_set.dict
 
 pangenome:
   id: HG002_LOO_HPRC_GRCh38_SV_v1
@@ -65,8 +65,8 @@ pangenome:
     canonical_candidate_count: 18164
     tool_specific_denominator: forbidden
     deterministic_native_projection_required: true
-  # Must be a PanGenie-ready, fully phased, non-overlapping,
-  # sequence-resolved multi-sample VCF with HG002 removed.
+  # Core's frozen source/provenance; BayesTyper uses the blinded candidates
+  # and does not consume population genotypes or an external variation prior.
   population_vcf: resources/pangenome/HG002_LOO_HPRC_GRCh38_SV_v1/population.sv.vcf.gz
   graph_assets:
     profile: none
@@ -149,4 +149,6 @@ tools:
 external_plugins:
   - id: bayestyper
     manifest: plugins/bayestyper/tool.yaml
-    tool_index: /data/pgbench/indexes/bayestyper/HG002_LOO_HPRC_GRCh38_SV_v1
+    tool_index: /home/luzhiting/benchmark/downloads/software/bayestyper/v1.5/assets/GRCh38-tool-index
+    adapter_assets:
+      binaries: /home/luzhiting/benchmark/resources/tool-runtime/bayestyper-1.5/bin

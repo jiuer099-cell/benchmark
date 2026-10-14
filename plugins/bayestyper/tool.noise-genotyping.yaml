@@ -1,0 +1,105 @@
+interface_version: 2
+id: bayestyper
+name: BayesTyper community short-read variant-graph genotyper
+version: "1.5"
+source: external
+paradigm: short_read_pangenome_genotyping
+comparison_task: panel_genotyping
+
+information_inputs:
+  - target_short_reads
+  - reference_grch38
+  - canonical_candidate_panel
+  - benchmark_supplied_tool_index
+
+information_contract:
+  allowed_inputs_manifested: true
+  target_truth_used_for_calling: false
+  target_assembly_used: false
+  target_family_genotypes_used: false
+  target_specific_external_callset: false
+  tuning_mode: official_recommended_sv_config
+  parameter_source: official_documentation
+
+tasks: [prepare_assets, genotyping, postprocess]
+
+inputs:
+  reference: required
+  candidates: required
+  pangenome_manifest: required
+  pangenome_panel: optional
+  graph_assets:
+    required: false
+    accepted_formats: [other]
+    accepted_profiles: []
+
+capabilities:
+  read_class: short
+  technology: [illumina_pe]
+  svtypes: [DEL, INS]
+  phasing: false
+  novel_discovery: false
+  allele_linkage_output: benchmark_inferred
+  allele_namespace: [PGSV]
+
+native_assets:
+  uses_population_or_pangenome_information: false
+  frozen_haplotype_source_bundle: null
+
+parameter_contract:
+  contract: pgbench_tool_parameters_v1
+  source_release:
+    tag: v1.5
+    commit: 6f2c7cf5aa8c297b6a016dfb760b433cae238fea
+    source_url: https://github.com/bioinformatics-centre/BayesTyper/tree/v1.5
+    archive_sha256: 1a3eadb4d43606b7bc3d1f9cef67288444be74ce65afb20749d58369ab6ae533
+  explicit:
+    noise_genotyping: true
+    documented_optional_mode: noise_genotyping
+    kmc_k: 55
+    kmc_ci: 1
+    kmc_cs: 255
+    kmc_memory: strict_budget_minus_1024_mb
+    threads: benchmark_injected
+    random_seed: benchmark_injected
+    candidate_compression: ordinary_gzip
+    same_position_candidates: reference_padded_multiallelic_merge
+    called_non_sequence_alleles: no_call
+    sample_gender: M_autosomal_diploid_only
+    external_variation_prior: false
+  implicit:
+    gibbs_burn_in: 100
+    gibbs_samples: 250
+    number_of_gibbs_chains: 20
+    min_genotype_posterior: 0.99
+    min_number_of_kmers: 1
+    disable_observed_kmers: false
+    adapter_quality_filter: none
+
+execution:
+  runner: run_noise_genotyping.py
+  environment: envs/environment.yaml
+  rule_registry: rule-registry.yaml
+  trust_level: untrusted
+  sandbox_backend: bwrap
+
+supported_modes:
+  end_to_end_from_reads:
+    required_inputs:
+      - short_fastq_r1
+      - short_fastq_r2
+      - reference
+      - reference_index
+      - pangenome_manifest
+      - candidate_panel
+      - tool_index
+      - adapter_asset.binaries
+    optional_inputs: []
+    billable_stages: [prepare_assets, genotype, postprocess]
+
+outputs:
+  vcf: raw/calls.vcf
+  candidate_output_contract: all_sites
+  absence_semantics: no_call
+  native_projection_audit: true
+  native_output_audit: true

@@ -10,8 +10,6 @@ information_inputs:
   - target_short_reads
   - reference_grch38
   - canonical_candidate_panel
-  - benchmark_panel_haplotypes
-  - benchmark_panel_af_ac
   - benchmark_supplied_tool_index
 
 information_contract:
@@ -20,8 +18,8 @@ information_contract:
   target_assembly_used: false
   target_family_genotypes_used: false
   target_specific_external_callset: false
-  tuning_mode: official_recommended_sv_config
-  parameter_source: official_documentation
+  tuning_mode: official_default
+  parameter_source: official_default
 
 tasks: [prepare_assets, genotyping, postprocess]
 
@@ -29,7 +27,7 @@ inputs:
   reference: required
   candidates: required
   pangenome_manifest: required
-  pangenome_panel: required
+  pangenome_panel: optional
   graph_assets:
     required: false
     accepted_formats: [other]
@@ -48,6 +46,35 @@ native_assets:
   uses_population_or_pangenome_information: false
   frozen_haplotype_source_bundle: null
 
+parameter_contract:
+  contract: pgbench_tool_parameters_v1
+  source_release:
+    tag: v1.5
+    commit: 6f2c7cf5aa8c297b6a016dfb760b433cae238fea
+    source_url: https://github.com/bioinformatics-centre/BayesTyper/tree/v1.5
+    archive_sha256: 1a3eadb4d43606b7bc3d1f9cef67288444be74ce65afb20749d58369ab6ae533
+  explicit:
+    kmc_k: 55
+    kmc_ci: 1
+    kmc_cs: 255
+    kmc_memory: strict_budget_minus_1024_mb
+    threads: benchmark_injected
+    random_seed: benchmark_injected
+    candidate_compression: ordinary_gzip
+    same_position_candidates: reference_padded_multiallelic_merge
+    called_non_sequence_alleles: no_call
+    sample_gender: M_autosomal_diploid_only
+    external_variation_prior: false
+  implicit:
+    gibbs_burn_in: 100
+    gibbs_samples: 250
+    number_of_gibbs_chains: 20
+    min_genotype_posterior: 0.99
+    min_number_of_kmers: 1
+    disable_observed_kmers: false
+    noise_genotyping: false
+    adapter_quality_filter: none
+
 execution:
   runner: run.py
   environment: envs/environment.yaml
@@ -61,14 +88,17 @@ supported_modes:
       - short_fastq_r1
       - short_fastq_r2
       - reference
+      - reference_index
       - pangenome_manifest
-      - pangenome_panel
       - candidate_panel
       - tool_index
-    optional_inputs: [reference_index]
+      - adapter_asset.binaries
+    optional_inputs: []
     billable_stages: [prepare_assets, genotype, postprocess]
 
 outputs:
-  vcf: raw/calls.vcf.gz
+  vcf: raw/calls.vcf
   candidate_output_contract: all_sites
   absence_semantics: no_call
+  native_projection_audit: true
+  native_output_audit: true
