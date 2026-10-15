@@ -1,0 +1,21 @@
+experiment_interface: gatk_sv_single_sample_v1
+id: gatk-sv
+version: "1.1.1"
+comparison_task: sv_discovery_and_genotyping
+primary_fixed_panel_score_eligible: false
+runner: run_rg_compatible.py
+workflow: GATKSVPipelineSingleSample.wdl
+evidence: indexed_illumina_bam_or_cram
+output: native_final_vcf
+policy:
+  use_melt: false
+  run_vcf_qc: false
+  native_filters: preserve
+  canonical_projection: none
+  network: disabled
+  concurrent_tasks: 1
+  runtime_cache: private_per_attempt
+  truth_used: false
+  compatibility: official_RG_fill_and_original_reference_Manta_v1
+  frozen_source_bam: unchanged
+  read_filters: official_defaults_unchanged

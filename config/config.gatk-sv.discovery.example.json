@@ -1,0 +1,14 @@
+{
+  "experiment_interface": "gatk_sv_single_sample_v1",
+  "sample_id": "HG002",
+  "bam_or_cram": "/REPLACE_WITH_FROZEN_SHARED_ALIGNMENT/HG002.bam",
+  "alignment_index": "/REPLACE_WITH_FROZEN_SHARED_ALIGNMENT/HG002.bam.bai",
+  "alignment_reference_dict": "/home/luzhiting/benchmark/resources/references/GRCh38_no_alt_plus_hs38d1_analysis_set.v1/GRCh38_no_alt_plus_hs38d1_analysis_set.dict",
+  "runtime_root": "/home/luzhiting/benchmark/envs/gatk-sv-1.1.1",
+  "download_root": "/home/luzhiting/benchmark/downloads/software/gatk-sv/v1.1.1",
+  "helper_python": "/home/luzhiting/pgbench-workspace/shared/envs/snakemake-9.23.1/bin/python3.12",
+  "output_dir": "/home/luzhiting/benchmark/experiments/gatk-sv/HG002-attempt-001",
+  "threads": 16,
+  "memory_mb": 98304,
+  "timeout_seconds": 604800
+}
